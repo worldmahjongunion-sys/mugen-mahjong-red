@@ -1,0 +1,2298 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>一人麻雀</title>
+<style>
+  :root{
+    --felt:#0F5C3E;
+    --felt-dark:#0B4530;
+    --tile-bg:#FAF6ED;
+    --tile-border:#C9BFA5;
+    --tile-shadow:rgba(0,0,0,0.35);
+    --man:#2C2C2C;
+    --pin:#2A6FB0;
+    --sou:#2E8B4E;
+    --honor-wind:#2C2C2C;
+    --honor-red:#C23B3B;
+    --honor-green:#2E8B4E;
+    --gold:#D8B45A;
+    --text-light:#F3EFE3;
+  }
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body{
+    height:100%;
+    margin:0;
+    overflow:hidden;
+    background:#08331F;
+    font-family:"Hiragino Sans","Yu Gothic",sans-serif;
+    color:var(--text-light);
+  }
+
+  .board{
+    position:relative;
+    height:100dvh;
+    width:100vw;
+    background:
+      radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-dark) 100%);
+    display:flex;
+    flex-direction:column;
+    padding:6px;
+  }
+
+  /* --- 卓中央：局・本場・残り枚数・ドラ --- */
+  .center-info{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    width:180px;
+    height:180px;
+    box-sizing:border-box;
+    background:rgba(0,0,0,0.25);
+    border-radius:10px;
+    padding:8px 14px;
+    font-size:24px;
+    white-space:nowrap;
+  }
+  .center-info .round{
+    font-weight:bold;
+    color:var(--gold);
+    font-size:26px;
+  }
+  .center-info .dora-row{
+    display:flex;
+    align-items:center;
+    gap:6px;
+  }
+  .center-info .dora-tile{
+    width:20px;
+    height:28px;
+  }
+
+  /* --- 卓の中央エリア（対面・上家・下家・自分＋捨て牌） --- */
+  .table-area{
+    flex:1;
+    min-height:0;
+    display:grid;
+    grid-template-rows:auto 1fr auto;
+    grid-template-columns:auto 1fr auto;
+    grid-template-areas:
+      ".    top   ."
+      "left center right"
+      ".    bottom .";
+    gap:2px;
+  }
+
+  .seat{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:2px;
+  }
+  .seat.top{ grid-area:top; }
+  .seat.left{ grid-area:left; flex-direction:row; justify-content:center; transform:translateY(-123px); }
+  .seat.right{ grid-area:right; flex-direction:row-reverse; justify-content:center; transform:translateY(-123px); }
+  .seat.bottom{ grid-area:bottom; }
+
+  .nameplate{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    background:rgba(0,0,0,0.3);
+    border-radius:16px;
+    padding:6px 16px;
+    font-size:22px;
+    white-space:nowrap;
+  }
+  .nameplate .label{ color:var(--text-light); opacity:0.9; }
+  .nameplate .score{
+    font-weight:bold;
+    color:var(--gold);
+    font-variant-numeric:tabular-nums;
+  }
+  .nameplate.you{ background:rgba(0,0,0,0.4); }
+  .nameplate.rot180{ transform:rotate(180deg); }
+  .nameplate.rot90{ transform:rotate(90deg); }
+  .nameplate.rotm90{ transform:rotate(-90deg); }
+  .nameplate .wind-mark{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    width:32px; height:32px;
+    border-radius:6px;
+    background:var(--tile-bg);
+    color:var(--honor-wind);
+    font-size:20px;
+    font-weight:bold;
+  }
+
+  /* --- 牌の見た目（リアル寄り） --- */
+  .tile{
+    width:22px;
+    height:30px;
+    background:linear-gradient(180deg, #FFFDF6 0%, #F2ECDA 55%, #E9E1CB 100%);
+    border:1px solid #B9AD8C;
+    border-bottom:2.5px solid #8C7F5E;
+    border-radius:3px 3px 4px 4px;
+    box-shadow:
+      0 2px 0 rgba(0,0,0,0.25),
+      inset 0 1px 0 rgba(255,255,255,0.8);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-shrink:0;
+    position:relative;
+    overflow:hidden;
+  }
+  .tile svg{
+    width:88%;
+    height:88%;
+    display:block;
+  }
+  .tile.man{ color:var(--man); }
+  .tile.red-five{ box-shadow:0 0 0 1px rgba(194,59,59,0.7), 0 2px 0 rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.8); }
+  .tile.pin{ color:var(--pin); }
+  .tile.sou{ color:var(--sou); }
+  .tile.wind{ color:var(--honor-wind); }
+  .tile.dragon-red{ color:var(--honor-red); }
+  .tile.dragon-green{ color:var(--honor-green); }
+  .tile.dragon-white{ color:#999; }
+
+  :root{
+    --tileback-svg:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 140"><rect width="100" height="140" fill="%235BC7E8"/><g fill="none" stroke="%231C5F91" stroke-width="2.6" stroke-linecap="round"><path d="M14 32 Q10 22 18 16 Q26 12 32 18 Q36 24 30 30 Q24 36 14 32 Z"/><path d="M30 24 Q40 26 44 18 Q46 12 42 8"/><path d="M86 32 Q90 22 82 16 Q74 12 68 18 Q64 24 70 30 Q76 36 86 32 Z"/><path d="M70 24 Q60 26 56 18 Q54 12 58 8"/><path d="M14 108 Q10 118 18 124 Q26 128 32 122 Q36 116 30 110 Q24 104 14 108 Z"/><path d="M30 116 Q40 114 44 122 Q46 128 42 132"/><path d="M86 108 Q90 118 82 124 Q74 128 68 122 Q64 116 70 110 Q76 104 86 108 Z"/><path d="M70 116 Q60 114 56 122 Q54 128 58 132"/></g><circle cx="50" cy="70" r="30" fill="none" stroke="%231C5F91" stroke-width="2.8"/><g fill="none" stroke="%231C5F91" stroke-width="6.5" stroke-linecap="square"><path d="M50 44 L50 61 L67 61"/><path d="M76 70 L59 70 L59 87"/><path d="M50 96 L50 79 L33 79"/><path d="M24 70 L41 70 L41 53"/></g><circle cx="50" cy="70" r="6" fill="%231C5F91"/></svg>');
+  }
+
+  .tile-back{
+    width:30px;
+    height:41px;
+    background-color:#5BC7E8;
+    background-image:var(--tileback-svg);
+    background-size:cover;
+    background-position:center;
+    border:1px solid rgba(255,255,255,0.35);
+    border-bottom:2.5px solid rgba(0,0,0,0.35);
+    border-radius:3px 3px 4px 4px;
+    box-shadow:0 2px 0 rgba(0,0,0,0.3);
+    flex-shrink:0;
+  }
+
+  /* 横向き（左右の対戦相手用）：対面と全く同じ柄を90度回転させて表示する */
+  .tile-back.rot{
+    width:41px;
+    height:30px;
+    background:none;
+    border:none;
+    box-shadow:none;
+    position:relative;
+  }
+  .tile-back.rot::before{
+    content:"";
+    position:absolute;
+    top:50%;
+    left:50%;
+    width:30px;
+    height:41px;
+    background-color:#5BC7E8;
+    background-image:var(--tileback-svg);
+    background-size:cover;
+    background-position:center;
+    border:1px solid rgba(255,255,255,0.35);
+    border-bottom:2.5px solid rgba(0,0,0,0.35);
+    border-radius:3px 3px 4px 4px;
+    box-shadow:0 2px 0 rgba(0,0,0,0.3);
+    transform:translate(-50%, -50%) rotate(90deg);
+  }
+
+  .hand-row{
+    display:flex;
+    gap:3px;
+    justify-content:flex-start;
+    flex-wrap:nowrap;
+  }
+  .hand-row.mine{
+    gap:3px;
+  }
+  .hand-row.mine .tile{
+    width:30px;
+    height:41px;
+  }
+  .hand-row.mine .tile.drawn{
+    margin-left:38px; /* ツモ牌を牌の幅一つ分離して表示 */
+  }
+
+  /* CPUのツモ枠：各自から見て手牌の右側になるよう、向きに応じた側に間隔をあける */
+  #handTop .tile-back.drawn{ margin-right:38px; }   /* 対面：180度回転のため先頭側にあける */
+  #handRight .tile-back.drawn{ margin-bottom:38px; } /* 下家：-90度回転のため先頭(上)側にあける */
+  #handLeft .tile-back.drawn{ margin-top:38px; }     /* 上家：90度回転のため末尾(下)側にあける */
+
+  .hand-row.vertical{
+    flex-direction:column;
+  }
+
+  /* --- 捨て牌エリア（全員同じ大きさ。各自から見て左から6枚→奥の段へ、を再現するためJSで行列を明示指定） --- */
+  .discard-grid{
+    display:grid;
+    gap:3px;
+  }
+  .discard-grid .tile{
+    width:30px;
+    height:41px;
+    border-radius:4px;
+  }
+
+  /* 自分・対面：6列×3行（横向きの手牌用） */
+  #discardBottom, #discardTop{
+    grid-template-columns:repeat(6, 30px);
+    grid-template-rows:repeat(4, 41px);
+    justify-content:center;
+  }
+  /* 対面：180度回転（対面から見てまっすぐ） */
+  #discardTop .tile{ transform:rotate(180deg); }
+
+  /* 上家・下家：4列×6行（縦向きの手牌用、回転後の見た目寸法に合わせる） */
+  #discardLeft, #discardRight{
+    grid-template-columns:repeat(4, 41px);
+    grid-template-rows:repeat(6, 30px);
+    align-content:center;
+  }
+  #discardLeft .tile{ transform:rotate(90deg); }
+  #discardRight .tile{ transform:rotate(-90deg); }
+
+  #center{
+    grid-area:center;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:180px;
+    height:180px;
+    margin:0 auto;
+  }
+
+  /* 鳴き牌は通常のレイアウトから外し、手牌を基準にした絶対位置で表示する
+     （鳴き牌の有無・増減で手牌や捨て牌の位置が動かないようにするため） */
+  .hand-with-melds{
+    position:relative;
+    display:inline-flex;
+  }
+  .meld-row{
+    position:absolute;
+    display:flex;
+    gap:3px; /* 鳴き牌の組同士の間隔＝手牌の牌の間隔と同じ */
+    min-height:4px;
+  }
+  /* 自分・対面（横向きの手牌）：鳴き牌は手牌と縦方向に中央揃え、横に牌1枚分あける */
+  .my-area .meld-row, .seat.top .meld-row{
+    top:50%;
+    flex-direction:row;
+  }
+  .my-area .meld-row{ right:100%; transform:translate(-30px, -50%); }
+  .seat.top .meld-row{ left:100%; transform:translate(30px, -50%); }
+
+  /* 上家・下家（縦向きの手牌）：鳴き牌は手牌と横方向に中央揃え、縦に牌1枚分あける */
+  .seat.left .meld-row, .seat.right .meld-row{
+    left:50%;
+    flex-direction:column;
+  }
+  .seat.left .meld-row{ bottom:100%; transform:translate(-50%, -30px); }
+  .seat.right .meld-row{ top:100%; transform:translate(-50%, 30px); }
+
+  .meld-row .tile{
+    width:30px;
+    height:41px;
+  }
+
+  /* 自分の手牌エリア（画面下固定） */
+  .my-area{
+    flex-shrink:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:4px;
+    padding-top:4px;
+  }
+
+  .action-row{
+    display:flex;
+    gap:8px;
+    justify-content:center;
+    min-height:34px;
+  }
+  .hand-row.mine .tile.clickable{
+    cursor:pointer;
+    transition:transform 0.12s ease;
+  }
+  .hand-row.mine .tile.clickable:hover{
+    transform:translateY(-6px);
+  }
+  .turn-indicator{
+    text-align:center;
+    font-size:11px;
+    color:var(--gold);
+    opacity:0.9;
+    min-height:14px;
+    margin-bottom:2px;
+  }
+
+  .result-box{
+    background:rgba(5,20,12,0.97);
+    border:1px solid var(--gold);
+    border-radius:10px;
+    padding:10px 16px;
+    margin-bottom:6px;
+    text-align:center;
+    font-size:13px;
+    line-height:1.7;
+    position:relative;
+    z-index:50;
+  }
+  .result-box .result-title{
+    font-size:17px;
+    font-weight:bold;
+    color:var(--gold);
+    margin-bottom:4px;
+  }
+  .result-box .result-yaku{
+    font-size:12px;
+    opacity:0.9;
+  }
+  .result-box .result-score{
+    font-size:15px;
+    font-weight:bold;
+    color:var(--gold);
+    margin-top:4px;
+  }
+
+  .call-prompt{
+    display:flex;
+    gap:8px;
+    justify-content:center;
+    flex-wrap:wrap;
+    margin-bottom:4px;
+  }
+  .call-prompt .action-btn{
+    background:#E7C766;
+  }
+  .action-btn{
+    background:var(--gold);
+    color:#3B2C08;
+    border:none;
+    border-radius:8px;
+    padding:6px 16px;
+    font-weight:bold;
+    font-size:13px;
+    box-shadow:0 2px 0 rgba(0,0,0,0.3);
+  }
+  .action-btn:disabled{
+    opacity:0.35;
+  }
+</style>
+</head>
+<body>
+
+<div class="board">
+
+  <div class="table-area">
+
+    <!-- 対面（CPU） -->
+    <div class="seat top">
+      <div class="hand-with-melds">
+        <div class="hand-row" id="handTop">
+          <!-- 13枚、伏せ牌 -->
+        </div>
+        <div class="meld-row" id="meldsTop"></div>
+      </div>
+      <div class="nameplate rot180"><span class="wind-mark">西</span><span class="label">対面</span><span class="score" id="scoreTop">35000</span></div>
+      <div class="discard-grid" id="discardTop"></div>
+    </div>
+
+    <!-- 上家（CPU・左） -->
+    <div class="seat left">
+      <div class="hand-with-melds">
+        <div class="meld-row vertical" id="meldsLeft"></div>
+        <div class="hand-row vertical" id="handLeft"></div>
+      </div>
+      <div class="nameplate rot90"><span class="wind-mark">北</span><span class="label">上家</span><span class="score" id="scoreLeft">35000</span></div>
+      <div class="discard-grid vertical" id="discardLeft"></div>
+    </div>
+
+    <!-- 下家（CPU・右） -->
+    <div class="seat right">
+      <div class="hand-with-melds">
+        <div class="hand-row vertical" id="handRight"></div>
+        <div class="meld-row vertical" id="meldsRight"></div>
+      </div>
+      <div class="nameplate rotm90"><span class="wind-mark">南</span><span class="label">下家</span><span class="score" id="scoreRight">35000</span></div>
+      <div class="discard-grid vertical" id="discardRight"></div>
+    </div>
+
+    <!-- 中央：局・本場・ドラ表示・残り枚数 -->
+    <div id="center">
+      <div class="center-info">
+        <div class="round">東1局 0本場</div>
+        <div id="wallCount">残り牌 70</div>
+        <div class="dora-row">ドラ表示<div class="tile dora-tile" id="doraTile"></div></div>
+      </div>
+    </div>
+
+    <!-- 予備エリア（bottomのgrid-areaは空にして自分の手牌は下の固定エリアに表示） -->
+    <div class="seat bottom"></div>
+  </div>
+
+  <!-- 自分のエリア -->
+  <div class="my-area">
+    <div class="turn-indicator" id="turnIndicator"></div>
+    <div class="result-box" id="resultBox" style="display:none;"></div>
+    <div class="call-prompt" id="callPrompt" style="display:none;"></div>
+    <div class="action-row">
+      <button class="action-btn" disabled>リーチ</button>
+      <button class="action-btn" id="tsumoBtn" disabled>ツモ</button>
+      <button class="action-btn" disabled>キャンセル</button>
+    </div>
+    <div class="discard-grid" id="discardBottom"></div>
+    <div class="nameplate you"><span class="wind-mark">東</span><span class="label">あなた</span><span class="score" id="scoreBottom">35000</span></div>
+    <div class="hand-with-melds">
+      <div class="meld-row" id="meldsBottom"></div>
+      <div class="hand-row mine" id="handMine"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // --- 牌をリアルな見た目のSVGで描画する ---
+  const KANJI_NUM = ["", "一", "二", "三", "四", "伍", "六", "七", "八", "九"];
+
+  // 筒子・索子のドット/竹の配置（viewBox 0 0 40 56）
+  function pipPositions(n){
+    const layouts = {
+      1: [[20,28]],
+      2: [[13,17],[27,39]],
+      3: [[13,17],[20,28],[27,39]],
+      4: [[13,17],[27,17],[13,39],[27,39]],
+      5: [[13,17],[27,17],[20,28],[13,39],[27,39]],
+      6: [[13,14],[27,14],[13,28],[27,28],[13,42],[27,42]],
+      7: [[20,10],[13,20],[27,20],[13,32],[27,32],[13,44],[27,44]],
+      8: [[13,11],[27,11],[13,21],[27,21],[13,35],[27,35],[13,45],[27,45]],
+      9: [[13,10],[20,10],[27,10],[13,28],[20,28],[27,28],[13,46],[20,46],[27,46]]
+    };
+    return layouts[n] || [];
+  }
+
+  // 筒子専用のドット配置（指定の配色パターンに合わせる）
+  function pinDotPositions(n){
+    const layouts = {
+      2: [[20,17],[20,39]],                                             // 縦に2つ
+      3: [[13,14],[20,28],[27,42]],                                     // 右下がり斜め
+      4: [[13,17],[27,17],[13,39],[27,39]],
+      5: [[13,17],[27,17],[20,28],[13,39],[27,39]],                     // 四隅＋中央
+      6: [[13,14],[27,14],[13,28],[27,28],[13,42],[27,42]],             // 上2＋下4
+      7: [[13,10],[20,17],[27,24],[13,36],[27,36],[13,48],[27,48]],     // 右下がり斜め3＋下4
+      8: [[13,11],[27,11],[13,21],[27,21],[13,35],[27,35],[13,45],[27,45]],
+      9: [[13,10],[20,10],[27,10],[13,28],[20,28],[27,28],[13,46],[20,46],[27,46]]
+    };
+    return layouts[n];
+  }
+
+  const PIN_COLOR_PATTERNS = {
+    2: ["green","blue"],
+    3: ["green","red","blue"],
+    4: ["green","blue","blue","green"],
+    5: ["green","blue","red","blue","green"],
+    6: ["green","green","red","red","red","red"],
+    7: ["green","green","green","red","red","red","red"],
+    8: ["blue","blue","blue","blue","blue","blue","blue","blue"],
+    9: ["green","green","green","red","red","red","blue","blue","blue"]
+  };
+  const PIN_COLOR_HEX = { green:"#1E8A4C", red:"#C23B3B", blue:"#1E6FB8" };
+
+  function pinSVG(n, isRed){
+    if(n === 1){
+      // 1筒：中央が赤、その外側が青、円の外周が緑の同心円
+      return `<svg viewBox="0 0 40 56" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="20" cy="28" r="12" fill="#1E8A4C"/>
+        <circle cx="20" cy="28" r="8" fill="#1E6FB8"/>
+        <circle cx="20" cy="28" r="4" fill="#C23B3B"/>
+      </svg>`;
+    }
+    const pos = pinDotPositions(n);
+    const colors = (n === 5 && isRed) ? ["red","red","red","red","red"] : PIN_COLOR_PATTERNS[n];
+    const circles = pos.map((p, i) => {
+      const color = PIN_COLOR_HEX[colors[i]];
+      return `<circle cx="${p[0]}" cy="${p[1]}" r="4.3" fill="${color}" stroke="rgba(0,0,0,0.15)" stroke-width="0.4"/>
+              <ellipse cx="${p[0]-1.3}" cy="${p[1]-1.4}" rx="1.3" ry="0.8" fill="#FFFFFF" opacity="0.5"/>`;
+    }).join("");
+    return `<svg viewBox="0 0 40 56" xmlns="http://www.w3.org/2000/svg">${circles}</svg>`;
+  }
+
+  const SOU_COLOR_HEX = { green:"#1E8A4C", red:"#C23B3B", blue:"#1E6FB8" };
+
+  function stickShape(p, colorName){
+    const fill = SOU_COLOR_HEX[colorName];
+    const dark = colorName === "red" ? "#7A2020" : (colorName === "blue" ? "#123A63" : "#124D2A");
+    return `<g>
+      <rect x="${p[0]-1.9}" y="${p[1]-7}" width="3.8" height="14" rx="1.9" fill="${fill}" stroke="${dark}" stroke-width="0.5"/>
+      <line x1="${p[0]-1.9}" y1="${p[1]-2.6}" x2="${p[0]+1.9}" y2="${p[1]-2.6}" stroke="${dark}" stroke-width="0.6"/>
+      <line x1="${p[0]-1.9}" y1="${p[1]+2.6}" x2="${p[0]+1.9}" y2="${p[1]+2.6}" stroke="${dark}" stroke-width="0.6"/>
+    </g>`;
+  }
+
+  const SOU_LAYOUTS = {
+    2: { pos:[[20,16],[20,40]], colors:["green","green"] },
+    3: { pos:[[20,13],[13,39],[27,39]], colors:["green","green","green"] },                 // 上1・下2
+    4: { pos:[[13,17],[27,17],[13,39],[27,39]], colors:["green","green","green","green"] },
+    5: { pos:[[13,17],[27,17],[20,28],[13,39],[27,39]], colors:["green","blue","red","blue","green"] },
+    6: { pos:[[10,18],[10,38],[20,18],[20,38],[30,18],[30,38]],                              // 縦2本×横3列
+         colors:["green","green","green","green","green","green"] },
+    7: { pos:[[20,10],[10,26],[20,26],[30,26],[10,42],[20,42],[30,42]],
+         colors:["red","green","blue","green","green","blue","green"] },
+    9: { pos:[[10,10],[20,10],[30,10],[10,26],[20,26],[30,26],[10,42],[20,42],[30,42]],      // 7のデザイン＋上に2本
+         colors:["green","red","blue","green","red","blue","green","red","blue"] }
+  };
+
+  function souSVG(n, isRed){
+    if(n === 1){
+      // 1索：伝統的な鳥の意匠（頭・くちばし・羽根質感の胴体・翼・渦を巻く尾羽）
+      function spiralPath(cx, cy, turns, startR, maxR, steps, startAngle){
+        let d = "";
+        for(let i = 0; i <= steps; i++){
+          const t = i / steps;
+          const angle = (startAngle || 0) + t * turns * 2 * Math.PI;
+          const r = startR + (maxR - startR) * t;
+          const x = cx + r * Math.cos(angle);
+          const y = cy + r * Math.sin(angle);
+          d += (i === 0 ? "M" : "L") + x.toFixed(1) + " " + y.toFixed(1) + " ";
+        }
+        return d;
+      }
+      // 胴体の羽根質感（横縞のハッチング）
+      let hatch = "";
+      for(let y = 22; y <= 34; y += 3){
+        hatch += `<path d="M${13} ${y} Q20 ${y+1.5} ${27} ${y}" fill="none" stroke="#124D2A" stroke-width="0.7"/>`;
+      }
+      const tailSpiral = spiralPath(17, 44, 1.7, 1, 10, 50, -Math.PI/2);
+      return `<svg viewBox="0 -6 40 62" xmlns="http://www.w3.org/2000/svg">
+        <!-- 尾羽の流線（渦の外側に広がる羽根） -->
+        <path d="M8 40 Q3 34 4 26" fill="none" stroke="#1E8A4C" stroke-width="1.3" stroke-linecap="round"/>
+        <path d="M9 44 Q4 40 3 32" fill="none" stroke="#1E8A4C" stroke-width="1.3" stroke-linecap="round"/>
+        <path d="M11 48 Q6 46 4 39" fill="none" stroke="#1E8A4C" stroke-width="1.3" stroke-linecap="round"/>
+        <path d="M15 51 Q11 51 8 46" fill="none" stroke="#C23B3B" stroke-width="1.2" stroke-linecap="round"/>
+        <!-- 尾羽（渦） -->
+        <path d="${tailSpiral}" fill="none" stroke="#1E8A4C" stroke-width="2.6" stroke-linecap="round"/>
+        <!-- 翼（クロスハッチの三角形） -->
+        <path d="M26 22 L35 27 L31 36 L24 31 Z" fill="#DCE9DC" stroke="#124D2A" stroke-width="1"/>
+        <path d="M27 24 L33 28 M27.5 27 L33.5 31 M27 30 L31 33" stroke="#124D2A" stroke-width="0.6"/>
+        <path d="M26 22 L24 31" stroke="#124D2A" stroke-width="0.6"/>
+        <!-- 胴体（羽根質感の縦長楕円） -->
+        <path d="M13 20 Q12 28 15 34 Q20 38 25 34 Q28 28 27 20 Q23 16 20 16 Q16 16 13 20 Z"
+              fill="#F3EFE3" stroke="#124D2A" stroke-width="1"/>
+        ${hatch}
+        <!-- 首・頭・くちばし -->
+        <path d="M18 17 Q15 10 18 5 Q21 2 24 4 Q26 6 24 9 Q22 11 20 10"
+              fill="#F3EFE3" stroke="#124D2A" stroke-width="1.1"/>
+        <circle cx="19.5" cy="7" r="1" fill="#124D2A"/>
+        <path d="M24 4 Q28 2 30 -1" fill="none" stroke="#124D2A" stroke-width="1" stroke-linecap="round"/>
+        <!-- 胸元の赤い差し色 -->
+        <path d="M17 32 L14 35 L18 36 Z" fill="none" stroke="#C23B3B" stroke-width="1"/>
+        <path d="M19 34 L19 40" stroke="#C23B3B" stroke-width="1.6" stroke-linecap="round"/>
+        <!-- 頭上の赤い冠（トサカ） -->
+        <path d="M18 5 Q16 1 12 0" fill="none" stroke="#C23B3B" stroke-width="1.3" stroke-linecap="round"/>
+        <path d="M20 4 Q22 0 27 -2" fill="none" stroke="#C23B3B" stroke-width="1.3" stroke-linecap="round"/>
+      </svg>`;
+    }
+    if(n === 8){
+      // 8索：本来のM字型（両端は縦線、中央だけ斜め）。上はMを逆さにしたW、下はMのまま
+      return `<svg viewBox="0 0 40 56" xmlns="http://www.w3.org/2000/svg">
+        <polyline points="8,12 8,24 20,12 32,24 32,12" fill="none" stroke="#1E8A4C" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <polyline points="8,44 8,32 20,44 32,32 32,44" fill="none" stroke="#1E8A4C" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>`;
+    }
+    const layout = SOU_LAYOUTS[n];
+    const colors = (n === 5 && isRed) ? ["red","red","red","red","red"] : layout.colors;
+    const sticks = layout.pos.map((p, i) => stickShape(p, colors[i])).join("");
+    return `<svg viewBox="0 0 40 56" xmlns="http://www.w3.org/2000/svg">${sticks}</svg>`;
+  }
+
+  function manSVG(n, isRed){
+    const numColor = isRed ? "#C23B3B" : "#1a1a1a";
+    return `<svg viewBox="0 0 40 56" xmlns="http://www.w3.org/2000/svg">
+      <text x="20" y="26" text-anchor="middle" font-size="20" font-family="'Hiragino Mincho ProN','Yu Mincho',serif" fill="${numColor}" font-weight="bold">${KANJI_NUM[n]}</text>
+      <text x="20" y="49" text-anchor="middle" font-size="20" font-family="'Hiragino Mincho ProN','Yu Mincho',serif" fill="#B5342B" font-weight="bold">萬</text>
+    </svg>`;
+  }
+
+  function windSVG(n){
+    const w = {1:"東", 2:"南", 3:"西", 4:"北"};
+    return `<svg viewBox="0 0 40 56" xmlns="http://www.w3.org/2000/svg">
+      <text x="20" y="38" text-anchor="middle" font-size="28" font-family="'Hiragino Mincho ProN','Yu Mincho',serif" fill="#1a1a1a" font-weight="bold">${w[n]}</text>
+    </svg>`;
+  }
+
+  function dragonSVG(n){
+    // 1:白(ブランク＋青枠) 2:發(緑) 3:中(赤)
+    if(n === 1){
+      return `<svg viewBox="0 0 40 56" xmlns="http://www.w3.org/2000/svg">
+        <rect x="7" y="6" width="26" height="44" rx="3" fill="none" stroke="#1E6FB8" stroke-width="2.4"/>
+      </svg>`;
+    }
+    const map = { 2: ["發", "#1E8A4C"], 3: ["中", "#C23B3B"] };
+    const [ch, color] = map[n];
+    return `<svg viewBox="0 0 40 56" xmlns="http://www.w3.org/2000/svg">
+      <text x="20" y="38" text-anchor="middle" font-size="26" font-family="'Hiragino Mincho ProN','Yu Mincho',serif" fill="${color}" font-weight="bold">${ch}</text>
+    </svg>`;
+  }
+
+  function tileEl(suit, num, cls, isRed){
+    const div = document.createElement("div");
+    div.className = "tile " + cls + (isRed ? " red-five" : "");
+    if(suit === "pin") div.innerHTML = pinSVG(num, isRed);
+    else if(suit === "sou") div.innerHTML = souSVG(num, isRed);
+    else if(suit === "man") div.innerHTML = manSVG(num, isRed);
+    else if(suit === "wind") div.innerHTML = windSVG(num);
+    else if(suit === "dragon") div.innerHTML = dragonSVG(num);
+    return div;
+  }
+
+  // ==================== STEP2: 牌山生成・配牌 ====================
+
+  function tileClass(suit, num){
+    if(suit === "dragon"){
+      return num === 1 ? "dragon-white" : (num === 2 ? "dragon-green" : "dragon-red");
+    }
+    return suit; // man / pin / sou / wind
+  }
+
+  // 34種類の牌タイプを作る（萬子・筒子・索子1-9、風牌4種、三元牌3種）
+  function buildTileTypes(){
+    const types = [];
+    ["man", "pin", "sou"].forEach(suit => {
+      for(let n = 1; n <= 9; n++) types.push({ suit, num: n });
+    });
+    for(let n = 1; n <= 4; n++) types.push({ suit:"wind", num:n });
+    for(let n = 1; n <= 3; n++) types.push({ suit:"dragon", num:n });
+    return types; // 34種類
+  }
+
+  // 136枚の牌山を作る（各種4枚ずつ）
+  function buildWall(){
+    const types = buildTileTypes();
+    const wall = [];
+    types.forEach(t => {
+      for(let i = 0; i < 4; i++){
+        const tile = { suit:t.suit, num:t.num };
+        // 各色（萬子・筒子・索子）の5のうち1枚を赤ドラにする（Mリーグ方式）
+        if(t.num === 5 && (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && i === 0){
+          tile.red = true;
+        }
+        wall.push(tile);
+      }
+    });
+    return wall; // 34種類 × 4枚 = 136枚
+  }
+
+  // Fisher-Yatesシャッフル
+  function shuffle(arr){
+    for(let i = arr.length - 1; i > 0; i--){
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+  }
+
+  function sortKey(t){
+    const order = { man:0, pin:1, sou:2, wind:3, dragon:4 };
+    return order[t.suit] * 100 + t.num;
+  }
+
+  // --- 牌山を作ってシャッフル ---
+  const wall = buildWall();
+  shuffle(wall);
+
+  // 王牌（ドラ表示牌などのための山、14枚を取り置く）
+  const deadWall = wall.splice(0, 14);
+
+  // 自分・CPU3人へ配牌（13枚ずつ）
+  const myTiles13 = wall.splice(0, 13);
+  const cpuRightTiles = wall.splice(0, 13);
+  const cpuTopTiles = wall.splice(0, 13);
+  const cpuLeftTiles = wall.splice(0, 13);
+
+  // 親（あなた）が最初の1枚をツモる
+  const firstDraw = wall.splice(0, 1)[0];
+
+  // 手牌は13枚を並び替え、ツモ牌だけ最後に離して表示
+  const sortedHand = myTiles13.slice().sort((a, b) => sortKey(a) - sortKey(b));
+  const myHand = [...sortedHand, firstDraw].map(t => [t.suit, t.num, tileClass(t.suit, t.num)]);
+
+  // ==================== STEP3+4: ターン進行（ツモ→打牌）＋ 鳴き（ポン・チー・カン） ====================
+
+  // 状態（手牌・捨て牌・鳴き牌はすべてここで管理し、変更のたびに描画し直す）
+  const myHandTiles = [...sortedHand, firstDraw]; // {suit,num} の配列
+  let lastDrawnTile = firstDraw; // 直前にツモった牌（並び替えても離して表示するため参照で管理）
+  const lastDrawnCpu = { top:null, left:null, right:null }; // CPU各自の現在のツモ牌（カン後の嶺上牌も含めて明示的に管理）
+  const hands = { bottom: myHandTiles, top: cpuTopTiles, left: cpuLeftTiles, right: cpuRightTiles };
+  const discards = { top: [], left: [], right: [], bottom: [] };
+  const melds = { top: [], left: [], right: [], bottom: [] };
+
+  const discardElByName = {
+    top: document.getElementById("discardTop"),
+    left: document.getElementById("discardLeft"),
+    right: document.getElementById("discardRight"),
+    bottom: document.getElementById("discardBottom")
+  };
+  const meldElByName = {
+    top: document.getElementById("meldsTop"),
+    left: document.getElementById("meldsLeft"),
+    right: document.getElementById("meldsRight"),
+    bottom: document.getElementById("meldsBottom")
+  };
+  const handMineEl = document.getElementById("handMine");
+  const cpuHandElByName = { top: document.getElementById("handTop"), left: document.getElementById("handLeft"), right: document.getElementById("handRight") };
+  const backClassByName = { top: "tile-back", left: "tile-back rot", right: "tile-back rot" };
+  const seatLabel = { right:"下家", top:"対面", left:"上家", bottom:"あなた" };
+
+  // 手番の順番（あなた→下家→対面→上家→あなた…）と、各自の上家（鳴き元がこの人ならチー可）
+  const NEXT_SEAT = { bottom:"right", right:"top", top:"left", left:"bottom" };
+  const KAMICHA = { bottom:"left", right:"bottom", top:"right", left:"top" };
+
+  function updateWallCount(){
+    document.getElementById("wallCount").textContent = "残り牌 " + wall.length;
+  }
+
+  // 種類（風牌・三元牌・萬子・筒子・索子）のうち、手牌に多い順に左から並べる
+  function suitPriorityMap(){
+    const counts = { wind:0, dragon:0, man:0, pin:0, sou:0 };
+    myHandTiles.forEach(t => counts[t.suit]++);
+    const tiebreak = ["wind", "dragon", "man", "pin", "sou"];
+    const ordered = tiebreak.slice().sort((a, b) => (counts[b] - counts[a]) || (tiebreak.indexOf(a) - tiebreak.indexOf(b)));
+    const map = {};
+    ordered.forEach((s, i) => { map[s] = i; });
+    return map;
+  }
+
+  function renderMyHand(clickable){
+    const priorityMap = suitPriorityMap();
+    // ツモ牌は並び替えの対象に含めず、常に手牌全体の一番右に別枠で表示する
+    const others = myHandTiles.filter(t => t !== lastDrawnTile);
+    const sorted = others.slice().sort((a, b) => {
+      const ka = priorityMap[a.suit] * 100 + a.num;
+      const kb = priorityMap[b.suit] * 100 + b.num;
+      return ka - kb;
+    });
+
+    handMineEl.innerHTML = "";
+
+    // 鳴きで手牌が減っても右端（ツモ牌側）の位置が動かないよう、
+    // 減った枚数分だけ左側に透明な余白を入れて常に13枚分の幅を確保する
+    const padCount = Math.max(0, 13 - sorted.length);
+    for(let i = 0; i < padCount; i++){
+      const ph = document.createElement("div");
+      ph.className = "tile";
+      ph.style.visibility = "hidden";
+      handMineEl.appendChild(ph);
+    }
+
+    sorted.forEach(t => {
+      const el = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+      if(clickable){
+        el.classList.add("clickable");
+        el.addEventListener("click", () => onDiscardMyTile(myHandTiles.indexOf(t)));
+      }
+      handMineEl.appendChild(el);
+    });
+
+    // ツモ枠は常に同じ幅を確保する（自摸っていない間は透明なプレースホルダーを置き、手牌全体の幅が変わってズレないようにする）
+    if(lastDrawnTile){
+      const el = tileEl(lastDrawnTile.suit, lastDrawnTile.num, tileClass(lastDrawnTile.suit, lastDrawnTile.num), lastDrawnTile.red);
+      el.classList.add("drawn");
+      if(clickable){
+        el.classList.add("clickable");
+        el.addEventListener("click", () => onDiscardMyTile(myHandTiles.indexOf(lastDrawnTile)));
+      }
+      handMineEl.appendChild(el);
+    } else {
+      const placeholder = document.createElement("div");
+      placeholder.className = "tile drawn";
+      placeholder.style.visibility = "hidden";
+      handMineEl.appendChild(placeholder);
+    }
+    repositionMeldRow("bottom", padCount);
+  }
+
+  // 対面・下家は回転により「自分から見て右側」が画面の左／先頭になるため、ツモ枠を先頭に置く
+  const DRAWN_SLOT_FIRST = { top:true, right:true, left:false };
+
+  function renderCpuHandBacks(name){
+    const el = cpuHandElByName[name];
+    el.innerHTML = "";
+    const hasDrawn = !!lastDrawnCpu[name];
+    const normalCount = hands[name].length - (hasDrawn ? 1 : 0); // ツモ牌を除いた「通常の手牌」の枚数
+    const padCount = Math.max(0, 13 - normalCount);
+
+    function makeBack(hidden){
+      const b = document.createElement("div");
+      b.className = backClassByName[name];
+      if(hidden) b.style.visibility = "hidden";
+      return b;
+    }
+
+    const drawnEl = makeBack(!hasDrawn);
+    drawnEl.classList.add("drawn");
+
+    // 鳴きで手牌が減っても、ツモ枠に近い側の位置が動かないよう、
+    // 減った枚数分の空白は必ずツモ枠から遠い側（反対の端）に入れる
+    if(DRAWN_SLOT_FIRST[name]){
+      el.appendChild(drawnEl);
+      for(let i = 0; i < normalCount; i++) el.appendChild(makeBack(false));
+      for(let i = 0; i < padCount; i++) el.appendChild(makeBack(true));
+    } else {
+      for(let i = 0; i < padCount; i++) el.appendChild(makeBack(true));
+      for(let i = 0; i < normalCount; i++) el.appendChild(makeBack(false));
+      el.appendChild(drawnEl);
+    }
+    repositionMeldRow(name, padCount);
+  }
+
+  // 捨て牌の並び順：各自から見て左から6枚→奥の段へ（第1捨て牌が一番手前=自分から遠い側）
+  function discardGridPosition(seat, index){
+    const groupIdx = Math.floor(index / 6); // 0=1段目(一番遠い) 1=2段目 2=3段目 3=4段目(手牌に近い)
+    const posIdx = index % 6; // 0-5（その段の中で何番目か）
+    switch(seat){
+      case "bottom": return { row: groupIdx + 1, col: posIdx + 1 };
+      case "top":    return { row: 4 - groupIdx, col: 6 - posIdx };
+      case "left":   return { row: posIdx + 1,   col: 4 - groupIdx };
+      case "right":  return { row: 6 - posIdx,   col: groupIdx + 1 };
+    }
+  }
+
+  function renderDiscard(name){
+    const el = discardElByName[name];
+    el.innerHTML = "";
+    discards[name].forEach((t, idx) => {
+      const tileElx = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+      const pos = discardGridPosition(name, idx);
+      tileElx.style.gridRow = pos.row;
+      tileElx.style.gridColumn = pos.col;
+      el.appendChild(tileElx);
+    });
+  }
+
+  // 鳴いた牌が「誰の捨て牌か」に応じて、鳴き牌グループ内のどこに置くかを決める
+  function meldCalledPosition(callerSeat, fromSeat){
+    if(fromSeat === KAMICHA[callerSeat]) return "left";   // 上家から＝左端
+    if(fromSeat === NEXT_SEAT[callerSeat]) return "right"; // 下家から＝右端
+    return "middle"; // 対面から＝真ん中
+  }
+
+  const MELD_BASE_ROTATION = { bottom:0, top:180, left:90, right:-90 };
+  // 各自の「読む向き」を画面の軸に対応させる（対面は左右反転、上家・下家は縦方向）
+  const MELD_FLEX_DIRECTION = { bottom:"row", top:"row-reverse", left:"column", right:"column-reverse" };
+
+  // 見えない余白（ツモ枠固定のためのパディング）1枚分のサイズ（牌の幅30px＋間隔3px）
+  const PAD_SLOT_SIZE = 33;
+
+  // 鳴き牌の基準位置を、パディングを含めた箱の端ではなく、
+  // 実際に見えている手牌の端から牌1枚分になるよう補正する
+  function repositionMeldRow(name, padCount){
+    const meldRow = meldElByName[name];
+    const container = meldRow.parentElement; // hand-with-melds
+    const padPx = padCount * PAD_SLOT_SIZE;
+    if(name === "bottom"){
+      meldRow.style.right = (container.offsetWidth - padPx) + "px";
+    } else if(name === "top"){
+      meldRow.style.left = (container.offsetWidth - padPx) + "px";
+    } else if(name === "left"){
+      meldRow.style.bottom = (container.offsetHeight - padPx) + "px";
+    } else if(name === "right"){
+      meldRow.style.top = (container.offsetHeight - padPx) + "px";
+    }
+  }
+
+  // 90度・270度回転の牌は、外側の箱を見た目通りの寸法(41×30)にして、
+  // 中のSVGだけを回転させる（箱と見た目がズレて余分な隙間ができるのを防ぐ）
+  function applyMeldRotation(tileDiv, deg){
+    const norm = ((deg % 360) + 360) % 360;
+    const swapped = (norm === 90 || norm === 270);
+    tileDiv.style.width = swapped ? "41px" : "30px";
+    tileDiv.style.height = swapped ? "30px" : "41px";
+    const svg = tileDiv.querySelector("svg");
+    if(svg){
+      svg.style.position = "absolute";
+      svg.style.left = "50%";
+      svg.style.top = "50%";
+      svg.style.width = "26.4px";
+      svg.style.height = "36.1px";
+      svg.style.transform = "translate(-50%, -50%) rotate(" + deg + "deg)";
+    }
+  }
+
+  function renderMelds(name){
+    const el = meldElByName[name];
+    const baseRot = MELD_BASE_ROTATION[name];
+    const flexDir = MELD_FLEX_DIRECTION[name];
+    el.style.flexDirection = flexDir;
+    el.innerHTML = "";
+    // 古く鳴いた組ほど手牌に近く、新しく鳴いた組ほど手牌から遠い側になるよう並べる
+    melds[name].slice().reverse().forEach(m => {
+      const group = document.createElement("div");
+      group.style.display = "flex";
+      group.style.flexDirection = flexDir;
+      group.style.alignItems = "center";
+      group.style.justifyContent = "center";
+      group.style.gap = "3px"; // 鳴き牌3枚の間隔＝捨て牌の間隔と同じ
+
+      const calledEl = tileEl(m.calledTile.suit, m.calledTile.num, tileClass(m.calledTile.suit, m.calledTile.num), m.calledTile.red);
+      calledEl.classList.add("meld-called"); // 誰から鳴いたか分かるよう、その席の向きからさらに横向きにする
+      applyMeldRotation(calledEl, baseRot + 90);
+      const handEls = m.handTiles.map(t => {
+        const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+        applyMeldRotation(tEl, baseRot);
+        return tEl;
+      });
+
+      const position = meldCalledPosition(name, m.calledFrom);
+      let ordered;
+      if(position === "left"){
+        ordered = [calledEl, ...handEls];
+      } else if(position === "right"){
+        ordered = [...handEls, calledEl];
+      } else {
+        const mid = Math.floor(handEls.length / 2);
+        ordered = [...handEls.slice(0, mid), calledEl, ...handEls.slice(mid)];
+      }
+      ordered.forEach(elx => group.appendChild(elx));
+      if(m.addedTile){
+        // 加カンで後から加わった4枚目（その席の基準角度で表示）
+        const addedEl = tileEl(m.addedTile.suit, m.addedTile.num, tileClass(m.addedTile.suit, m.addedTile.num), m.addedTile.red);
+        applyMeldRotation(addedEl, baseRot);
+        group.appendChild(addedEl);
+      }
+      el.appendChild(group);
+    });
+  }
+
+  function setTurnIndicator(text){
+    document.getElementById("turnIndicator").textContent = text;
+  }
+
+  // --- 鳴き判定用のヘルパー ---
+  function countMatching(hand, tile){
+    return hand.filter(t => t.suit === tile.suit && t.num === tile.num).length;
+  }
+  function canPon(hand, tile){ return countMatching(hand, tile) >= 2; }
+  function canKan(hand, tile){ return countMatching(hand, tile) >= 3; }
+  function findChiCombos(hand, tile){
+    if(tile.suit !== "man" && tile.suit !== "pin" && tile.suit !== "sou") return [];
+    const has = n => hand.some(t => t.suit === tile.suit && t.num === n);
+    const combos = [];
+    if(has(tile.num - 2) && has(tile.num - 1)) combos.push([tile.num - 2, tile.num - 1]);
+    if(has(tile.num - 1) && has(tile.num + 1)) combos.push([tile.num - 1, tile.num + 1]);
+    if(has(tile.num + 1) && has(tile.num + 2)) combos.push([tile.num + 1, tile.num + 2]);
+    return combos;
+  }
+
+  // --- 自分の打牌 ---
+  function onDiscardMyTile(idx){
+    const discarded = myHandTiles.splice(idx, 1)[0];
+    discards.bottom.push(discarded);
+    lastDrawnTile = null;
+    renderMyHand(false);
+    renderDiscard("bottom");
+    setTurnIndicator("");
+    handleDiscard("bottom", discarded);
+  }
+
+  // --- 打牌のあと：鳴きが入るか判定してから次に進む ---
+  function handleDiscard(discarderSeat, tile){
+    if(gameEnded) return;
+
+    if(discarderSeat !== "bottom"){
+      const ronResult = attemptWin("bottom", tile, false);
+      const pon = canPon(myHandTiles, tile);
+      const kan = canKan(myHandTiles, tile);
+      const chi = (KAMICHA.bottom === discarderSeat) ? findChiCombos(myHandTiles, tile) : [];
+      if(ronResult || pon || kan || chi.length > 0){
+        showCallPrompt(discarderSeat, tile, { ron: ronResult, pon, kan, chi });
+        return;
+      }
+    }
+
+    // CPUのロン判定（可能なら必ずロンする簡易AI）
+    const ronCandidates = ["top", "left", "right"].filter(s => s !== discarderSeat);
+    for(const s of ronCandidates){
+      const result = attemptWin(s, tile, false);
+      if(result){
+        discards[discarderSeat].pop();
+        renderDiscard(discarderSeat);
+        finalizeWin(s, discarderSeat, result);
+        return;
+      }
+    }
+
+    const cpuCall = maybeCpuCalls(discarderSeat, tile);
+    if(cpuCall){
+      executeCall(cpuCall.seat, discarderSeat, tile, cpuCall.type);
+      return;
+    }
+    advanceTurnAfterDiscard(discarderSeat);
+  }
+
+  // CPUのポン・カン簡易AI（チーはプレイヤーのみ対応）
+  function maybeCpuCalls(discarderSeat, tile){
+    const seats = ["right", "top", "left"].filter(s => s !== discarderSeat);
+    for(const s of seats){
+      if(canKan(hands[s], tile) && Math.random() < 0.5) return { seat:s, type:"kan" };
+    }
+    for(const s of seats){
+      if(canPon(hands[s], tile) && Math.random() < 0.45) return { seat:s, type:"pon" };
+    }
+    return null;
+  }
+
+  function showCallPrompt(discarderSeat, tile, calls){
+    setTurnIndicator("鳴きますか？（" + seatLabel[discarderSeat] + "の捨て牌）");
+    const el = document.getElementById("callPrompt");
+    el.innerHTML = "";
+    el.style.display = "flex";
+    if(calls.ron){
+      el.appendChild(makeCallButton("ロン", () => { hideCallPrompt(); finalizeWin("bottom", discarderSeat, calls.ron); }));
+    }
+    if(calls.pon){
+      el.appendChild(makeCallButton("ポン", () => { hideCallPrompt(); executeCall("bottom", discarderSeat, tile, "pon"); }));
+    }
+    if(calls.kan){
+      el.appendChild(makeCallButton("カン", () => { hideCallPrompt(); executeCall("bottom", discarderSeat, tile, "kan"); }));
+    }
+    calls.chi.forEach(combo => {
+      el.appendChild(makeCallButton("チー(" + combo.join("・") + ")", () => { hideCallPrompt(); executeChi(combo, tile); }));
+    });
+    el.appendChild(makeCallButton("スルー", () => { hideCallPrompt(); advanceTurnAfterDiscard(discarderSeat); }));
+  }
+  function makeCallButton(label, onClick){
+    const b = document.createElement("button");
+    b.className = "action-btn";
+    b.textContent = label;
+    b.addEventListener("click", onClick);
+    return b;
+  }
+  function hideCallPrompt(){
+    document.getElementById("callPrompt").style.display = "none";
+  }
+
+  // --- ポン・カンの実行（プレイヤー／CPU共通） ---
+  function executeCall(callerSeat, discarderSeat, tile, type){
+    discards[discarderSeat].pop();
+    renderDiscard(discarderSeat);
+
+    const hand = hands[callerSeat];
+    const needed = (type === "kan") ? 3 : 2;
+    const handTiles = [];
+    let removed = 0;
+    for(let i = hand.length - 1; i >= 0 && removed < needed; i--){
+      if(hand[i].suit === tile.suit && hand[i].num === tile.num){
+        handTiles.push(hand[i]);
+        hand.splice(i, 1);
+        removed++;
+      }
+    }
+    melds[callerSeat].push({ type, handTiles, calledTile: tile, calledFrom: discarderSeat });
+    renderMelds(callerSeat);
+
+    // カンをしたら、山の代わりに王牌から嶺上牌を1枚ツモる（少牌防止）
+    if(type === "kan"){
+      const rinshan = deadWall.pop();
+      hand.push(rinshan);
+      // 山（生きている牌）から1枚を王牌に移して、王牌の枚数を保つ
+      if(wall.length > 0) deadWall.push(wall.pop());
+      updateWallCount();
+      if(callerSeat === "bottom") lastDrawnTile = rinshan;
+      else lastDrawnCpu[callerSeat] = rinshan;
+    }
+
+    if(callerSeat === "bottom"){
+      if(type !== "kan") lastDrawnTile = null;
+      renderMyHand(true);
+      setTurnIndicator((type === "pon" ? "ポン" : "カン") + "しました。捨てる牌をタップしてください");
+      if(type === "kan") updateTsumoButton();
+    } else {
+      renderCpuHandBacks(callerSeat);
+      setTurnIndicator(seatLabel[callerSeat] + "が" + (type === "pon" ? "ポン" : "カン") + "しました");
+      if(type === "kan"){
+        const rinshanWin = attemptWin(callerSeat, null, true);
+        if(rinshanWin){ finalizeWin(callerSeat, callerSeat, rinshanWin); return; }
+      }
+      setTimeout(() => cpuDiscardOnly(callerSeat), 600);
+    }
+  }
+
+  // --- チーの実行(プレイヤーのみ) ---
+  function executeChi(comboNums, tile){
+    discards.left.pop();
+    renderDiscard("left");
+    const handTiles = [];
+    comboNums.forEach(n => {
+      const idx = myHandTiles.findIndex(t => t.suit === tile.suit && t.num === n);
+      if(idx >= 0) handTiles.push(myHandTiles.splice(idx, 1)[0]);
+    });
+    melds.bottom.push({ type: "chi", handTiles, calledTile: tile, calledFrom: "left" });
+    renderMelds("bottom");
+    lastDrawnTile = null;
+    renderMyHand(true);
+    setTurnIndicator("チーしました。捨てる牌をタップしてください");
+  }
+
+  // 鳴いた後、その人はツモらずすぐ打牌する
+  function cpuDiscardOnly(seat){
+    const hand = hands[seat];
+    const idx = Math.floor(Math.random() * hand.length);
+    const discarded = hand.splice(idx, 1)[0];
+    discards[seat].push(discarded);
+    lastDrawnCpu[seat] = null;
+    renderCpuHandBacks(seat);
+    renderDiscard(seat);
+    handleDiscard(seat, discarded);
+  }
+
+  // 鳴きが無ければ、通常通り次の人に手番が移る
+  function advanceTurnAfterDiscard(discarderSeat){
+    if(gameEnded) return;
+    const next = NEXT_SEAT[discarderSeat];
+    if(next === "bottom"){
+      playerDraw();
+    } else {
+      setTimeout(() => cpuDrawAndDiscard(next), 550);
+    }
+  }
+
+  function cpuDrawAndDiscard(seat){
+    if(gameEnded) return;
+    if(wall.length === 0){
+      setTurnIndicator("山がなくなりました（流局の処理は次のステップで作ります）");
+      return;
+    }
+    setTurnIndicator(seatLabel[seat] + "の番です");
+    const drawn = wall.shift();
+    hands[seat].push(drawn);
+    lastDrawnCpu[seat] = drawn;
+    updateWallCount();
+    renderCpuHandBacks(seat);
+
+    const tsumoResult = attemptWin(seat, null, true);
+    if(tsumoResult){
+      finalizeWin(seat, seat, tsumoResult);
+      return;
+    }
+
+    setTimeout(() => {
+      if(gameEnded) return;
+      const idx = Math.floor(Math.random() * hands[seat].length);
+      const discarded = hands[seat].splice(idx, 1)[0];
+      discards[seat].push(discarded);
+      lastDrawnCpu[seat] = null;
+      renderCpuHandBacks(seat);
+      renderDiscard(seat);
+      handleDiscard(seat, discarded);
+    }, 500);
+  }
+
+  function playerDraw(){
+    if(gameEnded) return;
+    if(wall.length === 0){
+      setTurnIndicator("山がなくなりました（流局の処理は次のステップで作ります）");
+      return;
+    }
+    const drawn = wall.shift();
+    myHandTiles.push(drawn);
+    lastDrawnTile = drawn;
+    updateWallCount();
+    setTurnIndicator("あなたの番です（牌をタップして捨ててください）");
+    renderMyHand(true);
+    updateTsumoButton();
+    checkKakanOpportunity(drawn);
+  }
+
+  // --- 加カン（ポンした牌と同じ牌を自分でツモった時） ---
+  function checkKakanOpportunity(drawnTile){
+    const meldIdx = melds.bottom.findIndex(m => m.type === "pon" && m.calledTile.suit === drawnTile.suit && m.calledTile.num === drawnTile.num);
+    if(meldIdx < 0) return;
+    const el = document.getElementById("callPrompt");
+    el.innerHTML = "";
+    el.style.display = "flex";
+    el.appendChild(makeCallButton("カン", () => { hideCallPrompt(); executeKakan(meldIdx, drawnTile); }));
+    el.appendChild(makeCallButton("この牌を捨てる", () => { hideCallPrompt(); onDiscardMyTile(myHandTiles.indexOf(drawnTile)); }));
+    el.appendChild(makeCallButton("手牌に保留", () => { hideCallPrompt(); }));
+    setTurnIndicator("同じ牌をツモりました。加カンしますか？");
+  }
+
+  function executeKakan(meldIdx, drawnTile){
+    const meld = melds.bottom[meldIdx];
+    const idx = myHandTiles.indexOf(drawnTile);
+    if(idx >= 0) myHandTiles.splice(idx, 1);
+    meld.type = "kan";
+    meld.addedTile = drawnTile;
+    renderMelds("bottom");
+
+    // 嶺上牌をツモる（少牌防止、王牌の枚数も維持）
+    const rinshan = deadWall.pop();
+    myHandTiles.push(rinshan);
+    if(wall.length > 0) deadWall.push(wall.pop());
+    updateWallCount();
+    lastDrawnTile = rinshan;
+
+    renderMyHand(true);
+    setTurnIndicator("加カンしました。捨てる牌をタップしてください");
+    updateTsumoButton();
+  }
+
+  // ==================== STEP5: 和了判定・役・点数計算・流局処理 ====================
+  // ※簡易実装です。リーチ・平和の待ちの形・ドラ以外の詳細な符計算・半荘の進行（親流れ等）は省略しています。
+
+  let gameEnded = false;
+  const scores = { bottom: 35000, top: 35000, left: 35000, right: 35000 };
+  const scoreElByName = {
+    bottom: document.getElementById("scoreBottom"),
+    top: document.getElementById("scoreTop"),
+    left: document.getElementById("scoreLeft"),
+    right: document.getElementById("scoreRight")
+  };
+  const DEALER_SEAT = "bottom"; // 今回は東1局のみのため、あなたが常に親
+  const ROUND_WIND = 1; // 東場
+  const SEAT_WIND = { bottom: 1, right: 2, top: 3, left: 4 }; // 東南西北
+
+  function renderScores(){
+    Object.keys(scores).forEach(s => { scoreElByName[s].textContent = scores[s]; });
+  }
+
+  function tileKey(t){ return t.suit + "_" + t.num; }
+  function keyToTile(k){
+    const idx = k.lastIndexOf("_");
+    return { suit: k.slice(0, idx), num: parseInt(k.slice(idx + 1)) };
+  }
+  function countTiles(tiles){
+    const counts = {};
+    tiles.forEach(t => { const k = tileKey(t); counts[k] = (counts[k] || 0) + 1; });
+    return counts;
+  }
+
+  // 手牌（面子）を三面子/順子+刻子に分解できるか（1つの分解例を返す）
+  function decomposeMelds(counts, sets, preferSequence){
+    // 常に「色→数字」の順で、残っている一番小さい牌から処理する
+    // （順番がバラバラだと、既にある順子の途中の牌を先に拾ってしまい、正しい組み合わせを見落とすため）
+    const sortedKeys = Object.keys(counts).sort((a, b) => {
+      const ta = keyToTile(a), tb = keyToTile(b);
+      if(ta.suit !== tb.suit) return ta.suit < tb.suit ? -1 : 1;
+      return ta.num - tb.num;
+    });
+    let key = null;
+    for(const k of sortedKeys){ if(counts[k] > 0){ key = k; break; } }
+    if(!key) return true;
+    const t = keyToTile(key);
+
+    const tryTriplet = () => {
+      if(counts[key] < 3) return false;
+      counts[key] -= 3;
+      sets.push({ type:"triplet", tiles:[t, t, t], open:false });
+      if(decomposeMelds(counts, sets, preferSequence)) return true;
+      sets.pop();
+      counts[key] += 3;
+      return false;
+    };
+    const trySequence = () => {
+      if(!((t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num <= 7)) return false;
+      const k2 = t.suit + "_" + (t.num + 1), k3 = t.suit + "_" + (t.num + 2);
+      if(!((counts[k2] || 0) > 0 && (counts[k3] || 0) > 0)) return false;
+      counts[key]--; counts[k2]--; counts[k3]--;
+      sets.push({ type:"sequence", tiles:[t, keyToTile(k2), keyToTile(k3)], open:false });
+      if(decomposeMelds(counts, sets, preferSequence)) return true;
+      sets.pop();
+      counts[key]++; counts[k2]++; counts[k3]++;
+      return false;
+    };
+
+    if(preferSequence){
+      if(trySequence()) return true;
+      if(tryTriplet()) return true;
+    } else {
+      if(tryTriplet()) return true;
+      if(trySequence()) return true;
+    }
+    return false;
+  }
+
+  function findDecomposition(concealedTiles, preferSequence){
+    if(concealedTiles.length % 3 !== 2) return null;
+    const counts = countTiles(concealedTiles);
+    for(const k in counts){
+      if(counts[k] >= 2){
+        counts[k] -= 2;
+        const sets = [];
+        if(decomposeMelds(counts, sets, preferSequence)){
+          return { pairKey: k, sets };
+        }
+        counts[k] += 2;
+      }
+    }
+    return null;
+  }
+
+  function meldsToSets(seat){
+    return melds[seat].map(m => {
+      const type = m.type === "chi" ? "sequence" : (m.type === "kan" ? "kan" : "triplet");
+      let tiles = [...m.handTiles, m.calledTile];
+      if(m.addedTile) tiles.push(m.addedTile);
+      return { type, tiles, open:true };
+    });
+  }
+
+  // 役の判定（簡易版）
+  // 和了牌が「両面待ち」で入ったかどうかを判定する（平和の条件のひとつ）
+  // 嵌張（例：4・6待ちの5）、辺張（1・2待ちの3、8・9待ちの7）、単騎（雀頭待ち）は両面ではない
+  function isRyanmenWait(decomp, winTile, threadSets){
+    if(!winTile) return false;
+    if(threadSets){
+      // 組合龍の筋は順子として扱うため、筋の一部を埋めた場合は常に両面待ち扱いにする
+      for(const s of threadSets){
+        if(s.tiles.some(t => t.suit === winTile.suit && t.num === winTile.num)) return true;
+      }
+    }
+    if(!decomp) return false;
+    for(const s of decomp.sets){
+      if(s.type !== "sequence") continue;
+      if(s.tiles[0].suit !== winTile.suit) continue;
+      const nums = s.tiles.map(t => t.num);
+      const idx = nums.indexOf(winTile.num);
+      if(idx === -1) continue;
+      const a = nums[0];
+      if(idx === 1) continue; // 真ん中＝嵌張なのでこの組み合わせは両面にならない
+      if(idx === 0 && a + 2 !== 9) return true;  // 例外：8・9待ちの7は辺張
+      if(idx === 2 && a !== 1) return true;      // 例外：1・2待ちの3は辺張
+    }
+    return false;
+  }
+
+  // 推不倒（トイプータオ）：上下逆さまにしても模様が同じに見える牌だけで作る役
+  // 白（三元牌）、筒子1234589、索子245689 の14種類のみ使用
+  const TOIBUDAO_KEYS = new Set([
+    "dragon_1",
+    "pin_1", "pin_2", "pin_3", "pin_4", "pin_5", "pin_8", "pin_9",
+    "sou_2", "sou_4", "sou_5", "sou_6", "sou_8", "sou_9"
+  ]);
+  function isToibudaoTile(t){ return TOIBUDAO_KEYS.has(tileKey(t)); }
+
+  // 小于五（ショウユウウー）：1〜4の数牌だけで作る役
+  // 緑一色：索子2・3・4・6・8と發だけで作る役
+  function isGreenTile(t){
+    if(t.suit === "dragon" && t.num === 2) return true;
+    if(t.suit === "sou" && [2, 3, 4, 6, 8].includes(t.num)) return true;
+    return false;
+  }
+
+  // 紅孔雀：索子1・5・7・9と中の5種類だけで作る役（通常形・七対子どちらも可）
+  const HONG_KONGQUE_KEYS = new Set(["sou_1", "sou_5", "sou_7", "sou_9", "dragon_3"]);
+  function isHongKongqueTile(t){ return HONG_KONGQUE_KEYS.has(tileKey(t)); }
+
+  // 花鳥風月雪：筒子5・筒子1・索子1・風牌（任意）・白の5種類だけで作る役（七対子も可）
+  function isKachoFugetsuYukiTile(t){
+    if(t.suit === "pin" && (t.num === 5 || t.num === 1)) return true;
+    if(t.suit === "sou" && t.num === 1) return true;
+    if(t.suit === "wind") return true;
+    if(t.suit === "dragon" && t.num === 1) return true;
+    return false;
+  }
+
+  // 百万石：萬子の数字の合計が100以上（役満）
+  function manNumberSum(tiles){
+    return tiles.filter(t => t.suit === "man").reduce((sum, t) => sum + t.num, 0);
+  }
+
+  function isXiaoYuWuTile(t){
+    return (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num >= 1 && t.num <= 4;
+  }
+
+  // 全小（チェンショウ）：1〜3の数牌だけで作る役
+  function isQuanXiaoTile(t){
+    return (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num >= 1 && t.num <= 3;
+  }
+
+  // 大于五（ダーユウウー）：6〜9の数牌だけで作る役
+  function isDaYuWuTile(t){
+    return (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num >= 6 && t.num <= 9;
+  }
+
+  // 全大（チェンダー）：7〜9の数牌だけで作る役
+  function isQuanDaTile(t){
+    return (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num >= 7 && t.num <= 9;
+  }
+
+  // 全中（チェンチュン）：4〜6の数牌だけで作る役
+  function isQuanZhongTile(t){
+    return (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num >= 4 && t.num <= 6;
+  }
+
+  // 組合龍（ツーハーロン、三色筋一気通貫）：
+  // 「1・4・7」「2・5・8」「3・6・9」の3つの筋を、萬子・筒子・索子それぞれ1色ずつに割り当てて使う。
+  // 筋は順子として扱うため平和にもなり得るが、必ず面前で作る必要があり（チー不可）、
+  // 鳴けるのは残りの1面子部分だけ。
+  function permuteIndices(arr){
+    if(arr.length <= 1) return [arr];
+    const result = [];
+    arr.forEach((v, i) => {
+      const rest = [...arr.slice(0, i), ...arr.slice(i + 1)];
+      permuteIndices(rest).forEach(p => result.push([v, ...p]));
+    });
+    return result;
+  }
+
+  function findZuheLongDecomposition(seat, concealed){
+    if(melds[seat].length > 1) return null; // 鳴けるのは残り1面子分だけ
+    const threadDefs = [[1, 4, 7], [2, 5, 8], [3, 6, 9]];
+    const suits = ["man", "pin", "sou"];
+    for(const perm of permuteIndices([0, 1, 2])){
+      const counts = countTiles(concealed);
+      let ok = true;
+      for(let i = 0; i < 3 && ok; i++){
+        const suit = suits[i];
+        for(const n of threadDefs[perm[i]]){
+          const k = suit + "_" + n;
+          if((counts[k] || 0) < 1){ ok = false; break; }
+          counts[k]--;
+        }
+      }
+      if(!ok) continue;
+
+      const remaining = [];
+      for(const k in counts){
+        for(let c = 0; c < counts[k]; c++) remaining.push(keyToTile(k));
+      }
+      const neededSets = 1 - melds[seat].length; // 鳴きが無ければ、あと1面子を門前で作る必要がある
+      if(remaining.length !== neededSets * 3 + 2) continue;
+
+      const decomp = findDecomposition(remaining, false);
+      if(!decomp || decomp.sets.length !== neededSets) continue;
+
+      const threadSets = suits.map((suit, i) => ({
+        type:"sequence",
+        tiles: threadDefs[perm[i]].map(n => ({ suit, num:n })),
+        open:false,
+        isThread:true
+      }));
+      return { pairKey: decomp.pairKey, extraSets: decomp.sets, threadSets };
+    }
+    return null;
+  }
+
+  // 組合同順（ツーハートンシュン、三色筋同順）：組合龍と同じ考え方だが、
+  // 3色すべてに「同じ」筋（1・4・7／2・5・8／3・6・9のいずれか）を使う
+  function findZuheTongshunDecomposition(seat, concealed){
+    if(melds[seat].length > 1) return null; // 鳴けるのは残り1面子分だけ
+    const threadDefs = [[1, 4, 7], [2, 5, 8], [3, 6, 9]];
+    const suits = ["man", "pin", "sou"];
+    for(const thread of threadDefs){
+      const counts = countTiles(concealed);
+      let ok = true;
+      for(const suit of suits){
+        for(const n of thread){
+          const k = suit + "_" + n;
+          if((counts[k] || 0) < 1){ ok = false; break; }
+          counts[k]--;
+        }
+        if(!ok) break;
+      }
+      if(!ok) continue;
+
+      const remaining = [];
+      for(const k in counts){
+        for(let c = 0; c < counts[k]; c++) remaining.push(keyToTile(k));
+      }
+      const neededSets = 1 - melds[seat].length;
+      if(remaining.length !== neededSets * 3 + 2) continue;
+
+      const decomp = findDecomposition(remaining, false);
+      if(!decomp || decomp.sets.length !== neededSets) continue;
+
+      const threadSets = suits.map(suit => ({
+        type:"sequence",
+        tiles: thread.map(n => ({ suit, num:n })),
+        open:false,
+        isThread:true
+      }));
+      return { pairKey: decomp.pairKey, extraSets: decomp.sets, threadSets };
+    }
+    return null;
+  }
+
+  function computeYaku(seat, allSets, pairTile, isTsumo, decomp, winTile, threadSets){
+    const yaku = [];
+    const closedHand = melds[seat].length === 0;
+    const allTiles = [pairTile, pairTile, ...allSets.flatMap(s => s.tiles)];
+
+    if(isTsumo && closedHand) yaku.push({ name:"門前清自摸和", han:1 });
+
+    // 全帯五（チェンタイウー）：全ての面子＋雀頭に、萬子5・筒子5・索子5のいずれかが1枚以上含まれている
+    // （門前2翻・鳴き1翻。必ずタンヤオ形になるため、タンヤオとは複合させない）
+    const hasFive = t => (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num === 5;
+    const isChantaiwu = hasFive(pairTile) && allSets.every(s => s.tiles.some(hasFive));
+    if(isChantaiwu) yaku.push({ name:"全帯五", han: closedHand ? 2 : 1 });
+
+    // 全双刻（チェンシュワンクー）：偶数の牌だけで成立した対々和（対々和と複合、2翻。必ずタンヤオ形になるため、タンヤオとは複合させない）
+    const isEven = t => (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num % 2 === 0;
+    const isToitoi = allSets.every(s => s.type === "triplet" || s.type === "kan");
+    const isChuanshuangku = isToitoi && isEven(pairTile) && allSets.every(s => isEven(s.tiles[0]));
+    if(isChuanshuangku) yaku.push({ name:"全双刻", han:2 });
+
+    // 全中（チェンチュン）：4〜6の数牌だけで作る（門前3翻・鳴き2翻。タンヤオとは複合しない。全帯五とは複合する）
+    const isQuanZhong = allTiles.every(isQuanZhongTile);
+    if(isQuanZhong) yaku.push({ name:"全中", han: closedHand ? 3 : 2 });
+
+    const isSimple = t => t.num !== 1 && t.num !== 9 && t.suit !== "wind" && t.suit !== "dragon";
+    if(!isChantaiwu && !isChuanshuangku && !isQuanZhong && allTiles.every(isSimple)) yaku.push({ name:"断幺九", han:1 });
+
+    allSets.forEach(s => {
+      if(s.type === "triplet" || s.type === "kan"){
+        const t = s.tiles[0];
+        if(t.suit === "dragon") yaku.push({ name:"役牌（三元牌）", han:1 });
+        if(t.suit === "wind" && t.num === SEAT_WIND[seat]) yaku.push({ name:"役牌（自風）", han:1 });
+        if(t.suit === "wind" && t.num === ROUND_WIND) yaku.push({ name:"役牌（場風）", han:1 });
+      }
+    });
+
+    if(allSets.every(s => s.type === "triplet" || s.type === "kan")) yaku.push({ name:"対々和", han:2 });
+
+    // 大四喜・小四喜：風牌4種類のうち3つ以上を刻子/槓子として使っている（役満）。三風刻の上位役なので複合しない
+    {
+      const windNums = new Set();
+      allSets.forEach(s => {
+        if((s.type === "triplet" || s.type === "kan") && s.tiles[0].suit === "wind") windNums.add(s.tiles[0].num);
+      });
+      if(windNums.size === 4){
+        yaku.push({ name:"大四喜", han:13 });
+      } else if(windNums.size === 3 && pairTile.suit === "wind"){
+        yaku.push({ name:"小四喜", han:13 });
+      } else if(windNums.size >= 3){
+        yaku.push({ name:"三風刻", han:2 });
+      }
+    }
+
+    // 大三元・小三元：三元牌3種類のうち刻子/槓子にした数
+    {
+      const dragonNums = new Set();
+      allSets.forEach(s => {
+        if((s.type === "triplet" || s.type === "kan") && s.tiles[0].suit === "dragon") dragonNums.add(s.tiles[0].num);
+      });
+      if(dragonNums.size === 3){
+        yaku.push({ name:"大三元", han:13 });
+      } else if(dragonNums.size === 2 && pairTile.suit === "dragon"){
+        yaku.push({ name:"小三元", han:2 });
+      }
+    }
+
+    // 字一色：字牌だけで作る（役満）
+    if(allTiles.every(t => t.suit === "wind" || t.suit === "dragon")) yaku.push({ name:"字一色", han:13 });
+
+    // 清老頭：1・9の数牌だけで作る（役満）
+    if(allTiles.every(t => (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && (t.num === 1 || t.num === 9))){
+      yaku.push({ name:"清老頭", han:13 });
+    }
+
+    // 混老頭：1・9・字牌だけで作る（2翻）
+    if(allTiles.every(t => t.num === 1 || t.num === 9 || t.suit === "wind" || t.suit === "dragon")){
+      yaku.push({ name:"混老頭", han:2 });
+    }
+
+    // 緑一色：索子2・3・4・6・8と發だけで作る（役満）
+    if(allTiles.every(isGreenTile)) yaku.push({ name:"緑一色", han:13 });
+
+    // 三色同刻：同じ数字の刻子/槓子が萬子・筒子・索子それぞれにある（3翻）
+    {
+      const bySuit = { man:new Set(), pin:new Set(), sou:new Set() };
+      allSets.forEach(s => {
+        if((s.type === "triplet" || s.type === "kan") && bySuit[s.tiles[0].suit]) bySuit[s.tiles[0].suit].add(s.tiles[0].num);
+      });
+      let hasSanshokuDouko = false;
+      for(let n = 1; n <= 9; n++){
+        if(bySuit.man.has(n) && bySuit.pin.has(n) && bySuit.sou.has(n)){ hasSanshokuDouko = true; break; }
+      }
+      if(hasSanshokuDouko) yaku.push({ name:"三色同刻", han:3 });
+    }
+
+    // 三色同順：同じ数字の順子が萬子・筒子・索子それぞれにある（門前2翻・鳴き1翻）
+    {
+      const seqStartsBySuit3 = { man:new Set(), pin:new Set(), sou:new Set() };
+      allSets.forEach(s => {
+        if(s.type !== "sequence") return;
+        if(seqStartsBySuit3[s.tiles[0].suit]) seqStartsBySuit3[s.tiles[0].suit].add(s.tiles[0].num);
+      });
+      for(let n = 1; n <= 7; n++){
+        if(seqStartsBySuit3.man.has(n) && seqStartsBySuit3.pin.has(n) && seqStartsBySuit3.sou.has(n)){
+          yaku.push({ name:"三色同順", han: closedHand ? 2 : 1 });
+          break;
+        }
+      }
+    }
+
+    // 三槓子：槓子が3組以上ある（3翻）
+    if(allSets.filter(s => s.type === "kan").length >= 3) yaku.push({ name:"三槓子", han:3 });
+
+    // 花鳥風月雪（役満）：筒子5・索子1・風牌（任意）・筒子1を刻子/槓子にし、雀頭を白にする。
+    // 花鳥風月の上位役なので複合しない
+    {
+      const hasTripletOf = (suit, num) => allSets.some(s =>
+        (s.type === "triplet" || s.type === "kan") && s.tiles[0].suit === suit && (num === undefined || s.tiles[0].num === num)
+      );
+      const isKachoFugetsuYuki = hasTripletOf("pin", 5) && hasTripletOf("sou", 1) && hasTripletOf("wind") &&
+        hasTripletOf("pin", 1) && pairTile.suit === "dragon" && pairTile.num === 1;
+      if(isKachoFugetsuYuki){
+        yaku.push({ name:"花鳥風月雪", han:13 });
+      } else if(hasTripletOf("pin", 5) && hasTripletOf("sou", 1) && hasTripletOf("wind") && hasTripletOf("pin", 1)){
+        yaku.push({ name:"花鳥風月", han:2 });
+      }
+    }
+
+    // 紅孔雀：索子1・5・7・9と中の5種類だけで作る（役満、鳴きも可）
+    if(allTiles.every(isHongKongqueTile)) yaku.push({ name:"紅孔雀", han:13 });
+
+    // 百万石：萬子の数字の合計が100以上（役満）
+    if(manNumberSum(allTiles) >= 100) yaku.push({ name:"百万石", han:13 });
+
+    // 一色双龍会（イーソシュワンロンフィー）：1色だけで123の順子2組・789の順子2組・雀頭を作る（役満、鳴きも可）
+    let hasYisSeShuangLong = false;
+    {
+      const suits = ["man", "pin", "sou"];
+      for(const suit of suits){
+        const seqStarts = allSets.filter(s => s.type === "sequence" && s.tiles[0].suit === suit).map(s => s.tiles[0].num);
+        const has123x2 = seqStarts.filter(n => n === 1).length >= 2;
+        const has789x2 = seqStarts.filter(n => n === 7).length >= 2;
+        if(has123x2 && has789x2 && pairTile.suit === suit){
+          yaku.push({ name:"一色双龍会", han:13 });
+          hasYisSeShuangLong = true;
+          break;
+        }
+      }
+    }
+
+    const suitsUsed = new Set(allTiles.filter(t => t.suit === "man" || t.suit === "pin" || t.suit === "sou").map(t => t.suit));
+    const hasHonor = allTiles.some(t => t.suit === "wind" || t.suit === "dragon");
+    if(!hasYisSeShuangLong && suitsUsed.size === 1){
+      if(hasHonor) yaku.push({ name:"混一色", han: closedHand ? 3 : 2 });
+      else yaku.push({ name:"清一色", han: closedHand ? 6 : 5 });
+    }
+
+    // 平和：門前・全部順子・雀頭が役牌でない・かつ「両面待ち」で和了した場合のみ成立する
+    if(closedHand && allSets.every(s => s.type === "sequence")){
+      const pairIsYakuhai = pairTile.suit === "dragon" ||
+        (pairTile.suit === "wind" && (pairTile.num === SEAT_WIND[seat] || pairTile.num === ROUND_WIND));
+      if(!pairIsYakuhai && isRyanmenWait(decomp, winTile, threadSets)) yaku.push({ name:"平和", han:1 });
+    }
+
+    // 一気通貫：同じ色で123・456・789が揃っている（鳴いていると1翻、門前なら2翻）
+    {
+      const seqStartsBySuit = { man:new Set(), pin:new Set(), sou:new Set() };
+      allSets.forEach(s => {
+        if(s.type !== "sequence") return;
+        const suit = s.tiles[0].suit;
+        if(seqStartsBySuit[suit]) seqStartsBySuit[suit].add(s.tiles[0].num);
+      });
+      for(const suit of ["man", "pin", "sou"]){
+        if(seqStartsBySuit[suit].has(1) && seqStartsBySuit[suit].has(4) && seqStartsBySuit[suit].has(7)){
+          yaku.push({ name:"一気通貫", han: closedHand ? 2 : 1 });
+          break;
+        }
+      }
+    }
+
+    // 純全帯么（ジュンチャン）・全帯幺（チャンタ）：全ての面子＋雀頭に幺九牌が1枚以上含まれている
+    // 純全帯么は字牌を含まない（1・9のみ）、より厳しい形（鳴いても面前でも3翻）。成立時は全帯幺とは複合しない
+    {
+      const hasTerminalOnly = t => (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && (t.num === 1 || t.num === 9);
+      const hasTerminalOrHonor = t => t.num === 1 || t.num === 9 || t.suit === "wind" || t.suit === "dragon";
+      const isJunchan = hasTerminalOnly(pairTile) && allSets.every(s => s.tiles.some(hasTerminalOnly));
+      if(isJunchan){
+        yaku.push({ name:"純全帯么", han:3 });
+      } else if(hasTerminalOrHonor(pairTile) && allSets.every(s => s.tiles.some(hasTerminalOrHonor))){
+        yaku.push({ name:"全帯幺", han:2 });
+      }
+    }
+
+    // 一色四歩高：同じ色の順子4組全てが、1枚ずつか2枚ずつずれた階段状になっている（門前4翻・鳴き3翻）
+    // 一色三歩高の上位役なので、成立した場合は一色三歩高を複合させない
+    let hasIsshokuSibuko = false;
+    {
+      const seqStartsBySuit4 = { man:[], pin:[], sou:[] };
+      allSets.forEach(s => {
+        if(s.type !== "sequence") return;
+        const suit = s.tiles[0].suit;
+        if(seqStartsBySuit4[suit]) seqStartsBySuit4[suit].push(s.tiles[0].num);
+      });
+      for(const suit of ["man", "pin", "sou"]){
+        const starts = seqStartsBySuit4[suit];
+        if(starts.length < 4) continue;
+        const sorted = starts.slice().sort((a, b) => a - b);
+        const d1 = sorted[1] - sorted[0], d2 = sorted[2] - sorted[1], d3 = sorted[3] - sorted[2];
+        if(d1 === d2 && d2 === d3 && (d1 === 1 || d1 === 2)){
+          yaku.push({ name:"一色四歩高", han: closedHand ? 4 : 3 });
+          hasIsshokuSibuko = true;
+          break;
+        }
+      }
+    }
+
+    // 一色三歩高：同じ色の順子3組が、1枚ずつか2枚ずつずれた階段状になっている（門前2翻・鳴き1翻）
+    if(!hasIsshokuSibuko){
+      const seqStartsBySuit = { man:[], pin:[], sou:[] };
+      allSets.forEach(s => {
+        if(s.type !== "sequence") return;
+        const suit = s.tiles[0].suit;
+        if(seqStartsBySuit[suit]) seqStartsBySuit[suit].push(s.tiles[0].num);
+      });
+      outer:
+      for(const suit of ["man", "pin", "sou"]){
+        const starts = seqStartsBySuit[suit];
+        for(let i = 0; i < starts.length; i++){
+          for(let j = i + 1; j < starts.length; j++){
+            for(let k = j + 1; k < starts.length; k++){
+              const trio = [starts[i], starts[j], starts[k]].sort((a, b) => a - b);
+              const d1 = trio[1] - trio[0], d2 = trio[2] - trio[1];
+              if(d1 === d2 && (d1 === 1 || d1 === 2)){
+                yaku.push({ name:"一色三歩高", han: closedHand ? 2 : 1 });
+                break outer;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 全帯三（チャンタイサン）：全ての面子＋雀頭に、萬子3・筒子3・索子3のいずれかが1枚以上含まれている（門前2翻・鳴き1翻、タンヤオと複合）
+    {
+      const hasThree = t => (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num === 3;
+      if(hasThree(pairTile) && allSets.every(s => s.tiles.some(hasThree))){
+        yaku.push({ name:"全帯三", han: closedHand ? 2 : 1 });
+      }
+    }
+
+    // 全帯七（チャンタイチー）：全ての面子＋雀頭に、萬子7・筒子7・索子7のいずれかが1枚以上含まれている（門前2翻・鳴き1翻、タンヤオと複合）
+    {
+      const hasSeven = t => (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num === 7;
+      if(hasSeven(pairTile) && allSets.every(s => s.tiles.some(hasSeven))){
+        yaku.push({ name:"全帯七", han: closedHand ? 2 : 1 });
+      }
+    }
+
+    // 三色双龍会（サンソーシュワンロンフィー）：3色のうち1色に123の順子2組、別の1色に789の順子2組、
+    // 残りの1色で雀頭を作る（4翻、チーも可）。二盃口とは複合しない
+    let hasSanshokuShuangLong = false;
+    {
+      const seqStartsBySuit = { man:[], pin:[], sou:[] };
+      allSets.forEach(s => {
+        if(s.type !== "sequence") return;
+        if(seqStartsBySuit[s.tiles[0].suit]) seqStartsBySuit[s.tiles[0].suit].push(s.tiles[0].num);
+      });
+      const suits = ["man", "pin", "sou"];
+      for(const perm of permuteIndices([0, 1, 2])){
+        const s123 = suits[perm[0]], s789 = suits[perm[1]], sPair = suits[perm[2]];
+        const has123x2 = seqStartsBySuit[s123].filter(n => n === 1).length >= 2;
+        const has789x2 = seqStartsBySuit[s789].filter(n => n === 7).length >= 2;
+        if(has123x2 && has789x2 && pairTile.suit === sPair){
+          yaku.push({ name:"三色双龍会", han:4 });
+          hasSanshokuShuangLong = true;
+          break;
+        }
+      }
+    }
+
+    // 一色四順：同じ色で全く同じ順子が4組揃っている（役満）。一色三順・一盃口の上位役なので複合しない
+    let hasIsshokuSijun = false;
+    {
+      const seqCountsBySuit4 = {};
+      allSets.forEach(s => {
+        if(s.type !== "sequence") return;
+        const suit = s.tiles[0].suit, start = s.tiles[0].num;
+        const k = suit + "_" + start;
+        seqCountsBySuit4[k] = (seqCountsBySuit4[k] || 0) + 1;
+      });
+      if(Object.values(seqCountsBySuit4).some(c => c >= 4)){
+        yaku.push({ name:"一色四順", han:13 });
+        hasIsshokuSijun = true;
+      }
+    }
+
+    // 一盃口（門前限定）・二盃口（門前3翻・鳴き1翻）：同じ順子が2組以上あるか
+    if(!hasSanshokuShuangLong && !hasIsshokuSijun && !hasYisSeShuangLong){
+      const seqCounts = {};
+      allSets.forEach(s => {
+        if(s.type !== "sequence") return;
+        const k = s.tiles[0].suit + "_" + s.tiles[0].num;
+        seqCounts[k] = (seqCounts[k] || 0) + 1;
+      });
+      const dupPairCount = Object.values(seqCounts).filter(c => c >= 2).length;
+      if(dupPairCount >= 2) yaku.push({ name:"二盃口", han: closedHand ? 3 : 1 });
+      else if(closedHand && dupPairCount === 1) yaku.push({ name:"一盃口", han:1 });
+    }
+
+    // 三色三連刻（萬子・筒子・索子それぞれに刻子/槓子が1組ずつあり、数字が3つ連続している）
+    {
+      const triplets = allSets.filter(s => s.type === "triplet" || s.type === "kan");
+      const bySuit = { man:[], pin:[], sou:[] };
+      triplets.forEach(s => {
+        const suit = s.tiles[0].suit;
+        if(bySuit[suit]) bySuit[suit].push(s.tiles[0].num);
+      });
+      if(bySuit.man.length === 1 && bySuit.pin.length === 1 && bySuit.sou.length === 1){
+        const nums = [bySuit.man[0], bySuit.pin[0], bySuit.sou[0]].sort((a, b) => a - b);
+        if(nums[1] === nums[0] + 1 && nums[2] === nums[1] + 1){
+          yaku.push({ name:"三色三連刻", han:1 });
+        }
+      }
+
+      // 四連刻：同じ色だけで数字が4つ連続した刻子/槓子（役満）。三連刻の上位役なので複合しない
+      let hasSurenko = false;
+      const bySuitSet = { man:new Set(bySuit.man), pin:new Set(bySuit.pin), sou:new Set(bySuit.sou) };
+      outerSurenko:
+      for(const suit of ["man", "pin", "sou"]){
+        for(let n = 1; n <= 6; n++){
+          if(bySuitSet[suit].has(n) && bySuitSet[suit].has(n + 1) && bySuitSet[suit].has(n + 2) && bySuitSet[suit].has(n + 3)){
+            yaku.push({ name:"四連刻", han:13 });
+            hasSurenko = true;
+            break outerSurenko;
+          }
+        }
+      }
+
+      // 三連刻：同じ色だけで数字が3つ連続した刻子/槓子（例：111・222・333）が揃っている（2翻）
+      if(!hasSurenko){
+        outerSanrenko:
+        for(const suit of ["man", "pin", "sou"]){
+          for(let n = 1; n <= 7; n++){
+            if(bySuitSet[suit].has(n) && bySuitSet[suit].has(n + 1) && bySuitSet[suit].has(n + 2)){
+              yaku.push({ name:"三連刻", han:2 });
+              break outerSanrenko;
+            }
+          }
+        }
+      }
+    }
+
+    // 三暗刻・四暗刻：門前で自分の手牌の中だけで揃えた刻子（ロンで完成した刻子は含まない）が3つ/4つ
+    {
+      const ankouExcludedOnce = { used:false };
+      const ankouCount = decomp ? decomp.sets.reduce((count, s) => {
+        if(s.type !== "triplet") return count;
+        if(!isTsumo && winTile && s.tiles[0].suit === winTile.suit && s.tiles[0].num === winTile.num && !ankouExcludedOnce.used){
+          ankouExcludedOnce.used = true;
+          return count;
+        }
+        return count + 1;
+      }, 0) : 0;
+      if(ankouCount >= 4) yaku.push({ name:"四暗刻", han:13 });
+      else if(ankouCount === 3) yaku.push({ name:"三暗刻", han:2 });
+    }
+
+    // 一色三順：同じ色で全く同じ順子が3組揃っている（例：123・123・123）（2翻）
+    if(!hasIsshokuSijun){
+      const seqCountsBySuit = {};
+      allSets.forEach(s => {
+        if(s.type !== "sequence") return;
+        const suit = s.tiles[0].suit, start = s.tiles[0].num;
+        const k = suit + "_" + start;
+        seqCountsBySuit[k] = (seqCountsBySuit[k] || 0) + 1;
+      });
+      if(Object.values(seqCountsBySuit).some(c => c >= 3)){
+        yaku.push({ name:"一色三順", han:2 });
+      }
+    }
+
+    // 花龍（ファーロン）：萬子・筒子・索子で123/456/789のブロックが1つずつ揃う（鳴いても1翻）
+    {
+      const seqStartsBySuit = { man:new Set(), pin:new Set(), sou:new Set() };
+      allSets.forEach(s => {
+        if(s.type !== "sequence") return;
+        const suit = s.tiles[0].suit;
+        if(seqStartsBySuit[suit]) seqStartsBySuit[suit].add(s.tiles[0].num);
+      });
+      const suits = ["man", "pin", "sou"];
+      const blocks = [1, 4, 7];
+      const permute = arr => arr.length <= 1 ? [arr] :
+        arr.flatMap((v, i) => permute([...arr.slice(0, i), ...arr.slice(i + 1)]).map(p => [v, ...p]));
+      const isKaryuu = permute(blocks).some(perm =>
+        seqStartsBySuit[suits[0]].has(perm[0]) &&
+        seqStartsBySuit[suits[1]].has(perm[1]) &&
+        seqStartsBySuit[suits[2]].has(perm[2])
+      );
+      if(isKaryuu) yaku.push({ name:"花龍", han:1 });
+    }
+
+    // 五門斉（ウーメンチー）：萬子・筒子・索子・風牌・三元牌の5種類全てを使っている（鳴いても1翻）
+    if(hasAllFiveSuits(allTiles)) yaku.push({ name:"五門斉", han:1 });
+
+    // 推不倒（トイプータオ）：白・筒子1234589・索子245689だけで作る（門前2翻・鳴き1翻）
+    if(allTiles.every(isToibudaoTile)) yaku.push({ name:"推不倒", han: closedHand ? 2 : 1 });
+
+    // 全小（チェンショウ）：1〜3の数牌だけで作る（門前3翻・鳴き2翻）。小于五の上位役なので複合しない
+    const isQuanXiao = allTiles.every(isQuanXiaoTile);
+    if(isQuanXiao) yaku.push({ name:"全小", han: closedHand ? 3 : 2 });
+
+    // 小于五（ショウユウウー）：1〜4の数牌だけで作る（門前2翻・鳴き1翻）
+    if(!isQuanXiao && allTiles.every(isXiaoYuWuTile)) yaku.push({ name:"小于五", han: closedHand ? 2 : 1 });
+
+    // 全大（チェンダー）：7〜9の数牌だけで作る（門前3翻・鳴き2翻）。大于五の上位役なので複合しない
+    const isQuanDa = allTiles.every(isQuanDaTile);
+    if(isQuanDa) yaku.push({ name:"全大", han: closedHand ? 3 : 2 });
+
+    // 大于五（ダーユウウー）：6〜9の数牌だけで作る（門前2翻・鳴き1翻）
+    if(!isQuanDa && allTiles.every(isDaYuWuTile)) yaku.push({ name:"大于五", han: closedHand ? 2 : 1 });
+
+    // 組合龍（ツーハーロン、三色筋一気通貫）：門前2翻・鳴き1翻
+    // 組合龍は専用の構造検出（findZuheLongDecomposition）側で判定し、ここでは扱わない
+
+    // 雪月花（せつげっか）：白（雪）・1筒（月）・5筒（花）の刻子/槓子が揃っている（鳴いても1翻、白の役牌と複合）
+    {
+      const hasTripletOf = (suit, num) => allSets.some(s =>
+        (s.type === "triplet" || s.type === "kan") && s.tiles[0].suit === suit && s.tiles[0].num === num
+      );
+      if(hasTripletOf("dragon", 1) && hasTripletOf("pin", 1) && hasTripletOf("pin", 5)){
+        yaku.push({ name:"雪月花", han:1 });
+      }
+    }
+
+    return yaku;
+  }
+
+  function hasAllFiveSuits(tiles){
+    const cats = new Set(tiles.map(t => t.suit));
+    return cats.has("man") && cats.has("pin") && cats.has("sou") && cats.has("wind") && cats.has("dragon");
+  }
+
+  function nextTileForDora(t){
+    if(t.suit === "man" || t.suit === "pin" || t.suit === "sou"){
+      return { suit:t.suit, num: t.num === 9 ? 1 : t.num + 1 };
+    } else if(t.suit === "wind"){
+      return { suit:"wind", num: t.num === 4 ? 1 : t.num + 1 };
+    }
+    return { suit:"dragon", num: t.num === 3 ? 1 : t.num + 1 };
+  }
+
+  function countDoraDetail(allTiles){
+    const doraTile = nextTileForDora(doraIndicator);
+    const indicatorDora = allTiles.filter(t => t.suit === doraTile.suit && t.num === doraTile.num).length;
+    return indicatorDora;
+  }
+
+  function countAka(allTiles){
+    return allTiles.filter(t => t.red).length;
+  }
+
+  function addDoraYaku(yaku, allTiles){
+    const indicatorDora = countDoraDetail(allTiles);
+    if(indicatorDora > 0) yaku.push({ name:"ドラ", han:indicatorDora });
+    return indicatorDora;
+  }
+
+  // 符計算はせず、飜数だけで点数を決める簡易方式
+  // （settleRon/settleTsumoの倍率（子ロン=4倍・親ロン=6倍）と組み合わせると、
+  //   子＝飜数×2,000点、親＝飜数×3,000点になります）
+  function calcBasePoints(han){
+    return han * 500;
+  }
+
+  // 手牌が和了形になっているか判定し、役があれば結果を返す（役なしはnull）
+  function attemptWin(seat, extraTile, isTsumo){
+    const concealed = hands[seat].slice();
+    if(extraTile) concealed.push(extraTile);
+    // 和了牌（ロンなら捨て牌、ツモなら直前にツモった牌）。待ちの形（平和の判定）に使う
+    const winTile = extraTile || (seat === "bottom" ? lastDrawnTile : lastDrawnCpu[seat]);
+
+    // 国士無双（役満）：1・9の数牌6種類＋字牌7種類、計13種類のうちどれか1種類が2枚、残り12種類が1枚ずつ
+    function buildKokushiResult(){
+      if(melds[seat].length !== 0 || concealed.length !== 14) return null;
+      const kokushiKeys = [
+        "man_1", "man_9", "pin_1", "pin_9", "sou_1", "sou_9",
+        "wind_1", "wind_2", "wind_3", "wind_4", "dragon_1", "dragon_2", "dragon_3"
+      ];
+      const counts = countTiles(concealed);
+      const keys = Object.keys(counts);
+      if(!keys.every(k => kokushiKeys.includes(k))) return null;
+      if(keys.length !== 13) return null;
+      const values = Object.values(counts);
+      if(!(values.filter(c => c === 2).length === 1 && values.every(c => c === 1 || c === 2))) return null;
+      const yaku = [{ name:"国士無双", han:13 }];
+      const akaCount = countAka(concealed);
+      const base = calcBasePoints(13);
+      return { seat, yaku, han:13, base, isTsumo, akaCount };
+    }
+
+    // 七対子（2翻）：対子が7組（同じ牌を4枚使って2組にするのも可）、かつ門前のみ
+    function buildChiitoitsuResult(){
+      if(melds[seat].length !== 0 || concealed.length !== 14) return null;
+      const counts = countTiles(concealed);
+      const values = Object.values(counts);
+      const allEven = values.every(c => c % 2 === 0);
+      const totalPairs = values.reduce((sum, c) => sum + c / 2, 0);
+      if(!allEven || totalPairs !== 7) return null;
+
+      // 連七対（役満）：同じ色の7つの連続した数字が、ちょうど2枚ずつの対子になっている（4枚使いは不可）
+      const keys = Object.keys(counts);
+      let isRenchitoi = false;
+      if(keys.length === 7 && keys.every(k => counts[k] === 2)){
+        const tiles7 = keys.map(keyToTile);
+        const suit0 = tiles7[0].suit;
+        if(tiles7.every(t => t.suit === suit0)){
+          const nums = tiles7.map(t => t.num).sort((a, b) => a - b);
+          isRenchitoi = nums.every((n, i) => i === 0 || n === nums[i - 1] + 1);
+        }
+      }
+
+      // 緑一色の七対子・4枚使い（役満）：全て緑の牌で、いずれかの牌を4枚（2組扱い）使っている
+      const isGreenFourTileChiitoi = concealed.every(isGreenTile) && keys.some(k => counts[k] === 4);
+
+      // 紅孔雀の七対子（役満、4枚使いも可）：全て索子1・5・7・9と中だけ
+      const isHongKongqueChiitoi = concealed.every(isHongKongqueTile);
+
+      // 花鳥風月雪の七対子（役満、4枚使いも可）：全て筒子5・筒子1・索子1・風牌・白だけ
+      const isKachoFugetsuYukiChiitoi = concealed.every(isKachoFugetsuYukiTile);
+
+      // 百万石の七対子（役満、4枚使いも可）：萬子の数字の合計が100以上
+      const isHyakumangokuChiitoi = manNumberSum(concealed) >= 100;
+
+      let yaku;
+      if(isGreenFourTileChiitoi) yaku = [{ name:"緑一色（七対子四枚使い）", han:13 }];
+      else if(isHongKongqueChiitoi) yaku = [{ name:"紅孔雀", han:13 }];
+      else if(isKachoFugetsuYukiChiitoi) yaku = [{ name:"花鳥風月雪", han:13 }];
+      else if(isHyakumangokuChiitoi) yaku = [{ name:"百万石", han:13 }];
+      else if(isRenchitoi) yaku = [{ name:"連七対", han:13 }];
+      else yaku = [{ name:"七対子", han:2 }];
+      if(isTsumo) yaku.push({ name:"門前清自摸和", han:1 });
+      if(hasAllFiveSuits(concealed)) yaku.push({ name:"五門斉", han:1 });
+      if(concealed.every(isToibudaoTile)) yaku.push({ name:"推不倒", han:2 });
+      if(concealed.every(isXiaoYuWuTile)) yaku.push({ name:"小于五", han:2 });
+      if(concealed.every(isDaYuWuTile)) yaku.push({ name:"大于五", han:2 });
+      let han = yaku.reduce((sum, y) => sum + y.han, 0);
+      han += addDoraYaku(yaku, concealed);
+      const akaCount = countAka(concealed);
+      const base = calcBasePoints(han);
+      return { seat, yaku, han, base, isTsumo, akaCount };
+    }
+
+    // 同じ牌の並びでも「刻子優先」「順子優先」で解釈が分かれることがあるため
+    // （例：111222333は三連刻にも一色三順にもなり得る）、両方試して翻数が高い方を採用する
+    function buildStandardResult(preferSequence){
+      const decomp = findDecomposition(concealed, preferSequence);
+      if(!decomp) return null;
+      const pairTile = keyToTile(decomp.pairKey);
+      const allSets = [...decomp.sets, ...meldsToSets(seat)];
+      if(allSets.length !== 4) return null;
+      const yaku = computeYaku(seat, allSets, pairTile, isTsumo, decomp, winTile);
+      const allTiles = [...concealed, ...meldsToSets(seat).flatMap(s => s.tiles)];
+      const akaCount = countAka(allTiles);
+      if(yaku.length === 0){
+        const indicatorDoraCount = countDoraDetail(allTiles);
+        return { seat, yaku: [], han: 0, isTsumo, akaCount, yakunashi: true, indicatorDoraCount };
+      }
+      let han = yaku.reduce((sum, y) => sum + y.han, 0);
+      han += addDoraYaku(yaku, allTiles);
+      const base = calcBasePoints(han);
+      return { seat, yaku, han, base, isTsumo, akaCount };
+    }
+
+    function buildZuheLongResult(){
+      const zDecomp = findZuheLongDecomposition(seat, concealed);
+      if(!zDecomp) return null;
+      const pairTile = keyToTile(zDecomp.pairKey);
+      const allSets = [...zDecomp.threadSets, ...zDecomp.extraSets, ...meldsToSets(seat)];
+      if(allSets.length !== 4) return null;
+      const pseudoDecomp = { sets: zDecomp.extraSets };
+      const yaku = computeYaku(seat, allSets, pairTile, isTsumo, pseudoDecomp, winTile, zDecomp.threadSets);
+      yaku.push({ name:"組合龍", han: melds[seat].length === 0 ? 2 : 1 });
+      const allTiles = [...concealed, ...meldsToSets(seat).flatMap(s => s.tiles)];
+      const akaCount = countAka(allTiles);
+      let han = yaku.reduce((sum, y) => sum + y.han, 0);
+      han += addDoraYaku(yaku, allTiles);
+      const base = calcBasePoints(han);
+      return { seat, yaku, han, base, isTsumo, akaCount };
+    }
+
+    function buildZuheTongshunResult(){
+      const zDecomp = findZuheTongshunDecomposition(seat, concealed);
+      if(!zDecomp) return null;
+      const pairTile = keyToTile(zDecomp.pairKey);
+      const allSets = [...zDecomp.threadSets, ...zDecomp.extraSets, ...meldsToSets(seat)];
+      if(allSets.length !== 4) return null;
+      const pseudoDecomp = { sets: zDecomp.extraSets };
+      const yaku = computeYaku(seat, allSets, pairTile, isTsumo, pseudoDecomp, winTile, zDecomp.threadSets);
+      yaku.push({ name:"組合同順", han: melds[seat].length === 0 ? 2 : 1 });
+      const allTiles = [...concealed, ...meldsToSets(seat).flatMap(s => s.tiles)];
+      const akaCount = countAka(allTiles);
+      let han = yaku.reduce((sum, y) => sum + y.han, 0);
+      han += addDoraYaku(yaku, allTiles);
+      const base = calcBasePoints(han);
+      return { seat, yaku, han, base, isTsumo, akaCount };
+    }
+
+    const candidates = [buildKokushiResult(), buildChiitoitsuResult(), buildStandardResult(false), buildStandardResult(true), buildZuheLongResult(), buildZuheTongshunResult()].filter(Boolean);
+    if(candidates.length === 0) return null;
+    return candidates.reduce((best, r) => (r.han > best.han ? r : best));
+  }
+
+  function settleTsumo(winnerSeat, base){
+    const isDealer = winnerSeat === DEALER_SEAT;
+    const others = ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat);
+    let total = 0;
+    others.forEach(s => {
+      const pay = isDealer
+        ? Math.ceil(base * 2 / 100) * 100
+        : (s === DEALER_SEAT ? Math.ceil(base * 2 / 100) * 100 : Math.ceil(base / 100) * 100);
+      scores[s] -= pay;
+      total += pay;
+    });
+    scores[winnerSeat] += total;
+  }
+
+  function settleRon(winnerSeat, loserSeat, base){
+    const isDealer = winnerSeat === DEALER_SEAT;
+    const pay = Math.ceil(base * (isDealer ? 6 : 4) / 100) * 100;
+    scores[loserSeat] -= pay;
+    scores[winnerSeat] += pay;
+  }
+
+  // 役満（13翻以上）は通常の計算式ではなく、親48,000点・子32,000点の固定点数にする
+  function settleYakumanTsumo(winnerSeat){
+    const isDealer = winnerSeat === DEALER_SEAT;
+    const others = ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat);
+    let total = 0;
+    others.forEach(s => {
+      const pay = isDealer ? 16000 : (s === DEALER_SEAT ? 16000 : 8000);
+      scores[s] -= pay;
+      total += pay;
+    });
+    scores[winnerSeat] += total;
+  }
+
+  function settleYakumanRon(winnerSeat, loserSeat){
+    const isDealer = winnerSeat === DEALER_SEAT;
+    const pay = isDealer ? 48000 : 32000;
+    scores[loserSeat] -= pay;
+    scores[winnerSeat] += pay;
+  }
+
+  // 赤牌ボーナス：ドラ扱いにせず、1枚につき2,000点の直接ボーナス（親でも子でも同額）
+  // ツモなら3人からそれぞれ2,000点（合計6,000点）、ロンなら相手から2,000点
+  function settleAkaBonus(winnerSeat, loserSeat, akaCount, isTsumo){
+    if(!akaCount) return 0;
+    if(isTsumo){
+      const perOpponent = akaCount * 2000;
+      const others = ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat);
+      others.forEach(s => { scores[s] -= perOpponent; });
+      const total = perOpponent * others.length;
+      scores[winnerSeat] += total;
+      return total;
+    } else {
+      const amount = akaCount * 2000;
+      scores[loserSeat] -= amount;
+      scores[winnerSeat] += amount;
+      return amount;
+    }
+  }
+
+  // 役なし和了の精算（簡易ルール）：子1,000点・親1,500点を基準に、
+  // ドラは基準と同じ単位（子1,000点/親1,500点）で1枚ごとに加算、
+  // 赤牌は親子問わず1枚につき1,000点。ツモなら3人からそれぞれ同額を受け取る
+  function settleYakunashi(winnerSeat, loserSeat, indicatorDoraCount, akaCount, isTsumo){
+    const isDealer = winnerSeat === DEALER_SEAT;
+    const unitRate = isDealer ? 1500 : 1000;
+    const perShare = unitRate * (1 + indicatorDoraCount) + akaCount * 1000;
+    if(isTsumo){
+      const others = ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat);
+      others.forEach(s => { scores[s] -= perShare; });
+      const total = perShare * others.length;
+      scores[winnerSeat] += total;
+      return total;
+    } else {
+      scores[loserSeat] -= perShare;
+      scores[winnerSeat] += perShare;
+      return perShare;
+    }
+  }
+
+  function showResult(seat, result, loserSeat, bonusTotal){
+    const box = document.getElementById("resultBox");
+    box.style.display = "block";
+    const title = result.isTsumo ? (seatLabel[seat] + "のツモ") : (seatLabel[seat] + "のロン（" + seatLabel[loserSeat] + "から）");
+
+    if(result.yakunashi){
+      const parts = [];
+      if(result.indicatorDoraCount > 0) parts.push("ドラ" + result.indicatorDoraCount + "枚");
+      if(result.akaCount > 0) parts.push("赤牌" + result.akaCount + "枚");
+      const subText = "役なし和了" + (parts.length ? "（" + parts.join("・") + "）" : "");
+      box.innerHTML =
+        `<div class="result-title">${title}</div>` +
+        `<div class="result-yaku">${subText}</div>` +
+        `<div class="result-score">＋${bonusTotal}点</div>`;
+      return;
+    }
+
+    const yakuText = result.yaku.map(y => y.name + " " + y.han + "翻").join("　");
+    const akaText = bonusTotal > 0
+      ? `<div class="result-yaku">赤牌ボーナス（${result.akaCount}枚）＋${bonusTotal}点</div>`
+      : "";
+    box.innerHTML =
+      `<div class="result-title">${title}</div>` +
+      `<div class="result-yaku">${yakuText}</div>` +
+      akaText +
+      `<div class="result-score">${result.han}翻</div>`;
+  }
+
+  function finalizeWin(winnerSeat, loserSeat, result){
+    gameEnded = true;
+    let bonusTotal;
+    if(result.yakunashi){
+      bonusTotal = settleYakunashi(winnerSeat, loserSeat, result.indicatorDoraCount, result.akaCount, result.isTsumo);
+    } else if(result.han >= 13){
+      if(result.isTsumo) settleYakumanTsumo(winnerSeat);
+      else settleYakumanRon(winnerSeat, loserSeat);
+      bonusTotal = settleAkaBonus(winnerSeat, loserSeat, result.akaCount, result.isTsumo);
+    } else {
+      if(result.isTsumo) settleTsumo(winnerSeat, result.base);
+      else settleRon(winnerSeat, loserSeat, result.base);
+      bonusTotal = settleAkaBonus(winnerSeat, loserSeat, result.akaCount, result.isTsumo);
+    }
+    renderScores();
+    showResult(winnerSeat, result, loserSeat, bonusTotal);
+    setTurnIndicator("");
+    hideCallPrompt();
+    renderMyHand(false);
+    document.getElementById("tsumoBtn").disabled = true;
+  }
+
+  // プレイヤーが今の手でツモれるか判定し、ツモボタンの有効/無効を切り替える
+  function updateTsumoButton(){
+    const btn = document.getElementById("tsumoBtn");
+    if(gameEnded){ btn.disabled = true; return; }
+    const result = attemptWin("bottom", null, true);
+    if(result){
+      btn.disabled = false;
+      btn.onclick = () => finalizeWin("bottom", "bottom", result);
+    } else {
+      btn.disabled = true;
+      btn.onclick = null;
+    }
+  }
+
+
+  renderMyHand(true);
+  renderCpuHandBacks("top");
+  renderCpuHandBacks("left");
+  renderCpuHandBacks("right");
+  setTurnIndicator("あなたの番です（牌をタップして捨ててください）");
+
+  // ドラ表示牌（王牌の先頭を表向きにする）
+  const doraIndicator = deadWall[0];
+  const doraTileEl = document.getElementById("doraTile");
+  doraTileEl.className = "tile dora-tile " + tileClass(doraIndicator.suit, doraIndicator.num);
+  doraTileEl.innerHTML = tileEl(doraIndicator.suit, doraIndicator.num, "", doraIndicator.red).innerHTML;
+
+  updateWallCount();
+  renderScores();
+</script>
+
+</body>
+</html>
