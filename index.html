@@ -62,14 +62,36 @@
     color:var(--gold);
     font-size:26px;
   }
+  .center-info .kyotaku-row{
+    font-size:16px;
+    color:#ccc;
+  }
   .center-info .dora-row{
     display:flex;
+    align-items:flex-start;
+    gap:14px;
+  }
+  .center-info .dora-item{
+    display:flex;
+    flex-direction:column;
     align-items:center;
-    gap:6px;
+    gap:3px;
   }
   .center-info .dora-tile{
     width:20px;
     height:28px;
+  }
+  .center-info .dora-label{
+    font-size:12px;
+    color:#ccc;
+  }
+  .center-info .riichi-dora-label{
+    color:var(--honor-red);
+    font-weight:bold;
+  }
+  .center-info .riichi-dora-tile{
+    box-shadow:0 0 0 2px var(--honor-red);
+    border-radius:3px;
   }
 
   /* --- 卓の中央エリア（対面・上家・下家・自分＋捨て牌） --- */
@@ -432,8 +454,18 @@
     <div id="center">
       <div class="center-info">
         <div class="round">東1局 0本場</div>
-        <div id="wallCount">残り牌 70</div>
-        <div class="dora-row">ドラ表示<div class="tile dora-tile" id="doraTile"></div></div>
+        <div id="wallCount">残り牌 76</div>
+        <div id="kyotakuCount" class="kyotaku-row">供託 0本</div>
+        <div class="dora-row">
+          <div class="dora-item">
+            <div class="tile dora-tile" id="doraTile"></div>
+            <div class="dora-label">ドラ</div>
+          </div>
+          <div class="dora-item">
+            <div class="tile dora-tile riichi-dora-tile" id="riichiDoraTile"></div>
+            <div class="dora-label riichi-dora-label">リーチドラ</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -674,6 +706,7 @@
     for(let n = 1; n <= 3; n++) types.push({ suit:"dragon", num:n });
     return types; // 34種類
   }
+  const ALL_TILE_TYPES = buildTileTypes(); // テンパイ判定で全34種を試すために使う
 
   // 136枚の牌山を作る（各種4枚ずつ）
   function buildWall(){
@@ -709,8 +742,10 @@
   const wall = buildWall();
   shuffle(wall);
 
-  // 王牌（ドラ表示牌などのための山、14枚を取り置く）
-  const deadWall = wall.splice(0, 14);
+  // 王牌（8枚固定、山からの補充は一切しない）
+  // 内訳：嶺上牌4枚（末尾側からpopして使う）＋ドラ表示牌1枚＋リーチドラ表示牌1枚＋予備2枚（先頭側4枚は触らない）
+  // 補充しないため、山からの生きたツモは常に136-8-52=76回、海底牌は開局時から確定する
+  const deadWall = wall.splice(0, 8);
 
   // 自分・CPU3人へ配牌（13枚ずつ）
   const myTiles13 = wall.splice(0, 13);
@@ -982,6 +1017,9 @@
   }
   function canPon(hand, tile){ return countMatching(hand, tile) >= 2; }
   function canKan(hand, tile){ return countMatching(hand, tile) >= 3; }
+  // 王牌の先頭4枚（ドラ表示・リーチドラ表示・予備2枚）は嶺上牌に使わない。
+  // 補充が無いため嶺上牌は最大4枚＝カンは通算4回まで
+  function rinshanAvailable(){ return deadWall.length > 4; }
   function findChiCombos(hand, tile){
     if(tile.suit !== "man" && tile.suit !== "pin" && tile.suit !== "sou") return [];
     const has = n => hand.some(t => t.suit === tile.suit && t.num === n);
@@ -1010,7 +1048,7 @@
     if(discarderSeat !== "bottom"){
       const ronResult = attemptWin("bottom", tile, false);
       const pon = canPon(myHandTiles, tile);
-      const kan = canKan(myHandTiles, tile);
+      const kan = canKan(myHandTiles, tile) && rinshanAvailable();
       const chi = (KAMICHA.bottom === discarderSeat) ? findChiCombos(myHandTiles, tile) : [];
       if(ronResult || pon || kan || chi.length > 0){
         showCallPrompt(discarderSeat, tile, { ron: ronResult, pon, kan, chi });
@@ -1042,7 +1080,7 @@
   function maybeCpuCalls(discarderSeat, tile){
     const seats = ["right", "top", "left"].filter(s => s !== discarderSeat);
     for(const s of seats){
-      if(canKan(hands[s], tile) && Math.random() < 0.5) return { seat:s, type:"kan" };
+      if(canKan(hands[s], tile) && rinshanAvailable() && Math.random() < 0.5) return { seat:s, type:"kan" };
     }
     for(const s of seats){
       if(canPon(hands[s], tile) && Math.random() < 0.45) return { seat:s, type:"pon" };
@@ -1099,13 +1137,10 @@
     melds[callerSeat].push({ type, handTiles, calledTile: tile, calledFrom: discarderSeat });
     renderMelds(callerSeat);
 
-    // カンをしたら、山の代わりに王牌から嶺上牌を1枚ツモる（少牌防止）
+    // カンをしたら王牌から嶺上牌を1枚ツモる（山からの補充はしない）
     if(type === "kan"){
       const rinshan = deadWall.pop();
       hand.push(rinshan);
-      // 山（生きている牌）から1枚を王牌に移して、王牌の枚数を保つ
-      if(wall.length > 0) deadWall.push(wall.pop());
-      updateWallCount();
       if(callerSeat === "bottom") lastDrawnTile = rinshan;
       else lastDrawnCpu[callerSeat] = rinshan;
     }
@@ -1168,7 +1203,7 @@
   function cpuDrawAndDiscard(seat){
     if(gameEnded) return;
     if(wall.length === 0){
-      setTurnIndicator("山がなくなりました（流局の処理は次のステップで作ります）");
+      handleRyuukyoku();
       return;
     }
     setTurnIndicator(seatLabel[seat] + "の番です");
@@ -1199,7 +1234,7 @@
   function playerDraw(){
     if(gameEnded) return;
     if(wall.length === 0){
-      setTurnIndicator("山がなくなりました（流局の処理は次のステップで作ります）");
+      handleRyuukyoku();
       return;
     }
     const drawn = wall.shift();
@@ -1215,7 +1250,7 @@
   // --- 加カン（ポンした牌と同じ牌を自分でツモった時） ---
   function checkKakanOpportunity(drawnTile){
     const meldIdx = melds.bottom.findIndex(m => m.type === "pon" && m.calledTile.suit === drawnTile.suit && m.calledTile.num === drawnTile.num);
-    if(meldIdx < 0) return;
+    if(meldIdx < 0 || !rinshanAvailable()) return;
     const el = document.getElementById("callPrompt");
     el.innerHTML = "";
     el.style.display = "flex";
@@ -1233,11 +1268,9 @@
     meld.addedTile = drawnTile;
     renderMelds("bottom");
 
-    // 嶺上牌をツモる（少牌防止、王牌の枚数も維持）
+    // 嶺上牌をツモる（山からの補充はしない）
     const rinshan = deadWall.pop();
     myHandTiles.push(rinshan);
-    if(wall.length > 0) deadWall.push(wall.pop());
-    updateWallCount();
     lastDrawnTile = rinshan;
 
     renderMyHand(true);
@@ -1249,6 +1282,12 @@
   // ※簡易実装です。リーチ・平和の待ちの形・ドラ以外の詳細な符計算・半荘の進行（親流れ等）は省略しています。
 
   let gameEnded = false;
+  // 供託（リーチ棒）の本数。局をまたいで場に残り続け、その局でリーチして和了した人だけが総取りする
+  // （リーチせずに和了しても供託には触れない。流局してもそのまま場に残る）
+  let riichiSticks = 0;
+  // 各自が今の局でリーチを宣言しているか。局の開始時に全員falseへリセットする
+  // （リーチ宣言そのものは第2段階で実装し、宣言時にtrueにしてriichiSticksを1増やす）
+  let riichiDeclared = { bottom:false, top:false, left:false, right:false };
   const scores = { bottom: 35000, top: 35000, left: 35000, right: 35000 };
   const scoreElByName = {
     bottom: document.getElementById("scoreBottom"),
@@ -1262,6 +1301,10 @@
 
   function renderScores(){
     Object.keys(scores).forEach(s => { scoreElByName[s].textContent = scores[s]; });
+  }
+
+  function updateKyotakuDisplay(){
+    document.getElementById("kyotakuCount").textContent = "供託 " + riichiSticks + "本";
   }
 
   function tileKey(t){ return t.suit + "_" + t.num; }
@@ -1978,14 +2021,27 @@
     return indicatorDora;
   }
 
+  // リーチドラ（通常の裏ドラに相当。開局時から表向きに公開済み）：
+  // リーチを宣言して和了した人にだけ適用する
+  function countRiichiDoraDetail(allTiles){
+    const riichiDoraTile = nextTileForDora(riichiDoraIndicator);
+    return allTiles.filter(t => t.suit === riichiDoraTile.suit && t.num === riichiDoraTile.num).length;
+  }
+
   function countAka(allTiles){
     return allTiles.filter(t => t.red).length;
   }
 
-  function addDoraYaku(yaku, allTiles){
+  function addDoraYaku(yaku, allTiles, seat){
     const indicatorDora = countDoraDetail(allTiles);
     if(indicatorDora > 0) yaku.push({ name:"ドラ", han:indicatorDora });
-    return indicatorDora;
+    let total = indicatorDora;
+    if(riichiDeclared[seat]){
+      const riichiDora = countRiichiDoraDetail(allTiles);
+      if(riichiDora > 0) yaku.push({ name:"リーチドラ", han:riichiDora });
+      total += riichiDora;
+    }
+    return total;
   }
 
   // 符計算はせず、飜数だけで点数を決める簡易方式
@@ -2067,7 +2123,7 @@
       if(concealed.every(isXiaoYuWuTile)) yaku.push({ name:"小于五", han:2 });
       if(concealed.every(isDaYuWuTile)) yaku.push({ name:"大于五", han:2 });
       let han = yaku.reduce((sum, y) => sum + y.han, 0);
-      han += addDoraYaku(yaku, concealed);
+      han += addDoraYaku(yaku, concealed, seat);
       const akaCount = countAka(concealed);
       const base = calcBasePoints(han);
       return { seat, yaku, han, base, isTsumo, akaCount };
@@ -2089,7 +2145,7 @@
         return { seat, yaku: [], han: 0, isTsumo, akaCount, yakunashi: true, indicatorDoraCount };
       }
       let han = yaku.reduce((sum, y) => sum + y.han, 0);
-      han += addDoraYaku(yaku, allTiles);
+      han += addDoraYaku(yaku, allTiles, seat);
       const base = calcBasePoints(han);
       return { seat, yaku, han, base, isTsumo, akaCount };
     }
@@ -2106,7 +2162,7 @@
       const allTiles = [...concealed, ...meldsToSets(seat).flatMap(s => s.tiles)];
       const akaCount = countAka(allTiles);
       let han = yaku.reduce((sum, y) => sum + y.han, 0);
-      han += addDoraYaku(yaku, allTiles);
+      han += addDoraYaku(yaku, allTiles, seat);
       const base = calcBasePoints(han);
       return { seat, yaku, han, base, isTsumo, akaCount };
     }
@@ -2123,7 +2179,7 @@
       const allTiles = [...concealed, ...meldsToSets(seat).flatMap(s => s.tiles)];
       const akaCount = countAka(allTiles);
       let han = yaku.reduce((sum, y) => sum + y.han, 0);
-      han += addDoraYaku(yaku, allTiles);
+      han += addDoraYaku(yaku, allTiles, seat);
       const base = calcBasePoints(han);
       return { seat, yaku, han, base, isTsumo, akaCount };
     }
@@ -2131,6 +2187,12 @@
     const candidates = [buildKokushiResult(), buildChiitoitsuResult(), buildStandardResult(false), buildStandardResult(true), buildZuheLongResult(), buildZuheTongshunResult()].filter(Boolean);
     if(candidates.length === 0) return null;
     return candidates.reduce((best, r) => (r.han > best.han ? r : best));
+  }
+
+  // テンパイ判定（役の有無は問わない、形式テンパイ）：34種類の牌を1枚ずつ仮に加えてみて、
+  // どれか1つでも和了の形になれば（役なし和了も可の本ルールでは attemptWin が非nullを返せば）テンパイとする
+  function isTenpai(seat){
+    return ALL_TILE_TYPES.some(t => attemptWin(seat, t, true) !== null);
   }
 
   function settleTsumo(winnerSeat, base){
@@ -2213,6 +2275,42 @@
     }
   }
 
+  // 流局時のテンパイ料精算：ノーテンの人がテンパイの人それぞれに1,000点ずつ払う
+  function settleRyuukyoku(tenpaiSeats, notenSeats){
+    if(tenpaiSeats.length === 0 || notenSeats.length === 0) return;
+    const gainEach = 1000 * notenSeats.length;
+    const lossEach = 1000 * tenpaiSeats.length;
+    tenpaiSeats.forEach(s => { scores[s] += gainEach; });
+    notenSeats.forEach(s => { scores[s] -= lossEach; });
+  }
+
+  function showRyuukyokuResult(tenpaiSeats, notenSeats){
+    const box = document.getElementById("resultBox");
+    box.style.display = "block";
+    const tenpaiText = tenpaiSeats.length > 0 ? tenpaiSeats.map(s => seatLabel[s]).join("・") + "：テンパイ" : "テンパイ：なし";
+    const notenText = notenSeats.length > 0 ? notenSeats.map(s => seatLabel[s]).join("・") + "：ノーテン" : "ノーテン：なし";
+    box.innerHTML =
+      `<div class="result-title">流局</div>` +
+      `<div class="result-yaku">${tenpaiText}</div>` +
+      `<div class="result-yaku">${notenText}</div>`;
+  }
+
+  // 山が尽きた（誰もツモれなくなった）ときの流局処理
+  // ※この段階では親交代・連荘・半荘進行は行わず、ここでゲームを終了する
+  function handleRyuukyoku(){
+    gameEnded = true;
+    const seats = ["bottom", "right", "top", "left"]; // あなた・下家・対面・上家の順で表示する
+    const tenpaiSeats = seats.filter(isTenpai);
+    const notenSeats = seats.filter(s => !tenpaiSeats.includes(s));
+    settleRyuukyoku(tenpaiSeats, notenSeats);
+    renderScores();
+    showRyuukyokuResult(tenpaiSeats, notenSeats);
+    setTurnIndicator("");
+    hideCallPrompt();
+    renderMyHand(false);
+    document.getElementById("tsumoBtn").disabled = true;
+  }
+
   function showResult(seat, result, loserSeat, bonusTotal){
     const box = document.getElementById("resultBox");
     box.style.display = "block";
@@ -2255,6 +2353,11 @@
       else settleRon(winnerSeat, loserSeat, result.base);
       bonusTotal = settleAkaBonus(winnerSeat, loserSeat, result.akaCount, result.isTsumo);
     }
+    if(riichiSticks > 0 && riichiDeclared[winnerSeat]){
+      scores[winnerSeat] += riichiSticks * 1000;
+      riichiSticks = 0;
+      updateKyotakuDisplay();
+    }
     renderScores();
     showResult(winnerSeat, result, loserSeat, bonusTotal);
     setTurnIndicator("");
@@ -2284,14 +2387,19 @@
   renderCpuHandBacks("right");
   setTurnIndicator("あなたの番です（牌をタップして捨ててください）");
 
-  // ドラ表示牌（王牌の先頭を表向きにする）
+  // ドラ表示牌・リーチドラ表示牌（王牌の先頭2枚を表向きにする。以降は一切めくらない）
   const doraIndicator = deadWall[0];
+  const riichiDoraIndicator = deadWall[1];
   const doraTileEl = document.getElementById("doraTile");
   doraTileEl.className = "tile dora-tile " + tileClass(doraIndicator.suit, doraIndicator.num);
   doraTileEl.innerHTML = tileEl(doraIndicator.suit, doraIndicator.num, "", doraIndicator.red).innerHTML;
+  const riichiDoraTileEl = document.getElementById("riichiDoraTile");
+  riichiDoraTileEl.className = "tile dora-tile riichi-dora-tile " + tileClass(riichiDoraIndicator.suit, riichiDoraIndicator.num);
+  riichiDoraTileEl.innerHTML = tileEl(riichiDoraIndicator.suit, riichiDoraIndicator.num, "", riichiDoraIndicator.red).innerHTML;
 
   updateWallCount();
   renderScores();
+  updateKyotakuDisplay();
 </script>
 
 </body>
