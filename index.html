@@ -977,6 +977,25 @@
       group.style.justifyContent = "center";
       group.style.gap = "3px"; // 鳴き牌3枚の間隔＝捨て牌の間隔と同じ
 
+      if(m.type === "ankan"){
+        // 暗槓：CPUは4枚とも裏向きで何を暗槓したか一切見せない。自分(bottom)だけ1枚(2番目)を表にして確認できるようにする
+        const backCls = backClassByName[name] || "tile-back";
+        m.handTiles.forEach((t, i) => {
+          const showThis = name === "bottom" && i === 1;
+          if(showThis){
+            const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+            applyMeldRotation(tEl, baseRot);
+            group.appendChild(tEl);
+          } else {
+            const backEl = document.createElement("div");
+            backEl.className = backCls;
+            group.appendChild(backEl);
+          }
+        });
+        el.appendChild(group);
+        return;
+      }
+
       const calledEl = tileEl(m.calledTile.suit, m.calledTile.num, tileClass(m.calledTile.suit, m.calledTile.num), m.calledTile.red);
       calledEl.classList.add("meld-called"); // 誰から鳴いたか分かるよう、その席の向きからさらに横向きにする
       applyMeldRotation(calledEl, baseRot + 90);
@@ -1017,6 +1036,12 @@
   }
   function canPon(hand, tile){ return countMatching(hand, tile) >= 2; }
   function canKan(hand, tile){ return countMatching(hand, tile) >= 3; }
+  // 暗槓：鳴きを介さず、自分の手牌だけで同じ牌が4枚揃っているか（揃っていれば最初に見つかった1種類を返す）
+  function findAnkanTile(hand){
+    const counts = countTiles(hand);
+    for(const k in counts){ if(counts[k] >= 4) return keyToTile(k); }
+    return null;
+  }
   // 王牌の先頭4枚（ドラ表示・リーチドラ表示・予備2枚）は嶺上牌に使わない。
   // 補充が無いため嶺上牌は最大4枚＝カンは通算4回まで
   function rinshanAvailable(){ return deadWall.length > 4; }
@@ -1219,16 +1244,52 @@
       return;
     }
 
-    setTimeout(() => {
-      if(gameEnded) return;
-      const idx = Math.floor(Math.random() * hands[seat].length);
-      const discarded = hands[seat].splice(idx, 1)[0];
-      discards[seat].push(discarded);
-      lastDrawnCpu[seat] = null;
-      renderCpuHandBacks(seat);
-      renderDiscard(seat);
-      handleDiscard(seat, discarded);
-    }, 500);
+    // CPUの暗槓（簡易AI：4枚揃っていれば必ず暗槓する。rinshanAvailable()が通算カン4回の上限を管理する）
+    const ankanTile = findAnkanTile(hands[seat]);
+    if(ankanTile && rinshanAvailable()){
+      executeCpuAnkan(seat, ankanTile);
+      return;
+    }
+
+    setTimeout(() => cpuChooseAndDiscard(seat), 500);
+  }
+
+  function cpuChooseAndDiscard(seat){
+    if(gameEnded) return;
+    const idx = Math.floor(Math.random() * hands[seat].length);
+    const discarded = hands[seat].splice(idx, 1)[0];
+    discards[seat].push(discarded);
+    lastDrawnCpu[seat] = null;
+    renderCpuHandBacks(seat);
+    renderDiscard(seat);
+    handleDiscard(seat, discarded);
+  }
+
+  function executeCpuAnkan(seat, tile){
+    const hand = hands[seat];
+    const removed = [];
+    for(let i = hand.length - 1; i >= 0 && removed.length < 4; i--){
+      if(hand[i].suit === tile.suit && hand[i].num === tile.num){
+        removed.push(hand.splice(i, 1)[0]);
+      }
+    }
+    melds[seat].push({ type:"ankan", handTiles: removed });
+    renderMelds(seat);
+
+    // 嶺上牌をツモる（山からの補充はしない）
+    const rinshan = deadWall.pop();
+    hand.push(rinshan);
+    lastDrawnCpu[seat] = rinshan;
+    renderCpuHandBacks(seat);
+    setTurnIndicator(seatLabel[seat] + "が暗槓しました");
+
+    const rinshanWin = attemptWin(seat, null, true);
+    if(rinshanWin){
+      finalizeWin(seat, seat, rinshanWin);
+      return;
+    }
+
+    setTimeout(() => cpuChooseAndDiscard(seat), 500);
   }
 
   function playerDraw(){
@@ -1244,13 +1305,14 @@
     setTurnIndicator("あなたの番です（牌をタップして捨ててください）");
     renderMyHand(true);
     updateTsumoButton();
-    checkKakanOpportunity(drawn);
+    if(!checkKakanOpportunity(drawn)) checkAnkanOpportunity();
   }
 
   // --- 加カン（ポンした牌と同じ牌を自分でツモった時） ---
+  // プロンプトを表示できたら true、できなければ false を返す（呼び出し側で暗槓チェックへ続けるかの判定に使う）
   function checkKakanOpportunity(drawnTile){
     const meldIdx = melds.bottom.findIndex(m => m.type === "pon" && m.calledTile.suit === drawnTile.suit && m.calledTile.num === drawnTile.num);
-    if(meldIdx < 0 || !rinshanAvailable()) return;
+    if(meldIdx < 0 || !rinshanAvailable()) return false;
     const el = document.getElementById("callPrompt");
     el.innerHTML = "";
     el.style.display = "flex";
@@ -1258,6 +1320,40 @@
     el.appendChild(makeCallButton("この牌を捨てる", () => { hideCallPrompt(); onDiscardMyTile(myHandTiles.indexOf(drawnTile)); }));
     el.appendChild(makeCallButton("手牌に保留", () => { hideCallPrompt(); }));
     setTurnIndicator("同じ牌をツモりました。加カンしますか？");
+    return true;
+  }
+
+  // --- 暗槓（鳴きを介さず、自分の手牌だけで同じ牌が4枚揃った時） ---
+  function checkAnkanOpportunity(){
+    const tile = findAnkanTile(myHandTiles);
+    if(!tile || !rinshanAvailable()) return false;
+    const el = document.getElementById("callPrompt");
+    el.innerHTML = "";
+    el.style.display = "flex";
+    el.appendChild(makeCallButton("暗槓", () => { hideCallPrompt(); executeAnkan(tile); }));
+    el.appendChild(makeCallButton("手牌に保留", () => { hideCallPrompt(); }));
+    setTurnIndicator("同じ牌が4枚揃いました。暗槓しますか？");
+    return true;
+  }
+
+  function executeAnkan(tile){
+    const removed = [];
+    for(let i = myHandTiles.length - 1; i >= 0 && removed.length < 4; i--){
+      if(myHandTiles[i].suit === tile.suit && myHandTiles[i].num === tile.num){
+        removed.push(myHandTiles.splice(i, 1)[0]);
+      }
+    }
+    melds.bottom.push({ type:"ankan", handTiles: removed });
+    renderMelds("bottom");
+
+    // 嶺上牌をツモる（山からの補充はしない）
+    const rinshan = deadWall.pop();
+    myHandTiles.push(rinshan);
+    lastDrawnTile = rinshan;
+
+    renderMyHand(true);
+    setTurnIndicator("暗槓しました。捨てる牌をタップしてください");
+    updateTsumoButton();
   }
 
   function executeKakan(meldIdx, drawnTile){
@@ -1381,6 +1477,7 @@
 
   function meldsToSets(seat){
     return melds[seat].map(m => {
+      if(m.type === "ankan") return { type:"kan", tiles:[...m.handTiles], open:false };
       const type = m.type === "chi" ? "sequence" : (m.type === "kan" ? "kan" : "triplet");
       let tiles = [...m.handTiles, m.calledTile];
       if(m.addedTile) tiles.push(m.addedTile);
@@ -1567,7 +1664,8 @@
 
   function computeYaku(seat, allSets, pairTile, isTsumo, decomp, winTile, threadSets){
     const yaku = [];
-    const closedHand = melds[seat].length === 0;
+    // 暗槓は鳴きを介さないため、それ以外の鳴き（ポン・チー・大明槓・加槓）が無ければ門前扱いのまま
+    const closedHand = melds[seat].every(m => m.type === "ankan");
     const allTiles = [pairTile, pairTile, ...allSets.flatMap(s => s.tiles)];
 
     if(isTsumo && closedHand) yaku.push({ name:"門前清自摸和", han:1 });
@@ -1917,9 +2015,10 @@
     }
 
     // 三暗刻・四暗刻：門前で自分の手牌の中だけで揃えた刻子（ロンで完成した刻子は含まない）が3つ/4つ
+    // 暗槓（鳴きを介さない槓子）も暗刻として数える。大明槓・加槓は open:true のため対象外
     {
       const ankouExcludedOnce = { used:false };
-      const ankouCount = decomp ? decomp.sets.reduce((count, s) => {
+      let ankouCount = decomp ? decomp.sets.reduce((count, s) => {
         if(s.type !== "triplet") return count;
         if(!isTsumo && winTile && s.tiles[0].suit === winTile.suit && s.tiles[0].num === winTile.num && !ankouExcludedOnce.used){
           ankouExcludedOnce.used = true;
@@ -1927,6 +2026,7 @@
         }
         return count + 1;
       }, 0) : 0;
+      ankouCount += allSets.filter(s => s.type === "kan" && s.open === false).length;
       if(ankouCount >= 4) yaku.push({ name:"四暗刻", han:13 });
       else if(ankouCount === 3) yaku.push({ name:"三暗刻", han:2 });
     }
