@@ -99,7 +99,7 @@
     flex:1;
     min-height:0;
     display:grid;
-    grid-template-rows:auto 1fr auto;
+    grid-template-rows:auto minmax(0, 1fr) auto;
     grid-template-columns:auto 1fr auto;
     grid-template-areas:
       ".    top   ."
@@ -357,6 +357,15 @@
     min-height:14px;
     margin-bottom:2px;
   }
+  /* 案内文が卓中央のドラ表示ボックスなどと視覚的に重なっても読めるよう、
+     文字がある時だけ不透明な背景を敷いて最前面に出す */
+  .turn-indicator:not(:empty){
+    position:relative;
+    z-index:60;
+    background:rgba(5,20,12,0.88);
+    border-radius:6px;
+    padding:2px 10px;
+  }
 
   .result-box{
     background:rgba(5,20,12,0.97);
@@ -409,6 +418,21 @@
   }
   .action-btn:disabled{
     opacity:0.35;
+  }
+  /* 鳴きで使う牌を画像で選ぶボタン（チーの形の選択・赤5を使うかどうかの選択で使う） */
+  .combo-btn{
+    display:inline-flex;
+    flex-direction:column;
+    align-items:center;
+    gap:3px;
+    padding:5px 8px;
+  }
+  .combo-btn .combo-label{
+    font-size:11px;
+  }
+  .combo-btn .combo-tiles{
+    display:flex;
+    gap:2px;
   }
 </style>
 </head>
@@ -478,8 +502,8 @@
     <div class="turn-indicator" id="turnIndicator"></div>
     <div class="result-box" id="resultBox" style="display:none;"></div>
     <div class="call-prompt" id="callPrompt" style="display:none;"></div>
-    <div class="action-row">
-      <button class="action-btn" disabled>リーチ</button>
+    <div class="action-row" id="actionRow">
+      <button class="action-btn" id="riichiBtn" disabled>リーチ</button>
       <button class="action-btn" id="tsumoBtn" disabled>ツモ</button>
       <button class="action-btn" disabled>キャンセル</button>
     </div>
@@ -1045,13 +1069,42 @@
   // 王牌の先頭4枚（ドラ表示・リーチドラ表示・予備2枚）は嶺上牌に使わない。
   // 補充が無いため嶺上牌は最大4枚＝カンは通算4回まで
   function rinshanAvailable(){ return deadWall.length > 4; }
-  function findChiCombos(hand, tile){
+  function findChiShapes(hand, tile){
     if(tile.suit !== "man" && tile.suit !== "pin" && tile.suit !== "sou") return [];
     const has = n => hand.some(t => t.suit === tile.suit && t.num === n);
+    const shapes = [];
+    if(has(tile.num - 2) && has(tile.num - 1)) shapes.push([tile.num - 2, tile.num - 1]);
+    if(has(tile.num - 1) && has(tile.num + 1)) shapes.push([tile.num - 1, tile.num + 1]);
+    if(has(tile.num + 1) && has(tile.num + 2)) shapes.push([tile.num + 1, tile.num + 2]);
+    return shapes;
+  }
+  // 手牌の中から「同じ牌をcount枚使う」ときの実際の組み合わせ候補を返す。
+  // ノーマル同士は見た目が同じなので選択肢を分けず、赤5が絡む場合だけ
+  // 「赤を使う」「赤を残す（ノーマルだけ使う）」の2択として返す。
+  function tileCombosForCount(hand, suit, num, count){
+    const matches = hand.filter(t => t.suit === suit && t.num === num);
+    if(matches.length < count) return [];
+    if(matches.length === count) return [matches.slice()];
+    const reds = matches.filter(t => t.red);
+    const normals = matches.filter(t => !t.red);
+    if(reds.length === 0) return [matches.slice(0, count)];
     const combos = [];
-    if(has(tile.num - 2) && has(tile.num - 1)) combos.push([tile.num - 2, tile.num - 1]);
-    if(has(tile.num - 1) && has(tile.num + 1)) combos.push([tile.num - 1, tile.num + 1]);
-    if(has(tile.num + 1) && has(tile.num + 2)) combos.push([tile.num + 1, tile.num + 2]);
+    const useReds = Math.min(reds.length, count);
+    if(normals.length >= count - useReds){
+      combos.push([...reds.slice(0, useReds), ...normals.slice(0, count - useReds)]);
+    }
+    if(normals.length >= count){
+      combos.push(normals.slice(0, count));
+    }
+    return combos;
+  }
+  // チーの1つの形（例：5-6）について、赤5の有無で分かれる実際の牌の組み合わせ候補を返す
+  function chiVariantsForShape(hand, tile, shape){
+    const [a, b] = shape;
+    const optsA = tileCombosForCount(hand, tile.suit, a, 1);
+    const optsB = tileCombosForCount(hand, tile.suit, b, 1);
+    const combos = [];
+    optsA.forEach(oa => optsB.forEach(ob => combos.push([oa[0], ob[0]])));
     return combos;
   }
 
@@ -1063,6 +1116,7 @@
     renderMyHand(false);
     renderDiscard("bottom");
     setTurnIndicator("");
+    refreshActionButtons();
     handleDiscard("bottom", discarded);
   }
 
@@ -1074,7 +1128,7 @@
       const ronResult = attemptWin("bottom", tile, false);
       const pon = canPon(myHandTiles, tile);
       const kan = canKan(myHandTiles, tile) && rinshanAvailable();
-      const chi = (KAMICHA.bottom === discarderSeat) ? findChiCombos(myHandTiles, tile) : [];
+      const chi = (KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
       if(ronResult || pon || kan || chi.length > 0){
         showCallPrompt(discarderSeat, tile, { ron: ronResult, pon, kan, chi });
         return;
@@ -1113,22 +1167,40 @@
     return null;
   }
 
+  // 鳴きプロンプトは1段階のみ：実際に使う牌の組み合わせ（赤の有無・チーの形違い）ごとに
+  // ボタンを分けて最初から並べる（どれを選んでも即座にその組み合わせで鳴く）
   function showCallPrompt(discarderSeat, tile, calls){
     setTurnIndicator("鳴きますか？（" + seatLabel[discarderSeat] + "の捨て牌）");
     const el = document.getElementById("callPrompt");
     el.innerHTML = "";
     el.style.display = "flex";
+    setActionRowVisible(false);
     if(calls.ron){
       el.appendChild(makeCallButton("ロン", () => { hideCallPrompt(); finalizeWin("bottom", discarderSeat, calls.ron); }));
     }
     if(calls.pon){
-      el.appendChild(makeCallButton("ポン", () => { hideCallPrompt(); executeCall("bottom", discarderSeat, tile, "pon"); }));
+      tileCombosForCount(myHandTiles, tile.suit, tile.num, 2).forEach(combo => {
+        el.appendChild(makeComboButton("ポン", combo, () => {
+          hideCallPrompt();
+          executeCall("bottom", discarderSeat, tile, "pon", combo);
+        }));
+      });
     }
     if(calls.kan){
-      el.appendChild(makeCallButton("カン", () => { hideCallPrompt(); executeCall("bottom", discarderSeat, tile, "kan"); }));
+      tileCombosForCount(myHandTiles, tile.suit, tile.num, 3).forEach(combo => {
+        el.appendChild(makeComboButton("カン", combo, () => {
+          hideCallPrompt();
+          executeCall("bottom", discarderSeat, tile, "kan", combo);
+        }));
+      });
     }
-    calls.chi.forEach(combo => {
-      el.appendChild(makeCallButton("チー(" + combo.join("・") + ")", () => { hideCallPrompt(); executeChi(combo, tile); }));
+    calls.chi.forEach(shape => {
+      chiVariantsForShape(myHandTiles, tile, shape).forEach(combo => {
+        el.appendChild(makeComboButton("チー", combo, () => {
+          hideCallPrompt();
+          executeChi(combo, tile);
+        }));
+      });
     });
     el.appendChild(makeCallButton("スルー", () => { hideCallPrompt(); advanceTurnAfterDiscard(discarderSeat); }));
   }
@@ -1139,26 +1211,54 @@
     b.addEventListener("click", onClick);
     return b;
   }
+  // 牌の画像を横に並べたボタン（labelを渡すと牌の上に短い文字ラベルを添える）
+  function makeComboButton(label, tiles, onClick){
+    const b = document.createElement("button");
+    b.className = "action-btn combo-btn";
+    if(label){
+      const span = document.createElement("span");
+      span.className = "combo-label";
+      span.textContent = label;
+      b.appendChild(span);
+    }
+    const row = document.createElement("span");
+    row.className = "combo-tiles";
+    tiles.forEach(t => row.appendChild(tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red)));
+    b.appendChild(row);
+    b.addEventListener("click", onClick);
+    return b;
+  }
   function hideCallPrompt(){
     document.getElementById("callPrompt").style.display = "none";
+    setActionRowVisible(true);
+    refreshActionButtons();
+  }
+  function setActionRowVisible(visible){
+    document.getElementById("actionRow").style.display = visible ? "" : "none";
   }
 
+  // 牌の選択肢を出さない場合（CPU、または不整合時のフォールバック）に使う、
+  // 末尾（新しく引いた牌に近い側）から必要枚数を機械的に選ぶ従来ロジック
+  function defaultChosenTiles(hand, tile, needed){
+    const handTiles = [];
+    for(let i = hand.length - 1; i >= 0 && handTiles.length < needed; i--){
+      if(hand[i].suit === tile.suit && hand[i].num === tile.num) handTiles.push(hand[i]);
+    }
+    return handTiles;
+  }
   // --- ポン・カンの実行（プレイヤー／CPU共通） ---
-  function executeCall(callerSeat, discarderSeat, tile, type){
+  // chosenTiles: プレイヤーが牌の画像で選んだ実際の手牌（省略時はCPU用に自動選択する）
+  function executeCall(callerSeat, discarderSeat, tile, type, chosenTiles){
     discards[discarderSeat].pop();
     renderDiscard(discarderSeat);
 
     const hand = hands[callerSeat];
     const needed = (type === "kan") ? 3 : 2;
-    const handTiles = [];
-    let removed = 0;
-    for(let i = hand.length - 1; i >= 0 && removed < needed; i--){
-      if(hand[i].suit === tile.suit && hand[i].num === tile.num){
-        handTiles.push(hand[i]);
-        hand.splice(i, 1);
-        removed++;
-      }
-    }
+    const handTiles = chosenTiles ? chosenTiles.slice() : defaultChosenTiles(hand, tile, needed);
+    handTiles.forEach(t => {
+      const idx = hand.indexOf(t);
+      if(idx >= 0) hand.splice(idx, 1);
+    });
     melds[callerSeat].push({ type, handTiles, calledTile: tile, calledFrom: discarderSeat });
     renderMelds(callerSeat);
 
@@ -1174,7 +1274,7 @@
       if(type !== "kan") lastDrawnTile = null;
       renderMyHand(true);
       setTurnIndicator((type === "pon" ? "ポン" : "カン") + "しました。捨てる牌をタップしてください");
-      if(type === "kan") updateTsumoButton();
+      refreshActionButtons();
     } else {
       renderCpuHandBacks(callerSeat);
       setTurnIndicator(seatLabel[callerSeat] + "が" + (type === "pon" ? "ポン" : "カン") + "しました");
@@ -1187,12 +1287,13 @@
   }
 
   // --- チーの実行(プレイヤーのみ) ---
-  function executeChi(comboNums, tile){
+  // comboTiles: プレイヤーが牌の画像で選んだ実際の手牌2枚（[小さい方, 大きい方]）
+  function executeChi(comboTiles, tile){
     discards.left.pop();
     renderDiscard("left");
     const handTiles = [];
-    comboNums.forEach(n => {
-      const idx = myHandTiles.findIndex(t => t.suit === tile.suit && t.num === n);
+    comboTiles.forEach(t => {
+      const idx = myHandTiles.indexOf(t);
       if(idx >= 0) handTiles.push(myHandTiles.splice(idx, 1)[0]);
     });
     melds.bottom.push({ type: "chi", handTiles, calledTile: tile, calledFrom: "left" });
@@ -1200,6 +1301,7 @@
     lastDrawnTile = null;
     renderMyHand(true);
     setTurnIndicator("チーしました。捨てる牌をタップしてください");
+    refreshActionButtons();
   }
 
   // 鳴いた後、その人はツモらずすぐ打牌する
@@ -1304,7 +1406,7 @@
     updateWallCount();
     setTurnIndicator("あなたの番です（牌をタップして捨ててください）");
     renderMyHand(true);
-    updateTsumoButton();
+    refreshActionButtons();
     if(!checkKakanOpportunity(drawn)) checkAnkanOpportunity();
   }
 
@@ -1316,6 +1418,7 @@
     const el = document.getElementById("callPrompt");
     el.innerHTML = "";
     el.style.display = "flex";
+    setActionRowVisible(false);
     el.appendChild(makeCallButton("カン", () => { hideCallPrompt(); executeKakan(meldIdx, drawnTile); }));
     el.appendChild(makeCallButton("この牌を捨てる", () => { hideCallPrompt(); onDiscardMyTile(myHandTiles.indexOf(drawnTile)); }));
     el.appendChild(makeCallButton("手牌に保留", () => { hideCallPrompt(); }));
@@ -1330,6 +1433,7 @@
     const el = document.getElementById("callPrompt");
     el.innerHTML = "";
     el.style.display = "flex";
+    setActionRowVisible(false);
     el.appendChild(makeCallButton("暗槓", () => { hideCallPrompt(); executeAnkan(tile); }));
     el.appendChild(makeCallButton("手牌に保留", () => { hideCallPrompt(); }));
     setTurnIndicator("同じ牌が4枚揃いました。暗槓しますか？");
@@ -1353,7 +1457,7 @@
 
     renderMyHand(true);
     setTurnIndicator("暗槓しました。捨てる牌をタップしてください");
-    updateTsumoButton();
+    refreshActionButtons();
   }
 
   function executeKakan(meldIdx, drawnTile){
@@ -1371,7 +1475,7 @@
 
     renderMyHand(true);
     setTurnIndicator("加カンしました。捨てる牌をタップしてください");
-    updateTsumoButton();
+    refreshActionButtons();
   }
 
   // ==================== STEP5: 和了判定・役・点数計算・流局処理 ====================
@@ -2408,7 +2512,6 @@
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
-    document.getElementById("tsumoBtn").disabled = true;
   }
 
   function showResult(seat, result, loserSeat, bonusTotal){
@@ -2463,21 +2566,41 @@
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
-    document.getElementById("tsumoBtn").disabled = true;
   }
 
-  // プレイヤーが今の手でツモれるか判定し、ツモボタンの有効/無効を切り替える
+  // プレイヤーが今の手でツモれるか判定し、ツモボタンの表示/非表示を切り替える。
+  // ツモは「今まさに牌を引いた直後」以外にはあり得ないため、lastDrawnTileが無い間
+  // （鳴いた直後の打牌待ちや、打牌した直後など）は判定を待たずに常に隠す。
   function updateTsumoButton(){
     const btn = document.getElementById("tsumoBtn");
-    if(gameEnded){ btn.disabled = true; return; }
+    if(gameEnded || !lastDrawnTile){
+      btn.style.display = "none";
+      btn.disabled = true;
+      btn.onclick = null;
+      return;
+    }
     const result = attemptWin("bottom", null, true);
     if(result){
+      btn.style.display = "";
       btn.disabled = false;
       btn.onclick = () => finalizeWin("bottom", "bottom", result);
     } else {
+      btn.style.display = "none";
       btn.disabled = true;
       btn.onclick = null;
     }
+  }
+
+  // リーチボタンは門前（暗槓のみ、他家から鳴いていない）の間だけ表示する
+  function updateRiichiButtonVisibility(){
+    const btn = document.getElementById("riichiBtn");
+    const isMenzen = melds.bottom.every(m => m.type === "ankan");
+    btn.style.display = isMenzen ? "" : "none";
+  }
+
+  function refreshActionButtons(){
+    updateTsumoButton();
+    updateRiichiButtonVisibility();
   }
 
 
@@ -2485,6 +2608,7 @@
   renderCpuHandBacks("top");
   renderCpuHandBacks("left");
   renderCpuHandBacks("right");
+  refreshActionButtons();
   setTurnIndicator("あなたの番です（牌をタップして捨ててください）");
 
   // ドラ表示牌・リーチドラ表示牌（王牌の先頭2枚を表向きにする。以降は一切めくらない）
