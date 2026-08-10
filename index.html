@@ -1373,29 +1373,6 @@
       // 箱のswap判定(width/height入れ替え)は同じだが、中のSVGの見た目は180度違う）
       applyMeldRotation(calledEl, baseRot - 90, scaleVar);
 
-      // 加カンの4枚目：実卓と同じく、ポンの横向き牌と同じ向きのまま、その上に少しずらして重ねる
-      let calledSlot = calledEl;
-      if(m.addedTile){
-        const addedEl = tileEl(m.addedTile.suit, m.addedTile.num, tileClass(m.addedTile.suit, m.addedTile.num), m.addedTile.red);
-        addedEl.classList.add("meld-called");
-        applyMeldRotation(addedEl, baseRot - 90, scaleVar);
-        const axisIsX = (flexDir === "row" || flexDir === "row-reverse");
-        const stack = document.createElement("div");
-        stack.style.position = "relative";
-        stack.style.flexShrink = "0";
-        stack.style.width = axisIsX ? "calc(" + calledEl.style.width + " * 1.5)" : calledEl.style.width;
-        stack.style.height = axisIsX ? calledEl.style.height : "calc(" + calledEl.style.height + " * 1.5)";
-        calledEl.style.position = "absolute";
-        calledEl.style.left = "0";
-        calledEl.style.top = "0";
-        addedEl.style.position = "absolute";
-        addedEl.style.left = axisIsX ? "50%" : "0";
-        addedEl.style.top = axisIsX ? "0" : "50%";
-        stack.appendChild(calledEl);
-        stack.appendChild(addedEl);
-        calledSlot = stack;
-      }
-
       const handEls = m.handTiles.map(t => {
         const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
         applyMeldRotation(tEl, baseRot, scaleVar);
@@ -1403,15 +1380,28 @@
       });
 
       const position = meldCalledPosition(name, m.calledFrom);
+      const calledIndex = position === "left" ? 0 : (position === "right" ? 2 : 1);
       let ordered;
       if(position === "left"){
-        ordered = [calledSlot, ...handEls];
+        ordered = [calledEl, ...handEls];
       } else if(position === "right"){
-        ordered = [...handEls, calledSlot];
+        ordered = [...handEls, calledEl];
       } else {
         const mid = Math.floor(handEls.length / 2);
-        ordered = [...handEls.slice(0, mid), calledSlot, ...handEls.slice(mid)];
+        ordered = [...handEls.slice(0, mid), calledEl, ...handEls.slice(mid)];
       }
+
+      // 加カンの4枚目：ポンで晒した横向き牌(calledEl)の上に、暗槓・大明槓と同じ
+      // buildKanGroup()（指定スロットの上に絶対配置で積む仕組み）でもう1枚横向きに重ねる。
+      // これでcalledEl自体は隠れず、下段3枚（表向き2枚＋横向き1枚）がそのまま見え、
+      // その横向き牌の上にaddedElが重なる形になる
+      if(m.addedTile){
+        const addedEl = tileEl(m.addedTile.suit, m.addedTile.num, tileClass(m.addedTile.suit, m.addedTile.num), m.addedTile.red);
+        addedEl.classList.add("meld-called");
+        applyMeldRotation(addedEl, baseRot - 90, scaleVar);
+        ordered = buildKanGroup(name, flexDir, ordered, addedEl, calledIndex);
+      }
+
       ordered.forEach(elx => group.appendChild(elx));
       el.appendChild(group);
     });
