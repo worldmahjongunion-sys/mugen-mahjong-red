@@ -19,6 +19,7 @@
     --honor-green:#2E8B4E;
     --gold:#D8B45A;
     --text-light:#F3EFE3;
+    --discard-frame:red; /* 捨て牌エリアの外周線。ここ1箇所で色を変えられる */
 
     /* 牌サイズは山も含めて全部この1変数に統一する。ここでの初期値はJS実行前の仮の値で、
        ページ読み込み時にfitTileSize()が画面の縦横から逆算した最大サイズに書き換える
@@ -92,6 +93,13 @@
     gap:3px;
     font-size:11px;
   }
+  /* 1段目：局・供託を横並びにする（.top-left-infoの左上パネル専用。wallCount側の.center-midには
+     このクラスの要素が無いので影響しない） */
+  .center-mid .round-kyotaku-row{
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+  }
   .center-mid .round{
     font-weight:bold;
     color:var(--gold);
@@ -112,8 +120,8 @@
     gap:2px;
   }
   .center-mid .dora-tile{
-    width:1.45em; /* 親(.top-left-info)のfont-sizeに連動して卓と一緒に縮む */
-    height:2em;
+    width:2.3em; /* 左上パネルは余白に余裕があるため拡大（旧1.45em）。親(.top-left-info)のfont-sizeに連動 */
+    height:3.2em; /* 旧2em */
   }
   .center-mid .dora-label{
     font-size:0.82em; /* 親(.top-left-info)のfont-sizeに連動して卓と一緒に縮む */
@@ -378,6 +386,7 @@
   .discard-grid{
     display:grid;
     gap:2px;
+    outline:2px solid var(--discard-frame); /* 捨て牌エリアの外周を示す正式な枠線 */
   }
   /* 牌自体の幅・高さはCSSでは決めない。回転あり(top/left/right)はJS側の
      applyMeldRotation()が回転後の見た目に合わせて実寸をインラインで設定するため、
@@ -414,6 +423,13 @@
     display:flex;
     align-items:center;
     justify-content:center;
+    /* .ring-center自身はgridのstretchで自分のセルいっぱいの大きさになっているが、
+       align-items:centerのため中身(#center)はデフォルトでは中央寄せの縮小サイズになり、
+       それを100%で引き継ぐ.center-infoも横長のまま縮んでしまっていた。
+       #center自身にもwidth/height:100%を明示し、.ring-centerの大きさをそのまま
+       .center-infoまで伝える（これで.center-infoのwidth/height:100%が正しく効く） */
+    width:100%;
+    height:100%;
   }
 
   /* 鳴き面子の行(.meld-row)は、手牌の行(.hand-row)とは別の独立した行として、
@@ -673,20 +689,23 @@
     </div>
   </div>
 
-  <!-- 場況表示（局・供託・ドラ）。和了結果表示（右上）の対角、画面左上に固定表示する -->
+  <!-- 場況表示（局・供託・ドラ）。和了結果表示（右上）の対角、画面左上に固定表示する。
+       1段目=局・供託、2段目=表ドラ・リーチドラの2段組 -->
   <div class="center-mid top-left-info">
-    <div class="round">東1局 0本場</div>
+    <div class="round-kyotaku-row">
+      <div class="round">東1局 0本場</div>
+      <div id="kyotakuCount" class="kyotaku-row">供託 0本</div>
+    </div>
     <div class="dora-row">
       <div class="dora-item">
         <div class="tile dora-tile" id="doraActualTile"></div>
-        <div class="dora-label">ドラ</div>
+        <div class="dora-label">表ドラ</div>
       </div>
       <div class="dora-item">
         <div class="tile dora-tile riichi-dora-tile" id="riichiDoraActualTile"></div>
         <div class="dora-label riichi-dora-label">リーチドラ</div>
       </div>
     </div>
-    <div id="kyotakuCount" class="kyotaku-row">供託 0本</div>
   </div>
 
   <!-- 結果・鳴きプロンプト＋常時表示の操作ボタン行 -->
@@ -1224,6 +1243,12 @@
   // 各自の「読む向き」を画面の軸に対応させる（対面は左右反転、上家・下家は縦方向）
   const MELD_FLEX_DIRECTION = { bottom:"row", top:"row-reverse", left:"column", right:"column-reverse" };
 
+  // 暗槓・大明槓（横幅を牌3枚分に抑えるレイアウト）で、積む側の1枚をどちら向きに
+  // 積むかを決める：卓中央側（＝手牌から遠い側）に、幅を増やさず高さ方向にだけ突き出す。
+  // このCSSプロパティ名をそのまま100%指定すると、積む牌の該当辺がスロットの反対辺に
+  // ぴったり接する（＝隙間なく「上に載る」）
+  const KAN_STACK_SIDE = { bottom:"bottom", top:"top", left:"left", right:"right" };
+
   // 90度・270度回転の牌は、外側の箱を見た目通りの寸法(Tier A: main-h×main-w)にして、
   // 中のSVGだけを回転させる（箱と見た目がズレて余分な隙間ができるのを防ぐ）。
   // scaleVarを渡すと、その名前のCSS変数（例:--meld-scale-top）ぶんだけ縮小した実寸にする
@@ -1239,10 +1264,47 @@
       svg.style.position = "absolute";
       svg.style.left = "50%";
       svg.style.top = "50%";
-      svg.style.width = "88%";
-      svg.style.height = "88%";
+      // 幅・高さは常に非回転基準(--tile-w×--tile-h)で固定し、向きはtransform:rotate()だけで
+      // 与える。外側の箱(width/height)は90/270度でswapされるが、SVG自身のサイズをそれに
+      // 追従させると（%指定だと親のswap後の寸法を基準にしてしまい）viewBoxとの縦横比が
+      // ズレて「meet」が縮む基準辺を変えてしまい、絵のサイズが縦横で不揃いになるので注意。
+      svg.style.width = "calc(var(--tile-w) * 0.88 * " + scale + ")";
+      svg.style.height = "calc(var(--tile-h) * 0.88 * " + scale + ")";
       svg.style.transform = "translate(-50%, -50%) rotate(" + deg + "deg)";
     }
+  }
+
+  // 暗槓の伏せ牌は横一列(baseRot)と積む1枚(baseRot-90)で必要なswap(幅高入替)が逆になる。
+  // 伏せ柄の向き自体はCSSクラス(tile-back / tile-back rot)で切り替えているため、
+  // 積む1枚は横一列側と常に逆のクラスを使う
+  const STACKED_BACK_CLASS = { bottom:"tile-back rot", top:"tile-back rot", left:"tile-back", right:"tile-back" };
+
+  // 暗槓・大明槓共通：横一列3枚(rowEls)の指定位置(stackedIndex:0/1/2)の上に、
+  // 回転済みの4枚目(stackedEl)を幅を増やさず積み重ねる。
+  // 積む方向は常に卓中央側（KAN_STACK_SIDE）＝手牌から離れる向きにして、
+  // 積んだ牌が手牌に重ならないようにする
+  function buildKanGroup(name, flexDir, rowEls, stackedEl, stackedIndex){
+    const axisIsX = (flexDir === "row" || flexDir === "row-reverse");
+    return rowEls.map((rowEl, i) => {
+      if(i !== stackedIndex) return rowEl;
+      const wrap = document.createElement("div");
+      wrap.style.position = "relative";
+      wrap.style.flexShrink = "0";
+      wrap.style.width = rowEl.style.width;
+      wrap.style.height = rowEl.style.height;
+      stackedEl.style.position = "absolute";
+      stackedEl.style[KAN_STACK_SIDE[name]] = "100%";
+      if(axisIsX){
+        stackedEl.style.left = "50%";
+        stackedEl.style.transform = "translateX(-50%)";
+      } else {
+        stackedEl.style.top = "50%";
+        stackedEl.style.transform = "translateY(-50%)";
+      }
+      wrap.appendChild(rowEl);
+      wrap.appendChild(stackedEl);
+      return wrap;
+    });
   }
 
   function renderMelds(name){
@@ -1263,38 +1325,60 @@
       group.style.gap = "3px"; // 鳴き牌3枚の間隔＝捨て牌の間隔と同じ
 
       if(m.type === "ankan"){
-        // 暗槓：CPUは4枚とも裏向きで何を暗槓したか一切見せない。自分(bottom)だけ1枚(2番目)を表にして確認できるようにする
-        const backCls = backClassByName[name] || "tile-back";
-        m.handTiles.forEach((t, i) => {
-          const showThis = name === "bottom" && i === 1;
-          if(showThis){
-            const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
-            applyMeldRotation(tEl, baseRot, scaleVar);
-            group.appendChild(tEl);
-          } else {
-            const backEl = document.createElement("div");
-            backEl.className = backCls;
-            if(scaleVar){
-              backEl.style.width = "calc(var(--tile-w) * var(" + scaleVar + "))";
-              backEl.style.height = "calc(var(--tile-h) * var(" + scaleVar + "))";
-            }
-            group.appendChild(backEl);
-          }
+        // 暗槓：伏せ牌3枚を横一列に並べ、4枚目を横向き（90度回転）にして上に積む。
+        // 自分(bottom)の暗槓だけ、積んだ1枚を表向きにして確認できるようにする。CPUは4枚とも伏せのまま
+        const rowBackCls = backClassByName[name] || "tile-back";
+        const rowEls = m.handTiles.slice(0, 3).map(() => {
+          const backEl = document.createElement("div");
+          backEl.className = rowBackCls;
+          applyMeldRotation(backEl, baseRot, scaleVar);
+          return backEl;
         });
+        const isSelf = (name === "bottom");
+        let stackedEl;
+        if(isSelf){
+          const t = m.handTiles[3];
+          stackedEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+        } else {
+          stackedEl = document.createElement("div");
+          stackedEl.className = STACKED_BACK_CLASS[name];
+        }
+        applyMeldRotation(stackedEl, baseRot - 90, scaleVar);
+        buildKanGroup(name, flexDir, rowEls, stackedEl, 1).forEach(elx => group.appendChild(elx));
+        el.appendChild(group);
+        return;
+      }
+
+      if(m.type === "kan"){
+        // 大明槓：手牌にあった3枚を表向きで横一列に並べ、鳴かれた1枚を横向きにして上に積む。
+        // 積む位置で誰から鳴いたかを示す（上家=左端／対面=中央／下家=右端、既存のpon/chiと同じ判定）
+        const rowEls = m.handTiles.map(t => {
+          const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+          applyMeldRotation(tEl, baseRot, scaleVar);
+          return tEl;
+        });
+        const stackedEl = tileEl(m.calledTile.suit, m.calledTile.num, tileClass(m.calledTile.suit, m.calledTile.num), m.calledTile.red);
+        stackedEl.classList.add("meld-called");
+        applyMeldRotation(stackedEl, baseRot - 90, scaleVar);
+        const kanPosition = meldCalledPosition(name, m.calledFrom);
+        const stackedIndex = kanPosition === "left" ? 0 : (kanPosition === "right" ? 2 : 1);
+        buildKanGroup(name, flexDir, rowEls, stackedEl, stackedIndex).forEach(elx => group.appendChild(elx));
         el.appendChild(group);
         return;
       }
 
       const calledEl = tileEl(m.calledTile.suit, m.calledTile.num, tileClass(m.calledTile.suit, m.calledTile.num), m.calledTile.red);
       calledEl.classList.add("meld-called"); // 誰から鳴いたか分かるよう、その席の向きからさらに横向きにする
-      applyMeldRotation(calledEl, baseRot + 90, scaleVar);
+      // baseRot+90だと絵柄が上下逆になっていたため-90(=270度)にした（90と270はどちらも
+      // 箱のswap判定(width/height入れ替え)は同じだが、中のSVGの見た目は180度違う）
+      applyMeldRotation(calledEl, baseRot - 90, scaleVar);
 
       // 加カンの4枚目：実卓と同じく、ポンの横向き牌と同じ向きのまま、その上に少しずらして重ねる
       let calledSlot = calledEl;
       if(m.addedTile){
         const addedEl = tileEl(m.addedTile.suit, m.addedTile.num, tileClass(m.addedTile.suit, m.addedTile.num), m.addedTile.red);
         addedEl.classList.add("meld-called");
-        applyMeldRotation(addedEl, baseRot + 90, scaleVar);
+        applyMeldRotation(addedEl, baseRot - 90, scaleVar);
         const axisIsX = (flexDir === "row" || flexDir === "row-reverse");
         const stack = document.createElement("div");
         stack.style.position = "relative";
@@ -2864,12 +2948,27 @@
   function showRyuukyokuResult(tenpaiSeats, notenSeats){
     const box = document.getElementById("resultBox");
     box.style.display = "block";
-    const tenpaiText = tenpaiSeats.length > 0 ? tenpaiSeats.map(s => seatLabel[s]).join("・") + "：テンパイ" : "テンパイ：なし";
-    const notenText = notenSeats.length > 0 ? notenSeats.map(s => seatLabel[s]).join("・") + "：ノーテン" : "ノーテン：なし";
-    box.innerHTML =
-      `<div class="result-title">流局</div>` +
-      `<div class="result-yaku">${tenpaiText}</div>` +
-      `<div class="result-yaku">${notenText}</div>`;
+    // 全員テンパイ／全員ノーテンは点数移動が発生しないので、席ごとの行は出さず1行で済ませる
+    if(notenSeats.length === 0){
+      box.innerHTML = `<div class="result-title">流局</div><div class="result-yaku">全員テンパイ</div>`;
+      return;
+    }
+    if(tenpaiSeats.length === 0){
+      box.innerHTML = `<div class="result-title">流局</div><div class="result-yaku">全員ノーテン</div>`;
+      return;
+    }
+    // 席ごとに1行ずつ、あなた→下家→対面→上家の順（＝seats配列の順）で、
+    // テンパイ／ノーテンの別と実際の点数増減を併記する
+    const gainEach = 1000 * notenSeats.length;
+    const lossEach = 1000 * tenpaiSeats.length;
+    const rows = ["bottom", "right", "top", "left"].map(s => {
+      const isTenpaiSeat = tenpaiSeats.includes(s);
+      const delta = isTenpaiSeat ? gainEach : -lossEach;
+      const deltaText = delta > 0 ? "＋" + delta + "点" : "－" + (-delta) + "点";
+      const statusText = isTenpaiSeat ? "テンパイ" : "ノーテン";
+      return `<div class="result-yaku">${seatLabel[s]}　${statusText}　${deltaText}</div>`;
+    }).join("");
+    box.innerHTML = `<div class="result-title">流局</div>` + rows;
   }
 
   // 山が尽きた（誰もツモれなくなった）ときの流局処理
@@ -2906,9 +3005,15 @@
       return;
     }
 
-    const yakuText = result.yaku.map(y => y.name + " " + y.han + "翻").join("　");
+    // ドラ・リーチドラはハウスルール上、他の役と違って「翻を稼ぐための役」ではなく
+    // 定額ボーナスの性格が強いので、表示上も他の役（飜数の少ない順）とは分けて末尾にまとめる
+    // （赤牌ボーナスも同じ理由で、常にそのさらに後ろの行に表示する）
+    const DORA_YAKU_NAMES = new Set(["ドラ", "リーチドラ"]);
+    const normalYaku = result.yaku.filter(y => !DORA_YAKU_NAMES.has(y.name)).slice().sort((a, b) => a.han - b.han);
+    const doraYaku = result.yaku.filter(y => DORA_YAKU_NAMES.has(y.name));
+    const yakuText = normalYaku.concat(doraYaku).map(y => y.name + " " + y.han + "翻").join("　");
     const akaText = bonusTotal > 0
-      ? `<div class="result-yaku">赤牌ボーナス（${result.akaCount}枚）＋${bonusTotal}点</div>`
+      ? `<div class="result-yaku">赤×${result.akaCount}　＋${bonusTotal}</div>`
       : "";
     box.innerHTML =
       `<div class="result-title">${title}</div>` +
@@ -3087,84 +3192,11 @@
     ["top", "bottom", "left", "right"].forEach(fitMeldRowScale);
   }
 
-  // ==== 一時デバッグ：捨て牌エリアが中央BOXと被る不具合の検証用（原因特定でき次第削除する） ====
-  // 捨て牌4方向の枠(width/height固定)と中央BOXに赤枠を付け、実際のはみ出し量を
-  // scrollWidth/Height（中身の実サイズ、はみ出せば枠のclientWidth/Heightより大きくなる）で確認する。
-  // コンソールへのコピペが難しい環境向けに、同じ内容を画面右上の固定オーバーレイにも表示する
-  // （スクリーンショット1枚で数値と被り具合を同時に見せるため）
-  function ensureDebugOverlay(){
-    let el = document.getElementById("debugOverlay");
-    if(!el){
-      el = document.createElement("div");
-      el.id = "debugOverlay";
-      el.style.position = "fixed";
-      el.style.top = "4px";
-      el.style.right = "4px";
-      el.style.background = "rgba(0,0,0,0.88)";
-      el.style.color = "#fff";
-      el.style.font = "11px/1.5 monospace";
-      el.style.padding = "6px 8px";
-      el.style.zIndex = "99999";
-      el.style.whiteSpace = "pre";
-      el.style.pointerEvents = "none";
-      document.body.appendChild(el);
-    }
-    return el;
-  }
-  function debugDiscardOverflow(){
-    const ids = ["discardTop", "discardBottom", "discardLeft", "discardRight"];
-    const rows = ids.map(id => {
-      const el = document.getElementById(id);
-      el.style.outline = "2px solid red";
-      return {
-        id,
-        clientWidth: el.clientWidth, clientHeight: el.clientHeight,
-        scrollWidth: el.scrollWidth, scrollHeight: el.scrollHeight,
-        offsetWidth: el.offsetWidth, offsetHeight: el.offsetHeight,
-        overflowX: el.scrollWidth - el.clientWidth,
-        overflowY: el.scrollHeight - el.clientHeight
-      };
-    });
-    const centerInfo = document.querySelector(".center-info");
-    centerInfo.style.outline = "2px solid lime";
-    rows.push({
-      id: ".center-info",
-      clientWidth: centerInfo.clientWidth, clientHeight: centerInfo.clientHeight,
-      scrollWidth: centerInfo.scrollWidth, scrollHeight: centerInfo.scrollHeight,
-      offsetWidth: centerInfo.offsetWidth, offsetHeight: centerInfo.offsetHeight,
-      overflowX: centerInfo.scrollWidth - centerInfo.clientWidth,
-      overflowY: centerInfo.scrollHeight - centerInfo.clientHeight
-    });
-
-    const tileW = getComputedStyle(document.documentElement).getPropertyValue("--tile-w").trim();
-    const tileH = getComputedStyle(document.documentElement).getPropertyValue("--tile-h").trim();
-    console.log("--tile-w=" + tileW + " --tile-h=" + tileH);
-    console.table(rows);
-
-    const pad = (s, n) => String(s).padEnd(n);
-    const lines = [];
-    lines.push("--tile-w=" + tileW + " --tile-h=" + tileH);
-    lines.push(pad("id", 14) + pad("clientWxH", 12) + pad("scrollWxH", 12) + pad("ovX", 6) + "ovY");
-    rows.forEach(r => {
-      lines.push(
-        pad(r.id, 14) +
-        pad(r.clientWidth + "x" + r.clientHeight, 12) +
-        pad(r.scrollWidth + "x" + r.scrollHeight, 12) +
-        pad(r.overflowX, 6) +
-        r.overflowY
-      );
-    });
-    ensureDebugOverlay().textContent = lines.join("\n");
-  }
-  window.debugDiscardOverflow = debugDiscardOverflow;
-  // ==== デバッグここまで ====
-
   fitTileSize();
-  debugDiscardOverflow();
   let resizeTimer = null;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { fitTileSize(); debugDiscardOverflow(); }, 150);
+    resizeTimer = setTimeout(() => { fitTileSize(); }, 150);
   });
 </script>
 
