@@ -20,12 +20,18 @@
     --gold:#D8B45A;
     --text-light:#F3EFE3;
 
-    /* 牌サイズは2段階（Tier A=読める必要がある牌／Tier B=数えられれば十分な伏せ牌）。
-       画面の高さ(dvh)に応じてclamp()で自動調整し、4辺・4人とも同じ比率にする。 */
-    --back-h: clamp(14px, 2.6dvh, 24px);   /* Tier B 長辺（伏せ手牌・山の帯） */
-    --back-w: calc(var(--back-h) * 0.73);  /* Tier B 短辺（回転時の厚み） */
-    --main-h: clamp(28px, 4.8dvh, 48px);   /* Tier A 長辺（自分の手牌・鳴き面子・捨て牌） */
-    --main-w: calc(var(--main-h) * 0.73);  /* Tier A 短辺 */
+    /* 牌サイズは山も含めて全部この1変数に統一する。ここでの初期値はJS実行前の仮の値で、
+       ページ読み込み時にfitTileSize()が画面の縦横から逆算した最大サイズに書き換える
+       （--tile-wは常に--tile-hの0.73倍で連動する） */
+    --tile-h: clamp(22px, 3.8dvh, 38px);
+    --tile-w: calc(var(--tile-h) * 0.73);
+    /* 鳴き面子の行(4方向とも)の縮小率。既定は等倍(1)で、卓は正方形のため
+       卓幅(--table-width)を長さの基準として使い、それを超える行だけ
+       JS(fitMeldRowScale)が1未満の値に書き換える */
+    --meld-scale-top: 1;
+    --meld-scale-bottom: 1;
+    --meld-scale-left: 1;
+    --meld-scale-right: 1;
   }
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html, body{
@@ -48,57 +54,97 @@
     padding:6px;
   }
 
-  /* --- 卓中央：局・本場・残り枚数・ドラ --- */
+  /* --- 卓中央：四方向に持ち点を配置した電子卓ふうの情報ボックス。
+     レイアウトそのものは.ringを流用し、背景・余白だけこのクラスで足す ---
+     サイズはJSでpxを固定しない：中央セル(.ring-center)いっぱいに広がり(width/height:100%)、
+     必要な最小サイズ(捨て牌6枚分＋余白1枚分)だけmin-width/min-heightで持たせる。
+     この最小値は--tile-wベースのcalc()なので、fitTileSize()の二分探索中も常に最新の値のまま
+     参照される（JS実測pxのスナップショットだと探索中に値が古いまま残り、探索後に確定した
+     サイズと食い違って捨て牌の行にあふれることがあったため） */
   .center-info{
-    display:flex;
-    flex-direction:column;
-    align-items:center;
-    justify-content:center;
-    gap:8px;
-    width:180px;
-    height:180px;
     box-sizing:border-box;
+    width:100%;
+    height:100%;
+    min-width:calc(var(--tile-w) * 7 + 10px); /* 捨て牌グリッド(6枚・gap2px×5=10px)＋余白1枚分 */
+    min-height:calc(var(--tile-w) * 7 + 10px);
     background:rgba(0,0,0,0.25);
     border-radius:10px;
-    padding:8px 14px;
-    font-size:24px;
+    padding:6px 10px;
     white-space:nowrap;
+    /* 上下左右のネームプレートを各辺にぴったり寄せる：中央列・中央行だけを1frにして
+       余った分をそこに集め、四隅のネームプレート行/列は中身ぴったりのサイズのまま端に残す */
+    grid-template-columns:auto 1fr auto;
+    grid-template-rows:auto 1fr auto;
   }
-  .center-info .round{
-    font-weight:bold;
-    color:var(--gold);
-    font-size:26px;
+  /* 中央BOXに置く起家マーク（ネームプレートの中に入る） */
+  .dealer-mark{
+    background:var(--honor-red);
+    color:#fff;
+    border-radius:3px;
+    font-size:13px;
+    padding:0 4px;
+    line-height:1.4;
   }
-  .center-info .kyotaku-row{
-    font-size:16px;
-    color:#ccc;
-  }
-  .center-info .dora-row{
-    display:flex;
-    align-items:flex-start;
-    gap:14px;
-  }
-  .center-info .dora-item{
+  .center-mid{
     display:flex;
     flex-direction:column;
     align-items:center;
     gap:3px;
+    font-size:11px;
   }
-  .center-info .dora-tile{
-    width:20px;
-    height:28px;
+  .center-mid .round{
+    font-weight:bold;
+    color:var(--gold);
+    font-size:1.18em; /* 親(.top-left-info)のfont-sizeに連動して卓と一緒に縮む */
   }
-  .center-info .dora-label{
-    font-size:12px;
+  .center-mid .kyotaku-row{
     color:#ccc;
   }
-  .center-info .riichi-dora-label{
+  .center-mid .dora-row{
+    display:flex;
+    align-items:flex-start;
+    gap:8px;
+  }
+  .center-mid .dora-item{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:2px;
+  }
+  .center-mid .dora-tile{
+    width:1.45em; /* 親(.top-left-info)のfont-sizeに連動して卓と一緒に縮む */
+    height:2em;
+  }
+  .center-mid .dora-label{
+    font-size:0.82em; /* 親(.top-left-info)のfont-sizeに連動して卓と一緒に縮む */
+    color:#ccc;
+  }
+  .center-mid .riichi-dora-label{
     color:var(--honor-red);
     font-weight:bold;
   }
-  .center-info .riichi-dora-tile{
+  .center-mid .riichi-dora-tile{
     box-shadow:0 0 0 2px var(--honor-red);
     border-radius:3px;
+  }
+  .wall-count{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:1px;
+  }
+  .wall-count-label{
+    font-size:9px;
+    color:#ccc;
+  }
+  .wall-count-num{
+    font-size:clamp(20px, calc(var(--tile-h) * 0.9), 44px); /* 卓のサイズ(--tile-h)に連動して拡大・縮小する（旧16px固定） */
+    font-weight:bold;
+    color:var(--gold);
+    font-variant-numeric:tabular-nums;
+    line-height:1;
+    min-width:2ch; /* 76→9のように桁数が変わってもBOXが揺れないよう幅を固定する */
+    text-align:center;
   }
 
   /* --- 卓：手牌／山／捨牌／中央情報ボックスの4層を、同じ「リング」グリッドを
@@ -128,6 +174,10 @@
       ".  b  .";
     gap:2px;
   }
+  /* 手牌と山の間隔＝牌の高さ1個分は、鳴き面子の行(.meld-row)自身の厚みで確保する
+     （鳴き面子が0組でも.meld-rowは常にvar(--tile-h)ぶんの厚みを持つため）。
+     ここでgapを別途空けると隙間が二重になるので0にする（4辺とも）。 */
+  .ring.hand-ring{ gap:0; }
   /* grid-template-areasで"minmax(0,...)"にした行・列でも、そこに置かれるアイテム自身が
      デフォルトのmin-width/min-height:auto（中身のサイズ分だけ最低幅・高さを要求する）を
      持ったままだと、結局そのアイテムの中身の大きさに引っ張られて枠がはみ出してしまう。
@@ -140,11 +190,40 @@
      どちらも中身の大きさぶんだけになり、align/justify-centerで中央に寄る。 */
   .ring-center{ grid-area:c; min-width:0; min-height:0; display:flex; align-items:center; justify-content:center; }
 
-  /* 山の帯（装飾。残り枚数とは連動させない固定表示） */
-  /* overflow:hiddenで、JSが幅/高さを残り枚数の割合で縮めた分だけ
-     奥側（中心から遠い側）の牌が隠れていくようにする */
-  .wall-band{ display:flex; gap:1px; overflow:hidden; }
-  .wall-band.vertical{ flex-direction:column; }
+  /* 手牌の行(.ring-top/bottom/left/right直下のgap:2px)は、鳴き面子の行と手牌の行の間には
+     適用しない（.meld-row自身の厚みだけで隙間を作るため、ここでさらに足すと隙間が広がる） */
+  .ring.hand-ring > .ring-top,
+  .ring.hand-ring > .ring-bottom,
+  .ring.hand-ring > .ring-left,
+  .ring.hand-ring > .ring-right{
+    gap:0;
+  }
+
+  /* 山：実際の卓と同じ2段積み。牌背をCSS Gridで2列（縦持ち）/2行（横持ち）に並べ、
+     JSが残り枚数ぶんだけ外側（中心から遠い側）の牌にvisibility:hiddenを付けて隠す。
+     grid-auto-flowにより、DOM順で連続する2枚がそのまま「1つの山（二段）」になる。 */
+  /* 山は一段表示：表示される牌1枚が「上段+下段」の2枚分を表す。
+     上段を消費している間は通常色、下段に入ったらhalf-drawnで少し暗くし、
+     両方消費されたらhidden-drawnで非表示にする（牌背の絵柄自体は変えない） */
+  .wall-pile{ display:grid; gap:1px; }
+  .wall-pile.horizontal{
+    grid-auto-flow:column;
+    grid-template-rows:repeat(1, var(--tile-h));
+    grid-auto-columns:var(--tile-w);
+  }
+  .wall-pile.vertical{
+    grid-auto-flow:row;
+    grid-template-columns:repeat(1, var(--tile-h));
+    grid-auto-rows:var(--tile-w);
+  }
+  .wall-pile .tile-back.hidden-drawn{ visibility:hidden; }
+  .wall-pile .tile-back.half-drawn{ filter:brightness(0.62); }
+  /* 自分の前だけ、自摸山・空き2枚ぶん・王牌が横に並ぶ。1本の山として繋がって見えるよう、
+     山の内部と同じ1pxの間隔にする（他家の11枚と合わせて自分の山も表示枚数11枚になる） */
+  .wall-bottom-group{ display:flex; flex-direction:row; gap:1px; align-items:center; }
+  .wall-gap.horizontal{ display:flex; gap:1px; }
+  /* 王牌のうち表向きの2枚（ドラ表示牌・リーチドラ表示牌）は、周りの伏せ牌と同じ枠サイズで表示する */
+  .wall-pile .tile.wall-indicator{ width:var(--tile-w); height:var(--tile-h); border-radius:3px; }
 
   .nameplate{
     display:flex;
@@ -152,38 +231,35 @@
     gap:6px;
     background:rgba(0,0,0,0.3);
     border-radius:10px;
-    padding:2px 8px;
-    font-size:12px;
+    padding:3px 10px;
+    font-size:18px; /* 読みやすさのため拡大（旧12px） */
     white-space:nowrap;
   }
-  .nameplate .label{ color:var(--text-light); opacity:0.9; }
   .nameplate .score{
+    display:inline-block;
+    min-width:5ch; /* 桁数が変わっても幅が動かないよう確保する */
+    text-align:right;
     font-weight:bold;
     color:var(--gold);
     font-variant-numeric:tabular-nums;
   }
   .nameplate.you{ background:rgba(0,0,0,0.4); }
+  /* 4人とも中身は横書きのまま「方角→点数」の順で並べ、プレート全体をtransformで1回だけ回す。
+     90度回転で箱の実寸（レイアウト上の幅・高さ）が回転前のままになる問題は、
+     JS側で.center-info内の各セルに実測サイズを固定で入れて吸収する（stabilizeCenterInfoCells参照）。 */
   .nameplate.rot180{ transform:rotate(180deg); }
-  /* 90度回転は transform ではなく writing-mode で表現する。
-     transformだけだと箱（レイアウト上の幅・高さ）は回転前のままになり、
-     縦持ち列の高さ予算を圧迫してしまう（鳴き牌の回転で既に踏んだ問題と同種）。
-     writing-modeなら文字が縦流しになり、箱そのものが細長くなる。 */
-  .nameplate.rot90, .nameplate.rotm90{
-    writing-mode:vertical-rl;
-    padding:6px 3px;
-    gap:4px;
-  }
+  .nameplate.rot90{ transform:rotate(90deg); }   /* 上家（左）：文字の上が画面右を向く */
+  .nameplate.rotm90{ transform:rotate(-90deg); } /* 下家（右）：文字の上が画面左を向く */
   .nameplate .wind-mark{
     display:inline-flex;
     align-items:center;
     justify-content:center;
-    width:16px; height:16px;
+    width:22px; height:22px;
     border-radius:4px;
     background:var(--tile-bg);
     color:var(--honor-wind);
-    font-size:11px;
+    font-size:15px;
     font-weight:bold;
-    writing-mode:horizontal-tb;
   }
 
   /* --- 牌の見た目（リアル寄り） --- */
@@ -222,9 +298,10 @@
     --tileback-svg:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 140"><rect width="100" height="140" fill="%235BC7E8"/><g fill="none" stroke="%231C5F91" stroke-width="2.6" stroke-linecap="round"><path d="M14 32 Q10 22 18 16 Q26 12 32 18 Q36 24 30 30 Q24 36 14 32 Z"/><path d="M30 24 Q40 26 44 18 Q46 12 42 8"/><path d="M86 32 Q90 22 82 16 Q74 12 68 18 Q64 24 70 30 Q76 36 86 32 Z"/><path d="M70 24 Q60 26 56 18 Q54 12 58 8"/><path d="M14 108 Q10 118 18 124 Q26 128 32 122 Q36 116 30 110 Q24 104 14 108 Z"/><path d="M30 116 Q40 114 44 122 Q46 128 42 132"/><path d="M86 108 Q90 118 82 124 Q74 128 68 122 Q64 116 70 110 Q76 104 86 108 Z"/><path d="M70 116 Q60 114 56 122 Q54 128 58 132"/></g><circle cx="50" cy="70" r="30" fill="none" stroke="%231C5F91" stroke-width="2.8"/><g fill="none" stroke="%231C5F91" stroke-width="6.5" stroke-linecap="square"><path d="M50 44 L50 61 L67 61"/><path d="M76 70 L59 70 L59 87"/><path d="M50 96 L50 79 L33 79"/><path d="M24 70 L41 70 L41 53"/></g><circle cx="50" cy="70" r="6" fill="%231C5F91"/></svg>');
   }
 
+  /* 伏せ牌は全部--tile-*の統一サイズ（CPUの伏せ手牌・山ともに同じ大きさになる） */
   .tile-back{
-    width:var(--back-w);
-    height:var(--back-h);
+    width:var(--tile-w);
+    height:var(--tile-h);
     background-color:#5BC7E8;
     background-image:var(--tileback-svg);
     background-size:cover;
@@ -238,8 +315,8 @@
 
   /* 横向き（左右の対戦相手用）：対面と全く同じ柄を90度回転させて表示する */
   .tile-back.rot{
-    width:var(--back-h);
-    height:var(--back-w);
+    width:var(--tile-h);
+    height:var(--tile-w);
     background:none;
     border:none;
     box-shadow:none;
@@ -250,8 +327,8 @@
     position:absolute;
     top:50%;
     left:50%;
-    width:var(--back-w);
-    height:var(--back-h);
+    width:var(--tile-w);
+    height:var(--tile-h);
     background-color:#5BC7E8;
     background-image:var(--tileback-svg);
     background-size:cover;
@@ -263,30 +340,38 @@
     transform:translate(-50%, -50%) rotate(90deg);
   }
 
+  /* 手牌の行：鳴きで枚数が減っても常に「13枚+ツモ1枚=14枚分」の幅（縦向きは高さ）を
+     min-width/min-height で確保する（旧padCount＝透明なプレースホルダー牌を並べる方式の代わり）。
+     実際の牌はjustify-content:centerでその枠の中央に寄る。
+     内訳：牌14枚 + 牌同士のgap13個(3px×13) + ツモ牌自身に付くmargin(3px)。
+     ツモった瞬間にmarginぶん行が伸びて縮まないよう、ここにも同じ3pxを含めておく。 */
   .hand-row{
     display:flex;
     gap:3px;
-    justify-content:flex-start;
+    justify-content:center;
     flex-wrap:nowrap;
+    min-width:calc(var(--tile-w) * 14 + 3px * 13 + 3px);
   }
   .hand-row.mine{
     gap:3px;
   }
   .hand-row.mine .tile{
-    width:var(--main-w);
-    height:var(--main-h);
+    width:var(--tile-w);
+    height:var(--tile-h);
   }
   .hand-row.mine .tile.drawn{
-    margin-left:calc(var(--main-w) + 8px); /* ツモ牌を牌の幅一つ分離して表示 */
+    margin-left:3px; /* 手牌同士の間隔(3px)の2倍程度になるよう、既存のgap(3px)にさらに3pxだけ足す */
   }
 
-  /* CPUのツモ枠：各自から見て手牌の右側になるよう、向きに応じた側に間隔をあける */
-  #handTop .tile-back.drawn{ margin-right:calc(var(--back-w) + 8px); }   /* 対面：180度回転のため先頭側にあける */
-  #handRight .tile-back.drawn{ margin-bottom:calc(var(--back-w) + 8px); } /* 下家：-90度回転のため先頭(上)側にあける */
-  #handLeft .tile-back.drawn{ margin-top:calc(var(--back-w) + 8px); }     /* 上家：90度回転のため末尾(下)側にあける */
+  /* CPUのツモ枠：各自から見て手牌の右側になるよう、向きに応じた側に間隔をあける（手牌同士の間隔の2倍程度） */
+  #handTop .tile-back.drawn{ margin-right:3px; }   /* 対面：180度回転のため先頭側にあける */
+  #handRight .tile-back.drawn{ margin-bottom:3px; } /* 下家：-90度回転のため先頭(上)側にあける */
+  #handLeft .tile-back.drawn{ margin-top:3px; }     /* 上家：90度回転のため末尾(下)側にあける */
 
   .hand-row.vertical{
     flex-direction:column;
+    min-width:0;
+    min-height:calc(var(--tile-w) * 14 + 3px * 13 + 3px);
   }
 
   /* --- 捨て牌エリア（全員同じ大きさ。各自から見て左から6枚→奥の段へ、を再現するためJSで行列を明示指定） --- */
@@ -294,69 +379,69 @@
     display:grid;
     gap:2px;
   }
+  /* 牌自体の幅・高さはCSSでは決めない。回転あり(top/left/right)はJS側の
+     applyMeldRotation()が回転後の見た目に合わせて実寸をインラインで設定するため、
+     ここでwidth/heightを指定すると回転前の箱のままグリッドに置かれて枠からあふれる
+     （中央BOXと重なっていた不具合の原因）。border-radiusだけ共通で当てておく */
   .discard-grid .tile{
-    width:var(--main-w);
-    height:var(--main-h);
     border-radius:4px;
   }
 
-  /* 自分・対面：6列×3行（横向きの手牌用） */
+  /* 自分・対面：6列×4行（横向きの手牌用、最大24枚まで対応）。
+     width/heightは--tile-w/--tile-hベースのcalc()で直接指定する（JS実測pxのスナップショットは
+     やめた：二分探索中は値が古いまま残り、探索後に確定したサイズと食い違って中央BOXや捨て牌の
+     行があふれることがあったため。gapは.discard-gridのgap:2pxに合わせている） */
   #discardBottom, #discardTop{
-    grid-template-columns:repeat(6, var(--main-w));
-    grid-template-rows:repeat(3, var(--main-h));
+    grid-template-columns:repeat(6, var(--tile-w));
+    grid-template-rows:repeat(4, var(--tile-h));
+    flex-shrink:0;
     justify-content:center;
+    width:calc(var(--tile-w) * 6 + 10px); /* 牌6枚＋gap2px×5 */
+    height:calc(var(--tile-h) * 4 + 6px); /* 牌4枚＋gap2px×3 */
   }
-  /* 対面：180度回転（対面から見てまっすぐ） */
-  #discardTop .tile{ transform:rotate(180deg); }
 
-  /* 上家・下家：3列×6行（縦向きの手牌用、回転後の見た目寸法に合わせる） */
+  /* 上家・下家：4列×6行（縦向きの手牌用、回転後の見た目寸法に合わせる。最大24枚まで対応） */
   #discardLeft, #discardRight{
-    grid-template-columns:repeat(3, var(--main-h));
-    grid-template-rows:repeat(6, var(--main-w));
+    grid-template-columns:repeat(4, var(--tile-h));
+    grid-template-rows:repeat(6, var(--tile-w));
+    flex-shrink:0;
     align-content:center;
+    width:calc(var(--tile-h) * 4 + 6px); /* 牌4枚＋gap2px×3 */
+    height:calc(var(--tile-w) * 6 + 10px); /* 牌6枚＋gap2px×5 */
   }
-  #discardLeft .tile{ transform:rotate(90deg); }
-  #discardRight .tile{ transform:rotate(-90deg); }
 
   #center{
     display:flex;
     align-items:center;
     justify-content:center;
-    width:180px;
-    height:180px;
   }
 
-  /* 鳴き牌は通常のレイアウトから外し、手牌を基準にした絶対位置で表示する
-     （鳴き牌の有無・増減で手牌や捨て牌の位置が動かないようにするため） */
-  .hand-with-melds{
-    position:relative;
-    display:inline-flex;
-  }
+  /* 鳴き面子の行(.meld-row)は、手牌の行(.hand-row)とは別の独立した行として、
+     手牌と山の間の隙間（.ring.hand-ring側でgap:0にした、牌の高さ1個分のスペース）に置く。
+     中国式：4人とも「手牌の卓中央寄りの辺」に鳴き面子の行を敷く。
+     DOM順（.ring-top/bottom/left/rightの直下）は中央に近い側が来るようにしてある：
+     top=[手牌,鳴き]（鳴きが下＝中央側）／bottom=[鳴き,手牌]（鳴きが上＝中央側）／
+     left=[手牌,鳴き]（鳴きが右＝中央側）／right=[手牌,鳴き]（鳴きが左＝中央側）。
+     鳴きが0組でも.meld-rowはtile-hぶんの厚みを常に確保するため、鳴いた瞬間に
+     この行の高さ・幅が変わって中央BOXが揺れることはない。
+     .ring-top/bottom/left/rightの既存のalign-items:centerにより、手牌に対して自動的に中央揃えになる。 */
   .meld-row{
-    position:absolute;
     display:flex;
+    flex-shrink:0;
     gap:3px; /* 鳴き牌の組同士の間隔＝手牌の牌の間隔と同じ */
-    min-height:4px;
   }
-  /* 自分・対面（横向きの手牌）：鳴き牌は手牌と縦方向に中央揃え、横に牌1枚分あける */
-  .ring-bottom .meld-row, .ring-top .meld-row{
-    top:50%;
+  .ring-top .meld-row, .ring-bottom .meld-row{
     flex-direction:row;
+    height:var(--tile-h); /* 鳴き0組でも常にこの高さを確保 */
   }
-  .ring-bottom .meld-row{ right:100%; transform:translate(calc(var(--main-w) * -1), -50%); }
-  .ring-top .meld-row{ left:100%; transform:translate(var(--back-w), -50%); }
-
-  /* 上家・下家（縦向きの手牌）：鳴き牌は手牌と横方向に中央揃え、縦に牌1枚分あける */
   .ring-left .meld-row, .ring-right .meld-row{
-    left:50%;
     flex-direction:column;
+    width:var(--tile-h); /* 鳴き0組でも常にこの幅を確保 */
   }
-  .ring-left .meld-row{ bottom:100%; transform:translate(-50%, calc(var(--back-w) * -1)); }
-  .ring-right .meld-row{ top:100%; transform:translate(-50%, var(--back-w)); }
 
   .meld-row .tile{
-    width:var(--main-w);
-    height:var(--main-h);
+    width:var(--tile-w);
+    height:var(--tile-h);
   }
 
   /* 画面最下段：案内文・結果・鳴きプロンプト、および常時表示の操作ボタン行 */
@@ -370,10 +455,12 @@
   }
 
   .button-row{
-    display:flex;
+    display:grid;
+    grid-template-columns:repeat(11, 1fr); /* ボタン11個ぶんを均等幅に。大きさを統一する */
     gap:4px;
-    align-self:center; /* .boardの子として、画面幅いっぱいには広げず中身の幅だけにして中央に置く */
-    max-width:100%;
+    width:100%;
+    max-width:var(--table-width, 100%); /* 卓の実測幅（fitTileSize()が設定）に合わせて中央寄せする */
+    margin:0 auto;
     height:clamp(34px, 5.5dvh, 46px);
     flex-shrink:0;
     overflow-x:auto; /* 極端に狭い画面向けの保険。通常は1行に収まる想定 */
@@ -383,11 +470,10 @@
     color:#3B2C08;
     border:none;
     border-radius:6px;
-    padding:2px 10px;
+    padding:2px 4px;
     font-weight:bold;
     font-size:clamp(9px, 1.6dvh, 11px);
     white-space:nowrap;
-    flex:0 0 auto; /* 必要な幅だけ（等分に伸ばさない） */
     box-shadow:0 2px 0 rgba(0,0,0,0.3);
   }
   .row-btn:disabled{
@@ -400,35 +486,34 @@
   .hand-row.mine .tile.clickable:hover{
     transform:translateY(-6px);
   }
-  .turn-indicator{
-    text-align:center;
-    font-size:11px;
-    color:var(--gold);
-    opacity:0.9;
-    min-height:14px;
-    margin-bottom:2px;
+  /* チー/ポン/カンの選択中、使える牌を枠で色分けする */
+  .hand-row.mine .tile.callable{
+    cursor:pointer;
+    box-shadow:
+      0 0 0 3px var(--gold),
+      0 2px 0 rgba(0,0,0,0.25),
+      inset 0 1px 0 rgba(255,255,255,0.8);
+    transition:transform 0.12s ease;
   }
-  /* 案内文が卓中央のドラ表示ボックスなどと視覚的に重なっても読めるよう、
-     文字がある時だけ不透明な背景を敷いて最前面に出す */
-  .turn-indicator:not(:empty){
-    position:relative;
-    z-index:60;
-    background:rgba(5,20,12,0.88);
-    border-radius:6px;
-    padding:2px 10px;
+  .hand-row.mine .tile.callable:hover{
+    transform:translateY(-6px);
   }
 
+  /* .boardの右上（空きスペース）に固定表示する。.boardがposition:relativeなのでこれが基準になる */
   .result-box{
     background:rgba(5,20,12,0.97);
     border:1px solid var(--gold);
     border-radius:10px;
-    padding:10px 16px;
-    margin-bottom:6px;
+    padding:0.7em 1.1em; /* em指定でfont-sizeと一緒に縮む */
     text-align:center;
-    font-size:13px;
+    /* 卓の牌サイズ(--tile-h)に連動して縮小し、狭い画面で卓の隅（鳴き牌等）と重ならないようにする */
+    font-size:clamp(9px, calc(var(--tile-h) * 0.4), 15px);
     line-height:1.7;
-    position:relative;
-    z-index:50;
+    position:absolute;
+    top:clamp(4px, 1dvh, 10px);
+    right:clamp(4px, 1dvw, 10px);
+    max-width:150px;
+    z-index:80;
   }
   .result-box .result-title{
     font-size:17px;
@@ -445,6 +530,20 @@
     font-weight:bold;
     color:var(--gold);
     margin-top:4px;
+  }
+
+  /* .boardの左上（和了結果表示＝右上の対角）に固定表示する。中身は.center-midのレイアウトを流用する */
+  .top-left-info{
+    position:absolute;
+    top:clamp(4px, 1dvh, 10px);
+    left:clamp(4px, 1dvw, 10px);
+    background:rgba(5,20,12,0.97);
+    border:1px solid var(--gold);
+    border-radius:10px;
+    padding:0.55em 0.85em; /* em指定でfont-sizeと一緒に縮む */
+    /* 右上の和了結果表示（.result-box）とfont-sizeの計算式を揃え、卓のサイズに連動して縮小する */
+    font-size:clamp(9px, calc(var(--tile-h) * 0.4), 15px);
+    z-index:80;
   }
 
   .call-prompt{
@@ -470,21 +569,6 @@
   .action-btn:disabled{
     opacity:0.35;
   }
-  /* 鳴きで使う牌を画像で選ぶボタン（チーの形の選択・赤5を使うかどうかの選択で使う） */
-  .combo-btn{
-    display:inline-flex;
-    flex-direction:column;
-    align-items:center;
-    gap:3px;
-    padding:5px 8px;
-  }
-  .combo-btn .combo-label{
-    font-size:11px;
-  }
-  .combo-btn .combo-tiles{
-    display:flex;
-    gap:2px;
-  }
 </style>
 </head>
 <body>
@@ -495,58 +579,61 @@
     <!-- 層1：手牌（4辺の最も外側） -->
     <div class="ring hand-ring">
 
-      <!-- 対面（CPU） -->
+      <!-- 対面（CPU）：中国式に、鳴き面子の行を手牌の卓中央寄り（下）に独立した行として置く -->
       <div class="ring-top">
-        <div class="hand-with-melds">
-          <div class="hand-row" id="handTop">
-            <!-- 13枚、伏せ牌 -->
-          </div>
-          <div class="meld-row" id="meldsTop"></div>
+        <div class="hand-row" id="handTop">
+          <!-- 13枚、伏せ牌 -->
         </div>
-        <div class="nameplate rot180"><span class="wind-mark">西</span><span class="label">対面</span><span class="score" id="scoreTop">35000</span></div>
+        <div class="meld-row" id="meldsTop"></div>
       </div>
 
-      <!-- 上家（CPU・左） -->
+      <!-- 上家（CPU・左）：鳴き面子の行は手牌の卓中央寄り（右）に置く -->
       <div class="ring-left">
-        <div class="hand-with-melds">
-          <div class="meld-row vertical" id="meldsLeft"></div>
-          <div class="hand-row vertical" id="handLeft"></div>
-        </div>
-        <div class="nameplate rot90"><span class="wind-mark">北</span><span class="label">上家</span><span class="score" id="scoreLeft">35000</span></div>
+        <div class="hand-row vertical" id="handLeft"></div>
+        <div class="meld-row vertical" id="meldsLeft"></div>
       </div>
 
-      <!-- 下家（CPU・右） -->
+      <!-- 下家（CPU・右）：鳴き面子の行は手牌の卓中央寄り（左）に置く -->
       <div class="ring-right">
-        <div class="hand-with-melds">
-          <div class="hand-row vertical" id="handRight"></div>
-          <div class="meld-row vertical" id="meldsRight"></div>
-        </div>
-        <div class="nameplate rotm90"><span class="wind-mark">南</span><span class="label">下家</span><span class="score" id="scoreRight">35000</span></div>
+        <div class="hand-row vertical" id="handRight"></div>
+        <div class="meld-row vertical" id="meldsRight"></div>
       </div>
 
-      <!-- 自分 -->
+      <!-- 自分：鳴き面子の行は手牌の卓中央寄り（上）に置く -->
       <div class="ring-bottom">
-        <div class="nameplate you"><span class="wind-mark">東</span><span class="label">あなた</span><span class="score" id="scoreBottom">35000</span></div>
-        <div class="hand-with-melds">
-          <div class="meld-row" id="meldsBottom"></div>
-          <div class="hand-row mine" id="handMine"></div>
-        </div>
+        <div class="meld-row" id="meldsBottom"></div>
+        <div class="hand-row mine" id="handMine"></div>
       </div>
 
-      <!-- 層2：山（牌背の帯。残り枚数の割合で幅/高さが縮む。牌1枚ずつの再描画はしない） -->
+      <!-- 層2：山（実際の卓と同じ2段積み。対面・上家・下家は22枚(11山)、自分の前だけ
+           自摸山10枚(5山)＋王牌8枚(4山)に分かれる。残り枚数ぶんだけ外側の山からJSで隠す） -->
       <div class="ring-center">
         <div class="ring wall-ring">
-          <div class="ring-top"><div class="wall-band" id="wallTop">
-            <div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div>
+          <div class="ring-top"><div class="wall-pile horizontal" id="wallTop">
+            <div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div>
           </div></div>
-          <div class="ring-left"><div class="wall-band vertical" id="wallLeft">
-            <div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div>
+          <div class="ring-left"><div class="wall-pile vertical" id="wallLeft">
+            <div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div>
           </div></div>
-          <div class="ring-right"><div class="wall-band vertical" id="wallRight">
-            <div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div>
+          <div class="ring-right"><div class="wall-pile vertical" id="wallRight">
+            <div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div><div class="tile-back rot"></div>
           </div></div>
-          <div class="ring-bottom"><div class="wall-band" id="wallBottom">
-            <div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div>
+          <div class="ring-bottom"><div class="wall-bottom-group">
+            <!-- 自摸山（左・実質10枚を5枚で一段表示、1枚が上段+下段の2枚分）。外側から隠れる -->
+            <div class="wall-pile horizontal" id="wallBottomLive">
+              <div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div><div class="tile-back"></div>
+            </div>
+            <!-- 他家（11枚）との表示枚数を揃えるための空き2枚ぶん。自摸山は開門位置＝この側から
+                 減っていくため、局が進むとこの空きが自然に広がって見える（wallPileRemaining/
+                 updateWallPilesの数え上げ対象からは外すため、wall-pile/wallBottomLiveの外に置く） -->
+            <div class="wall-gap horizontal" aria-hidden="true">
+              <div class="tile-back" style="visibility:hidden;"></div><div class="tile-back" style="visibility:hidden;"></div>
+            </div>
+            <!-- 王牌（右・実質8枚を4枚で一段表示）。開門側(左＝自摸山に近い側)から
+                 1・2枚目=嶺上牌(カンで消費、1枚が2枚分)、3枚目=表ドラ表示牌、4枚目=リーチドラ表示牌 -->
+            <div class="wall-pile horizontal" id="wallDead">
+              <div class="tile-back"></div><div class="tile-back"></div><div class="tile wall-indicator" id="doraIndicatorTile"></div><div class="tile wall-indicator" id="riichiDoraIndicatorTile"></div>
+            </div>
           </div></div>
 
           <!-- 層3：捨て牌（6枚で折り返す） -->
@@ -557,21 +644,20 @@
               <div class="ring-right"><div class="discard-grid vertical" id="discardRight"></div></div>
               <div class="ring-bottom"><div class="discard-grid" id="discardBottom"></div></div>
 
-              <!-- 層4：中央の情報ボックス -->
+              <!-- 層4：中央の情報ボックス。実卓の電子卓と同じく、四方向に持ち点を配置する -->
               <div class="ring-center">
                 <div id="center">
-                  <div class="center-info">
-                    <div class="round">東1局 0本場</div>
-                    <div id="wallCount">残り牌 76</div>
-                    <div id="kyotakuCount" class="kyotaku-row">供託 0本</div>
-                    <div class="dora-row">
-                      <div class="dora-item">
-                        <div class="tile dora-tile" id="doraTile"></div>
-                        <div class="dora-label">ドラ</div>
-                      </div>
-                      <div class="dora-item">
-                        <div class="tile dora-tile riichi-dora-tile" id="riichiDoraTile"></div>
-                        <div class="dora-label riichi-dora-label">リーチドラ</div>
+                  <div class="ring center-info">
+                    <div class="ring-top"><div class="nameplate rot180"><span class="wind-mark">西</span><span class="score" id="scoreTop">35000</span></div></div>
+                    <div class="ring-left"><div class="nameplate rot90"><span class="wind-mark">北</span><span class="score" id="scoreLeft">35000</span></div></div>
+                    <div class="ring-right"><div class="nameplate rotm90"><span class="wind-mark">南</span><span class="score" id="scoreRight">35000</span></div></div>
+                    <div class="ring-bottom"><div class="nameplate you"><span class="dealer-mark">起</span><span class="wind-mark">東</span><span class="score" id="scoreBottom">35000</span></div></div>
+                    <div class="ring-center">
+                      <div class="center-mid">
+                        <div id="wallCount" class="wall-count">
+                          <span class="wall-count-label">残り牌</span>
+                          <span class="wall-count-num" id="wallCountNum">76</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -587,9 +673,24 @@
     </div>
   </div>
 
-  <!-- 案内文・結果・鳴きプロンプト＋常時表示の操作ボタン行 -->
+  <!-- 場況表示（局・供託・ドラ）。和了結果表示（右上）の対角、画面左上に固定表示する -->
+  <div class="center-mid top-left-info">
+    <div class="round">東1局 0本場</div>
+    <div class="dora-row">
+      <div class="dora-item">
+        <div class="tile dora-tile" id="doraActualTile"></div>
+        <div class="dora-label">ドラ</div>
+      </div>
+      <div class="dora-item">
+        <div class="tile dora-tile riichi-dora-tile" id="riichiDoraActualTile"></div>
+        <div class="dora-label riichi-dora-label">リーチドラ</div>
+      </div>
+    </div>
+    <div id="kyotakuCount" class="kyotaku-row">供託 0本</div>
+  </div>
+
+  <!-- 結果・鳴きプロンプト＋常時表示の操作ボタン行 -->
   <div class="status-area">
-    <div class="turn-indicator" id="turnIndicator"></div>
     <div class="result-box" id="resultBox" style="display:none;"></div>
     <div class="call-prompt" id="callPrompt" style="display:none;"></div>
   </div>
@@ -598,9 +699,9 @@
     <button class="row-btn" disabled>理牌無し</button>
     <button class="row-btn" disabled>鳴き無し</button>
     <button class="row-btn" id="throughBtn" disabled>スルー</button>
-    <button class="row-btn" disabled>チー</button>
-    <button class="row-btn" disabled>ポン</button>
-    <button class="row-btn" disabled>カン</button>
+    <button class="row-btn" id="chiBtn" disabled>チー</button>
+    <button class="row-btn" id="ponBtn" disabled>ポン</button>
+    <button class="row-btn" id="kanBtn" disabled>カン</button>
     <button class="row-btn" disabled>リーチ</button>
     <button class="row-btn" disabled>自動和了</button>
     <button class="row-btn" disabled>自摸切り</button>
@@ -792,6 +893,14 @@
     </svg>`;
   }
 
+  // ボタン表示など、テキストで牌を示したい箇所で使う短い表記（例:「五萬」「東」「中」）
+  function tileLabel(tile){
+    if(tile.suit === "wind") return {1:"東", 2:"南", 3:"西", 4:"北"}[tile.num];
+    if(tile.suit === "dragon") return {1:"白", 2:"發", 3:"中"}[tile.num];
+    const suitCh = { man:"萬", pin:"筒", sou:"索" }[tile.suit];
+    return KANJI_NUM[tile.num] + suitCh;
+  }
+
   function tileEl(suit, num, cls, isRed){
     const div = document.createElement("div");
     div.className = "tile " + cls + (isRed ? " red-five" : "");
@@ -869,11 +978,11 @@
   const cpuTopTiles = wall.splice(0, 13);
   const cpuLeftTiles = wall.splice(0, 13);
 
+  // 山の絵の基準にする、配牌直後・自摸前の生きたツモ回数（＝76）
+  const LIVE_WALL_TOTAL = wall.length;
+
   // 親（あなた）が最初の1枚をツモる
   const firstDraw = wall.splice(0, 1)[0];
-
-  // 山の帯（四辺の装飾）の基準となる、開局直後の生きたツモ回数
-  const totalLiveWall = wall.length;
 
   // 手牌は13枚を並び替え、ツモ牌だけ最後に離して表示
   const sortedHand = myTiles13.slice().sort((a, b) => sortKey(a) - sortKey(b));
@@ -889,6 +998,10 @@
   let pendingRon = null; // { discarderSeat, result } | null
   // 鳴きプロンプト（他家の捨て牌への応答）が開いている間だけ保持する状態（下段の「スルー」ボタンに使う）
   let pendingCallContext = null; // { discarderSeat } | null
+  // 他家の捨て牌に対してチー・ポン・カンが可能な間だけ保持する状態（下段のチー/ポン/カンボタンに使う）
+  let pendingCallOptions = null; // { discarderSeat, tile, pon, kan, chiShapes } | null
+  // チー/ポン/カンボタンを押した後、実際に使う手牌を自分でクリックして選んでいる間の状態
+  let activeCallSelection = null; // { type, discarderSeat, tile, shapes, selected:[] } | null
   const hands = { bottom: myHandTiles, top: cpuTopTiles, left: cpuLeftTiles, right: cpuRightTiles };
   const discards = { top: [], left: [], right: [], bottom: [] };
   const melds = { top: [], left: [], right: [], bottom: [] };
@@ -915,27 +1028,70 @@
   const KAMICHA = { bottom:"left", right:"bottom", top:"right", left:"top" };
 
   function updateWallCount(){
-    document.getElementById("wallCount").textContent = "残り牌 " + wall.length;
-    updateWallBands();
+    document.getElementById("wallCountNum").textContent = wall.length;
+    updateWallPiles();
   }
 
-  // 山の帯：牌を1枚ずつ描画するのではなく、開局時の見た目のフルサイズを基準に、
-  // 残り枚数の割合でCSSの幅/高さを縮めることで表現する
-  const WALL_BAND_IDS = { top:"wallTop", bottom:"wallBottom", left:"wallLeft", right:"wallRight" };
-  const wallBandFullSize = {};
-  function captureWallBandFullSize(){
-    Object.entries(WALL_BAND_IDS).forEach(([side, id]) => {
-      const el = document.getElementById(id);
-      wallBandFullSize[id] = (side === "left" || side === "right") ? el.scrollHeight : el.scrollWidth;
+  // 山：自分の前だけ自摸山10枚（王牌8枚は別枠で、嶺上牌4枚だけがカンで減る）、
+  // 対面・上家・下家はそれぞれ22枚。開門位置（自摸山の右端＝自分の親の第一自摸位置）から
+  // 実際の卓の並びどおりに、自分→上家→対面→下家の順で生きたツモが進むごとに山が減っていく
+  // （実際のwall.lengthから逆算する。専用カウンタは持たない）
+  const WALL_PILE_ORDER = ["bottom", "left", "top", "right"];
+  const WALL_PILE_SIZE = { bottom:10, left:22, top:22, right:22 };
+  const WALL_PILE_EL_ID = { bottom:"wallBottomLive", left:"wallLeft", top:"wallTop", right:"wallRight" };
+  // 各山のどちら側（DOM順の先頭 or 末尾）から減っていくか。
+  // 自分の前は開門位置（王牌側＝DOM末尾側）から、上家は自分に近い側（下端＝DOM末尾側）から、
+  // 対面は上家に近い側（左端＝DOM先頭側）から、下家は対面に近い側（上端＝DOM先頭側）から減り、
+  // 下家の最後（DOM末尾）が王牌の左端に戻ってつながる
+  const WALL_PILE_REVERSE = { bottom:true, left:true, top:false, right:false };
+
+  function wallPileRemaining(pileName){
+    const drawnTotal = LIVE_WALL_TOTAL - wall.length;
+    let precedingSum = 0;
+    for(const name of WALL_PILE_ORDER){
+      const size = WALL_PILE_SIZE[name];
+      if(name === pileName){
+        const drawnFromThis = Math.max(0, Math.min(size, drawnTotal - precedingSum));
+        return size - drawnFromThis;
+      }
+      precedingSum += size;
+    }
+    return 0;
+  }
+
+  // 山の見た目を更新：開門位置に近い側から、残り枚数ぶんだけ隠す
+  // 表示牌1枚が「上段+下段」2枚分：上段だけ消費済みならhalf-drawn（少し暗く）、
+  // 上段・下段とも消費済みならhidden-drawn（非表示）にする
+  function applyStackVisual(tile, consumed){
+    tile.classList.toggle("hidden-drawn", consumed >= 2);
+    tile.classList.toggle("half-drawn", consumed === 1);
+  }
+
+  function updateWallPiles(){
+    WALL_PILE_ORDER.forEach(name => {
+      const el = document.getElementById(WALL_PILE_EL_ID[name]);
+      const size = WALL_PILE_SIZE[name]; // 物理枚数（10 / 22）
+      const displayCount = size / 2;     // 表示枚数（1枚が2枚分）
+      const remaining = wallPileRemaining(name);
+      const drawnFromThis = size - remaining;
+      const reverse = WALL_PILE_REVERSE[name];
+      Array.from(el.children).forEach((tile, domIdx) => {
+        const depletionIdx = reverse ? (displayCount - 1 - domIdx) : domIdx;
+        const consumed = Math.max(0, Math.min(2, drawnFromThis - depletionIdx * 2));
+        applyStackVisual(tile, consumed);
+      });
     });
   }
-  function updateWallBands(){
-    const ratio = Math.max(0, Math.min(1, wall.length / totalLiveWall));
-    Object.entries(WALL_BAND_IDS).forEach(([side, id]) => {
-      const el = document.getElementById(id);
-      const full = wallBandFullSize[id];
-      if(side === "left" || side === "right") el.style.height = (full * ratio) + "px";
-      else el.style.width = (full * ratio) + "px";
+
+  // 嶺上牌（王牌の開門側、表示2枚＝物理4枚）：カンで王牌からツモるたびにdeadWall.lengthが
+  // 8→4まで減るので、それに合わせて表示2枚を「上段消費で少し暗く→下段も消費で非表示」にする
+  // （表ドラ・リーチドラの2枚は対象外＝常に表示のまま）
+  function updateRinshanVisual(){
+    const el = document.getElementById("wallDead");
+    const rinshanUsed = 8 - deadWall.length; // 0〜4（物理枚数）
+    Array.from(el.children).slice(0, 2).forEach((tile, idx) => {
+      const consumed = Math.max(0, Math.min(2, rinshanUsed - idx * 2));
+      applyStackVisual(tile, consumed);
     });
   }
 
@@ -962,19 +1118,17 @@
 
     handMineEl.innerHTML = "";
 
-    // 鳴きで手牌が減っても右端（ツモ牌側）の位置が動かないよう、
-    // 減った枚数分だけ左側に透明な余白を入れて常に13枚分の幅を確保する
-    const padCount = Math.max(0, 13 - sorted.length);
-    for(let i = 0; i < padCount; i++){
-      const ph = document.createElement("div");
-      ph.className = "tile";
-      ph.style.visibility = "hidden";
-      handMineEl.appendChild(ph);
-    }
-
+    // 鳴きで手牌が減っても常に卓の中央に来るよう、幅の確保は.hand-rowのCSS(min-width)に任せ、
+    // ここでは実際の牌だけを並べる（枠の中央寄せはCSSのjustify-content:centerが行う）
     sorted.forEach(t => {
       const el = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
-      if(clickable){
+      if(activeCallSelection){
+        // チー/ポン/カンの選択中は、打牌ではなく「使う牌を選ぶ」クリックにする
+        if(isCallSelectable(t)){
+          el.classList.add("callable");
+          el.addEventListener("click", () => onSelectCallTile(t));
+        }
+      } else if(clickable){
         el.classList.add("clickable");
         el.addEventListener("click", () => onDiscardMyTile(myHandTiles.indexOf(t)));
       }
@@ -996,7 +1150,6 @@
       placeholder.style.visibility = "hidden";
       handMineEl.appendChild(placeholder);
     }
-    repositionMeldRow("bottom", padCount);
   }
 
   // 対面・下家は回転により「自分から見て右側」が画面の左／先頭になるため、ツモ枠を先頭に置く
@@ -1007,7 +1160,6 @@
     el.innerHTML = "";
     const hasDrawn = !!lastDrawnCpu[name];
     const normalCount = hands[name].length - (hasDrawn ? 1 : 0); // ツモ牌を除いた「通常の手牌」の枚数
-    const padCount = Math.max(0, 13 - normalCount);
 
     function makeBack(hidden){
       const b = document.createElement("div");
@@ -1019,23 +1171,20 @@
     const drawnEl = makeBack(!hasDrawn);
     drawnEl.classList.add("drawn");
 
-    // 鳴きで手牌が減っても、ツモ枠に近い側の位置が動かないよう、
-    // 減った枚数分の空白は必ずツモ枠から遠い側（反対の端）に入れる
+    // 鳴きで手牌が減っても常に卓の中央に来るよう、幅(縦向きは高さ)の確保は
+    // .hand-rowのCSS(min-width/min-height)に任せ、ここでは実際の牌だけを並べる
     if(DRAWN_SLOT_FIRST[name]){
       el.appendChild(drawnEl);
       for(let i = 0; i < normalCount; i++) el.appendChild(makeBack(false));
-      for(let i = 0; i < padCount; i++) el.appendChild(makeBack(true));
     } else {
-      for(let i = 0; i < padCount; i++) el.appendChild(makeBack(true));
       for(let i = 0; i < normalCount; i++) el.appendChild(makeBack(false));
       el.appendChild(drawnEl);
     }
-    repositionMeldRow(name, padCount);
   }
 
   // 捨て牌の並び順：各自から見て左から6枚→奥の段へ（第1捨て牌が一番手前=自分から遠い側）
   function discardGridPosition(seat, index){
-    const groupIdx = Math.floor(index / 6); // 0=1段目(一番遠い) 1=2段目 2=3段目 3=4段目(手牌に近い)
+    const groupIdx = Math.floor(index / 6); // 0=1段目(一番遠い)…3=4段目（4行×6列グリッドなので0〜3の4値、最大24枚まで対応）
     const posIdx = index % 6; // 0-5（その段の中で何番目か）
     switch(seat){
       case "bottom": return { row: groupIdx + 1, col: posIdx + 1 };
@@ -1045,11 +1194,18 @@
     }
   }
 
+  // 各自から見た捨て牌の向き。CSSのtransform:rotate()だけだと回転前のレイアウト箱の
+  // ままグリッドに配置されてしまい（--tile-wと--tile-hの縦横比ぶんだけ枠からあふれて
+  // 中央BOXと重なる不具合の原因だった）、鳴き牌と同じapplyMeldRotation()で
+  // 箱の実寸自体を回転後の見た目に合わせて確定させる
+  const DISCARD_ROTATION = { bottom:0, top:180, left:90, right:-90 };
+
   function renderDiscard(name){
     const el = discardElByName[name];
     el.innerHTML = "";
     discards[name].forEach((t, idx) => {
       const tileElx = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+      applyMeldRotation(tileElx, DISCARD_ROTATION[name]);
       const pos = discardGridPosition(name, idx);
       tileElx.style.gridRow = pos.row;
       tileElx.style.gridColumn = pos.col;
@@ -1068,40 +1224,16 @@
   // 各自の「読む向き」を画面の軸に対応させる（対面は左右反転、上家・下家は縦方向）
   const MELD_FLEX_DIRECTION = { bottom:"row", top:"row-reverse", left:"column", right:"column-reverse" };
 
-  // 見えない余白（ツモ枠固定のためのパディング）1枚分のサイズ（牌の幅＋間隔3px）。
-  // 自分はTier A（読めるサイズ）、CPUはTier B（伏せ牌）でサイズが違うため、
-  // 実際のCSS変数の値を読んで計算する（clamp()で画面高さに応じて変わるため固定値にしない）。
-  function tileVar(name){
-    return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
-  }
-  function slotSize(name){
-    return tileVar(name === "bottom" ? "--main-w" : "--back-w") + 3;
-  }
-
-  // 鳴き牌の基準位置を、パディングを含めた箱の端ではなく、
-  // 実際に見えている手牌の端から牌1枚分になるよう補正する
-  function repositionMeldRow(name, padCount){
-    const meldRow = meldElByName[name];
-    const container = meldRow.parentElement; // hand-with-melds
-    const padPx = padCount * slotSize(name);
-    if(name === "bottom"){
-      meldRow.style.right = (container.offsetWidth - padPx) + "px";
-    } else if(name === "top"){
-      meldRow.style.left = (container.offsetWidth - padPx) + "px";
-    } else if(name === "left"){
-      meldRow.style.bottom = (container.offsetHeight - padPx) + "px";
-    } else if(name === "right"){
-      meldRow.style.top = (container.offsetHeight - padPx) + "px";
-    }
-  }
-
   // 90度・270度回転の牌は、外側の箱を見た目通りの寸法(Tier A: main-h×main-w)にして、
-  // 中のSVGだけを回転させる（箱と見た目がズレて余分な隙間ができるのを防ぐ）
-  function applyMeldRotation(tileDiv, deg){
+  // 中のSVGだけを回転させる（箱と見た目がズレて余分な隙間ができるのを防ぐ）。
+  // scaleVarを渡すと、その名前のCSS変数（例:--meld-scale-top）ぶんだけ縮小した実寸にする
+  // （鳴き面子の行(top/bottom)が卓幅を超える時にfitMeldRowScale()が使う）
+  function applyMeldRotation(tileDiv, deg, scaleVar){
     const norm = ((deg % 360) + 360) % 360;
     const swapped = (norm === 90 || norm === 270);
-    tileDiv.style.width = swapped ? "var(--main-h)" : "var(--main-w)";
-    tileDiv.style.height = swapped ? "var(--main-w)" : "var(--main-h)";
+    const scale = scaleVar ? "var(" + scaleVar + ")" : "1";
+    tileDiv.style.width = "calc(" + (swapped ? "var(--tile-h)" : "var(--tile-w)") + " * " + scale + ")";
+    tileDiv.style.height = "calc(" + (swapped ? "var(--tile-w)" : "var(--tile-h)") + " * " + scale + ")";
     const svg = tileDiv.querySelector("svg");
     if(svg){
       svg.style.position = "absolute";
@@ -1117,6 +1249,8 @@
     const el = meldElByName[name];
     const baseRot = MELD_BASE_ROTATION[name];
     const flexDir = MELD_FLEX_DIRECTION[name];
+    // 卓幅(--table-width)を超えたら、その行(4方向とも)だけ縮小する
+    const scaleVar = "--meld-scale-" + name;
     el.style.flexDirection = flexDir;
     el.innerHTML = "";
     // 古く鳴いた組ほど手牌に近く、新しく鳴いた組ほど手牌から遠い側になるよう並べる
@@ -1135,11 +1269,15 @@
           const showThis = name === "bottom" && i === 1;
           if(showThis){
             const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
-            applyMeldRotation(tEl, baseRot);
+            applyMeldRotation(tEl, baseRot, scaleVar);
             group.appendChild(tEl);
           } else {
             const backEl = document.createElement("div");
             backEl.className = backCls;
+            if(scaleVar){
+              backEl.style.width = "calc(var(--tile-w) * var(" + scaleVar + "))";
+              backEl.style.height = "calc(var(--tile-h) * var(" + scaleVar + "))";
+            }
             group.appendChild(backEl);
           }
         });
@@ -1149,37 +1287,73 @@
 
       const calledEl = tileEl(m.calledTile.suit, m.calledTile.num, tileClass(m.calledTile.suit, m.calledTile.num), m.calledTile.red);
       calledEl.classList.add("meld-called"); // 誰から鳴いたか分かるよう、その席の向きからさらに横向きにする
-      applyMeldRotation(calledEl, baseRot + 90);
+      applyMeldRotation(calledEl, baseRot + 90, scaleVar);
+
+      // 加カンの4枚目：実卓と同じく、ポンの横向き牌と同じ向きのまま、その上に少しずらして重ねる
+      let calledSlot = calledEl;
+      if(m.addedTile){
+        const addedEl = tileEl(m.addedTile.suit, m.addedTile.num, tileClass(m.addedTile.suit, m.addedTile.num), m.addedTile.red);
+        addedEl.classList.add("meld-called");
+        applyMeldRotation(addedEl, baseRot + 90, scaleVar);
+        const axisIsX = (flexDir === "row" || flexDir === "row-reverse");
+        const stack = document.createElement("div");
+        stack.style.position = "relative";
+        stack.style.flexShrink = "0";
+        stack.style.width = axisIsX ? "calc(" + calledEl.style.width + " * 1.5)" : calledEl.style.width;
+        stack.style.height = axisIsX ? calledEl.style.height : "calc(" + calledEl.style.height + " * 1.5)";
+        calledEl.style.position = "absolute";
+        calledEl.style.left = "0";
+        calledEl.style.top = "0";
+        addedEl.style.position = "absolute";
+        addedEl.style.left = axisIsX ? "50%" : "0";
+        addedEl.style.top = axisIsX ? "0" : "50%";
+        stack.appendChild(calledEl);
+        stack.appendChild(addedEl);
+        calledSlot = stack;
+      }
+
       const handEls = m.handTiles.map(t => {
         const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
-        applyMeldRotation(tEl, baseRot);
+        applyMeldRotation(tEl, baseRot, scaleVar);
         return tEl;
       });
 
       const position = meldCalledPosition(name, m.calledFrom);
       let ordered;
       if(position === "left"){
-        ordered = [calledEl, ...handEls];
+        ordered = [calledSlot, ...handEls];
       } else if(position === "right"){
-        ordered = [...handEls, calledEl];
+        ordered = [...handEls, calledSlot];
       } else {
         const mid = Math.floor(handEls.length / 2);
-        ordered = [...handEls.slice(0, mid), calledEl, ...handEls.slice(mid)];
+        ordered = [...handEls.slice(0, mid), calledSlot, ...handEls.slice(mid)];
       }
       ordered.forEach(elx => group.appendChild(elx));
-      if(m.addedTile){
-        // 加カンで後から加わった4枚目（その席の基準角度で表示）
-        const addedEl = tileEl(m.addedTile.suit, m.addedTile.num, tileClass(m.addedTile.suit, m.addedTile.num), m.addedTile.red);
-        applyMeldRotation(addedEl, baseRot);
-        group.appendChild(addedEl);
-      }
       el.appendChild(group);
     });
+    fitMeldRowScale(name);
   }
 
-  function setTurnIndicator(text){
-    document.getElementById("turnIndicator").textContent = text;
+  // 鳴き面子の行(4方向とも)が卓の一辺(--table-width。卓は正方形なので上家・下家の
+  // 縦方向の長さもこれを基準にする)を超える時だけ、その行の牌を
+  // --meld-scale-top/bottom/left/rightで縮小して収める（等倍で収まる時は1のまま）。
+  // top/bottomは横に伸びるのでscrollWidthを、left/rightは縦に伸びるのでscrollHeightを見る。
+  // 縮小率は行の牌だけに効く相対値(var()経由)なので、resize時に--tile-hが変わっても
+  // fitTileSize側でこの関数を呼び直せば追従する
+  function fitMeldRowScale(name){
+    const scaleVar = "--meld-scale-" + name;
+    document.documentElement.style.setProperty(scaleVar, "1");
+    const row = meldElByName[name];
+    const maxLen = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--table-width"));
+    if(!maxLen) return; // 初回fitTileSize()より前はまだ--table-width未設定のため何もしない
+    const isHorizontal = (name === "top" || name === "bottom");
+    const natural = isHorizontal ? row.scrollWidth : row.scrollHeight;
+    const scale = natural > maxLen ? (maxLen / natural) : 1;
+    document.documentElement.style.setProperty(scaleVar, String(scale));
   }
+
+  // 案内表示欄は廃止した。呼び出し箇所は多いため関数自体は残し、何もしないだけにしてある。
+  function setTurnIndicator(text){}
 
   // --- 鳴き判定用のヘルパー ---
   function countMatching(hand, tile){
@@ -1187,11 +1361,17 @@
   }
   function canPon(hand, tile){ return countMatching(hand, tile) >= 2; }
   function canKan(hand, tile){ return countMatching(hand, tile) >= 3; }
-  // 暗槓：鳴きを介さず、自分の手牌だけで同じ牌が4枚揃っているか（揃っていれば最初に見つかった1種類を返す）
-  function findAnkanTile(hand){
+  // 暗槓：鳴きを介さず、自分の手牌だけで4枚揃っている牌の種類を全て返す
+  // （2種類以上同時に4枚揃うこともあるため、最初の1つだけを返さないこと）
+  function findAllAnkanTiles(hand){
     const counts = countTiles(hand);
-    for(const k in counts){ if(counts[k] >= 4) return keyToTile(k); }
-    return null;
+    const result = [];
+    for(const k in counts){ if(counts[k] >= 4) result.push(keyToTile(k)); }
+    return result;
+  }
+  // CPU用：候補が複数あっても選ばせる仕組みが無いため、最初の1種類だけを使う
+  function findAnkanTile(hand){
+    return findAllAnkanTiles(hand)[0] || null;
   }
   // 王牌の先頭4枚（ドラ表示・リーチドラ表示・予備2枚）は嶺上牌に使わない。
   // 補充が無いため嶺上牌は最大4枚＝カンは通算4回まで
@@ -1205,36 +1385,6 @@
     if(has(tile.num + 1) && has(tile.num + 2)) shapes.push([tile.num + 1, tile.num + 2]);
     return shapes;
   }
-  // 手牌の中から「同じ牌をcount枚使う」ときの実際の組み合わせ候補を返す。
-  // ノーマル同士は見た目が同じなので選択肢を分けず、赤5が絡む場合だけ
-  // 「赤を使う」「赤を残す（ノーマルだけ使う）」の2択として返す。
-  function tileCombosForCount(hand, suit, num, count){
-    const matches = hand.filter(t => t.suit === suit && t.num === num);
-    if(matches.length < count) return [];
-    if(matches.length === count) return [matches.slice()];
-    const reds = matches.filter(t => t.red);
-    const normals = matches.filter(t => !t.red);
-    if(reds.length === 0) return [matches.slice(0, count)];
-    const combos = [];
-    const useReds = Math.min(reds.length, count);
-    if(normals.length >= count - useReds){
-      combos.push([...reds.slice(0, useReds), ...normals.slice(0, count - useReds)]);
-    }
-    if(normals.length >= count){
-      combos.push(normals.slice(0, count));
-    }
-    return combos;
-  }
-  // チーの1つの形（例：5-6）について、赤5の有無で分かれる実際の牌の組み合わせ候補を返す
-  function chiVariantsForShape(hand, tile, shape){
-    const [a, b] = shape;
-    const optsA = tileCombosForCount(hand, tile.suit, a, 1);
-    const optsB = tileCombosForCount(hand, tile.suit, b, 1);
-    const combos = [];
-    optsA.forEach(oa => optsB.forEach(ob => combos.push([oa[0], ob[0]])));
-    return combos;
-  }
-
   // --- 自分の打牌 ---
   function onDiscardMyTile(idx){
     const discarded = myHandTiles.splice(idx, 1)[0];
@@ -1258,8 +1408,10 @@
       const chi = (KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
       pendingRon = ronResult ? { discarderSeat, result: ronResult } : null;
       if(ronResult || pon || kan || chi.length > 0){
-        showCallPrompt(discarderSeat, tile, { pon, kan, chi });
-        updateActionButtons(); // ロンが有効なら下段の「和了」、鳴き窓口が開いていれば「スルー」も有効にする
+        pendingCallOptions = { discarderSeat, tile, pon, kan, chiShapes: chi };
+        pendingCallContext = { discarderSeat };
+        setTurnIndicator("和了・鳴きますか？（" + seatLabel[discarderSeat] + "の捨て牌）");
+        updateActionButtons(); // 和了・チー・ポン・カン・スルーの各ボタンをまとめて更新する
         return;
       }
     }
@@ -1296,40 +1448,6 @@
     return null;
   }
 
-  // 鳴きプロンプトは1段階のみ：実際に使う牌の組み合わせ（赤の有無・チーの形違い）ごとに
-  // ボタンを分けて最初から並べる（どれを選んでも即座にその組み合わせで鳴く）。
-  // ロン・スルーは下段の常時表示ボタン（和了・スルー）に一本化しているため、ここには出さない。
-  function showCallPrompt(discarderSeat, tile, calls){
-    pendingCallContext = { discarderSeat };
-    setTurnIndicator("和了・鳴きますか？（" + seatLabel[discarderSeat] + "の捨て牌）");
-    const el = document.getElementById("callPrompt");
-    el.innerHTML = "";
-    el.style.display = "flex";
-    if(calls.pon){
-      tileCombosForCount(myHandTiles, tile.suit, tile.num, 2).forEach(combo => {
-        el.appendChild(makeComboButton("ポン", combo, () => {
-          hideCallPrompt();
-          executeCall("bottom", discarderSeat, tile, "pon", combo);
-        }));
-      });
-    }
-    if(calls.kan){
-      tileCombosForCount(myHandTiles, tile.suit, tile.num, 3).forEach(combo => {
-        el.appendChild(makeComboButton("カン", combo, () => {
-          hideCallPrompt();
-          executeCall("bottom", discarderSeat, tile, "kan", combo);
-        }));
-      });
-    }
-    calls.chi.forEach(shape => {
-      chiVariantsForShape(myHandTiles, tile, shape).forEach(combo => {
-        el.appendChild(makeComboButton("チー", combo, () => {
-          hideCallPrompt();
-          executeChi(combo, tile);
-        }));
-      });
-    });
-  }
   function makeCallButton(label, onClick){
     const b = document.createElement("button");
     b.className = "action-btn";
@@ -1337,29 +1455,126 @@
     b.addEventListener("click", onClick);
     return b;
   }
-  // 牌の画像を横に並べたボタン（labelを渡すと牌の上に短い文字ラベルを添える）
-  function makeComboButton(label, tiles, onClick){
-    const b = document.createElement("button");
-    b.className = "action-btn combo-btn";
-    if(label){
-      const span = document.createElement("span");
-      span.className = "combo-label";
-      span.textContent = label;
-      b.appendChild(span);
-    }
-    const row = document.createElement("span");
-    row.className = "combo-tiles";
-    tiles.forEach(t => row.appendChild(tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red)));
-    b.appendChild(row);
-    b.addEventListener("click", onClick);
-    return b;
+
+  // 同じ牌でも赤5とノーマルは結果が変わるため、「代表牌」として区別して1つずつ残す
+  // （ノーマルが複数あっても選ぶ結果は同じなので1枚に畳んでよい）
+  function dedupeByRed(tiles){
+    const result = [];
+    const red = tiles.find(t => t.red);
+    const normal = tiles.find(t => !t.red);
+    if(red) result.push(red);
+    if(normal) result.push(normal);
+    return result;
   }
-  // 鳴き関連の状態（ロン待ち・スルー待ちを含む）を必ずクリアしてから閉じる唯一の窓口
+
+  // ポンで実際に使う手牌2枚の「結果が異なる組み合わせ」を全て挙げる。
+  // 通常は1通り（同じ牌2枚に区別が無いため）。手牌に赤5＋ノーマル5が両方あるときだけ
+  // 「赤5を使う／使わない」で結果が変わるため2通りになる（このときだけ手牌クリックで選ばせる）。
+  function ponComboOptions(hand, tile){
+    const matching = hand.filter(t => t.suit === tile.suit && t.num === tile.num);
+    const reds = matching.filter(t => t.red);
+    const normals = matching.filter(t => !t.red);
+    const combos = [];
+    if(normals.length >= 2) combos.push([normals[0], normals[1]]);
+    if(reds.length >= 1 && normals.length >= 1) combos.push([reds[0], normals[0]]);
+    return combos;
+  }
+
+  // チーで実際に使う手牌2枚の組み合わせを全て挙げる。形（shapes）が複数あれば形の数だけ、
+  // さらに各枠に赤5とノーマル5が両方あればその枠でも枝分かれする
+  function chiComboOptions(hand, tile, shapes){
+    const combos = [];
+    shapes.forEach(shape => {
+      const optsA = dedupeByRed(hand.filter(t => t.suit === tile.suit && t.num === shape[0]));
+      const optsB = dedupeByRed(hand.filter(t => t.suit === tile.suit && t.num === shape[1]));
+      optsA.forEach(a => optsB.forEach(b => combos.push([a, b])));
+    });
+    return combos;
+  }
+
+  // カンは手牌に残る同じ牌3枚を必ず全部使うため、常に1通り（選ぶ余地が無い）
+  function kanComboOptions(hand, tile){
+    const matching = hand.filter(t => t.suit === tile.suit && t.num === tile.num);
+    return matching.length >= 3 ? [matching.slice(0, 3)] : [];
+  }
+
+  function callComboOptions(type, tile, shapes){
+    if(type === "kan") return kanComboOptions(myHandTiles, tile);
+    if(type === "pon") return ponComboOptions(myHandTiles, tile);
+    return chiComboOptions(myHandTiles, tile, shapes);
+  }
+
+  // --- チー・ポン・カンは下段ボタンで即成立、組み合わせが複数ある時だけ手牌クリックで選ぶ ---
+  // （赤5が絡んでポン/チーの結果が変わる場合など。カンは常に1通りなので必ず即成立する）
+  function startCallSelection(type){
+    if(!pendingCallOptions) return;
+    const opts = pendingCallOptions;
+    const combos = callComboOptions(type, opts.tile, opts.chiShapes);
+    if(combos.length <= 1){
+      const chosen = combos[0] || defaultChosenTiles(myHandTiles, opts.tile, type === "kan" ? 3 : 2);
+      pendingCallOptions = null;
+      pendingCallContext = null;
+      pendingRon = null;
+      if(type === "chi") executeChi(chosen, opts.tile);
+      else executeCall("bottom", opts.discarderSeat, opts.tile, type, chosen);
+      return;
+    }
+    activeCallSelection = { type, discarderSeat: opts.discarderSeat, tile: opts.tile, shapes: opts.chiShapes, selected: [] };
+    setTurnIndicator("使う牌を選んでください（やめる場合はスルー）");
+    updateActionButtons();
+    renderMyHand(true);
+  }
+
+  // 今クリック可能な（まだ選んでいない）牌かどうかを判定する
+  function isCallSelectable(t){
+    const sel = activeCallSelection;
+    if(!sel || sel.selected.includes(t)) return false;
+    if(sel.type === "pon" || sel.type === "kan"){
+      return t.suit === sel.tile.suit && t.num === sel.tile.num;
+    }
+    // チー：1枚目はどの形の構成牌でも良く、2枚目は1枚目と矛盾しない形の相方だけに絞る
+    const candidateShapes = sel.selected.length === 0
+      ? sel.shapes
+      : sel.shapes.filter(s => s.includes(sel.selected[0].num));
+    const neededNums = new Set();
+    candidateShapes.forEach(s => s.forEach(n => { if(!sel.selected.some(st => st.num === n)) neededNums.add(n); }));
+    return t.suit === sel.tile.suit && neededNums.has(t.num);
+  }
+
+  function onSelectCallTile(t){
+    const sel = activeCallSelection;
+    if(!sel || !isCallSelectable(t)) return;
+    sel.selected.push(t);
+    const needed = sel.type === "kan" ? 3 : 2;
+    if(sel.selected.length >= needed){
+      confirmCallSelection();
+    } else {
+      renderMyHand(true);
+    }
+  }
+
+  function confirmCallSelection(){
+    const sel = activeCallSelection;
+    if(!sel) return;
+    activeCallSelection = null;
+    pendingCallOptions = null;
+    pendingCallContext = null;
+    pendingRon = null;
+    if(sel.type === "chi") executeChi(sel.selected, sel.tile);
+    else executeCall("bottom", sel.discarderSeat, sel.tile, sel.type, sel.selected);
+  }
+
+  // 鳴き関連の状態（ロン待ち・スルー待ち・チー/ポン/カンの選択中を含む）を
+  // 必ずクリアしてから閉じる唯一の窓口
   function hideCallPrompt(){
     document.getElementById("callPrompt").style.display = "none";
     pendingRon = null;
     pendingCallContext = null;
+    pendingCallOptions = null;
+    const hadSelection = !!activeCallSelection;
+    activeCallSelection = null;
     updateActionButtons();
+    if(hadSelection) renderMyHand(true);
   }
 
   // 牌の選択肢を出さない場合（CPU、または不整合時のフォールバック）に使う、
@@ -1390,6 +1605,7 @@
     // カンをしたら王牌から嶺上牌を1枚ツモる（山からの補充はしない）
     if(type === "kan"){
       const rinshan = deadWall.pop();
+      updateRinshanVisual();
       hand.push(rinshan);
       if(callerSeat === "bottom") lastDrawnTile = rinshan;
       else lastDrawnCpu[callerSeat] = rinshan;
@@ -1505,6 +1721,7 @@
 
     // 嶺上牌をツモる（山からの補充はしない）
     const rinshan = deadWall.pop();
+    updateRinshanVisual();
     hand.push(rinshan);
     lastDrawnCpu[seat] = rinshan;
     renderCpuHandBacks(seat);
@@ -1552,14 +1769,18 @@
 
   // --- 暗槓（鳴きを介さず、自分の手牌だけで同じ牌が4枚揃った時） ---
   function checkAnkanOpportunity(){
-    const tile = findAnkanTile(myHandTiles);
-    if(!tile || !rinshanAvailable()) return false;
+    const candidates = findAllAnkanTiles(myHandTiles);
+    if(candidates.length === 0 || !rinshanAvailable()) return false;
     const el = document.getElementById("callPrompt");
     el.innerHTML = "";
     el.style.display = "flex";
-    el.appendChild(makeCallButton("暗槓", () => { hideCallPrompt(); executeAnkan(tile); }));
+    // 候補が2種類以上ある時は、どれを暗槓するかボタンで選ばせる（1種類なら従来通り1つだけ出る）
+    candidates.forEach(tile => {
+      const label = "暗槓（" + tileLabel(tile) + "）";
+      el.appendChild(makeCallButton(label, () => { hideCallPrompt(); executeAnkan(tile); }));
+    });
     el.appendChild(makeCallButton("手牌に保留", () => { hideCallPrompt(); }));
-    setTurnIndicator("同じ牌が4枚揃いました。暗槓しますか？");
+    setTurnIndicator(candidates.length > 1 ? "暗槓できる牌が複数あります。どちらを暗槓しますか？" : "同じ牌が4枚揃いました。暗槓しますか？");
     return true;
   }
 
@@ -1575,6 +1796,7 @@
 
     // 嶺上牌をツモる（山からの補充はしない）
     const rinshan = deadWall.pop();
+    updateRinshanVisual();
     myHandTiles.push(rinshan);
     lastDrawnTile = rinshan;
 
@@ -1593,6 +1815,7 @@
 
     // 嶺上牌をツモる（山からの補充はしない）
     const rinshan = deadWall.pop();
+    updateRinshanVisual();
     myHandTiles.push(rinshan);
     lastDrawnTile = rinshan;
 
@@ -1612,6 +1835,7 @@
   // （リーチ宣言そのものは第2段階で実装し、宣言時にtrueにしてriichiSticksを1増やす）
   let riichiDeclared = { bottom:false, top:false, left:false, right:false };
   const scores = { bottom: 35000, top: 35000, left: 35000, right: 35000 };
+  // ネームプレート（方角+名前+点数）は中央情報ボックスの中、各家の方角位置に置かれている
   const scoreElByName = {
     bottom: document.getElementById("scoreBottom"),
     top: document.getElementById("scoreTop"),
@@ -1624,6 +1848,23 @@
 
   function renderScores(){
     Object.keys(scores).forEach(s => { scoreElByName[s].textContent = scores[s]; });
+    stabilizeCenterInfoCells();
+  }
+
+  // 上家・下家・対面のネームプレートはtransform:rotate()で向きを変えているだけなので、
+  // セル自体のoffsetWidth/Heightは回転前（横書き）のままになる。90度回転する上家・下家は
+  // 実測した幅と高さを入れ替えてセルに固定で入れ、回転後の見た目どおりの領域を確保する
+  // （こうしておかないと.center-infoのグリッド列幅がずれてレイアウトが崩れる）。
+  function stabilizeCenterInfoCells(){
+    [["top", false], ["bottom", false], ["left", true], ["right", true]].forEach(([pos, swapped]) => {
+      const cell = document.querySelector(".center-info > .ring-" + pos);
+      const plate = cell.querySelector(".nameplate");
+      cell.style.width = "";
+      cell.style.height = "";
+      const w = plate.offsetWidth, h = plate.offsetHeight;
+      cell.style.width = (swapped ? h : w) + "px";
+      cell.style.height = (swapped ? w : h) + "px";
+    });
   }
 
   function updateKyotakuDisplay(){
@@ -1706,8 +1947,13 @@
     return melds[seat].map(m => {
       if(m.type === "ankan") return { type:"kan", tiles:[...m.handTiles], open:false };
       const type = m.type === "chi" ? "sequence" : (m.type === "kan" ? "kan" : "triplet");
-      let tiles = [...m.handTiles, m.calledTile];
+      const tiles = [...m.handTiles, m.calledTile]; // スプレッドでコピー済み。元のm.handTiles/m.calledTileは書き換えない
       if(m.addedTile) tiles.push(m.addedTile);
+      // チーは手牌2枚＋鳴いた牌の順で並んでいるため、鳴いた牌が真ん中や下端の数字だと
+      // tiles[0]が「その順子の一番小さい牌」にならないことがある。三色同順など
+      // s.tiles[0]を順子の起点として使う役判定が軒並み誤判定するため、必ず数字順に揃える
+      // （renderMelds()は別経路でmelds[name]を直接参照するため、画面表示には影響しない）
+      if(type === "sequence") tiles.sort((a, b) => a.num - b.num);
       return { type, tiles, open:true };
     });
   }
@@ -2583,19 +2829,23 @@
   }
 
   // 役なし和了の精算（簡易ルール）：子1,000点・親1,500点を基準に、
-  // ドラは基準と同じ単位（子1,000点/親1,500点）で1枚ごとに加算、
-  // 赤牌は親子問わず1枚につき1,000点。ツモなら3人からそれぞれ同額を受け取る
+  // ドラは基準と同じ単位（子1,000点/親1,500点）で1枚ごとに加算。この基礎点+ドラ分は
+  // 「合計額」なので、ロンなら1人がそのまま払うが、ツモは3人で均等に割った額を
+  // それぞれが払う（3人分そのまま徴収すると3倍になってしまうので注意）。
+  // 赤牌だけは親子・ツモロン問わず1枚につき1,000点を、支払う側1人あたりの額として加算する
   function settleYakunashi(winnerSeat, loserSeat, indicatorDoraCount, akaCount, isTsumo){
     const isDealer = winnerSeat === DEALER_SEAT;
     const unitRate = isDealer ? 1500 : 1000;
-    const perShare = unitRate * (1 + indicatorDoraCount) + akaCount * 1000;
+    const baseAndDora = unitRate * (1 + indicatorDoraCount); // 基礎点+ドラの合計額
     if(isTsumo){
       const others = ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat);
+      const perShare = Math.ceil((baseAndDora / others.length) / 100) * 100 + akaCount * 1000;
       others.forEach(s => { scores[s] -= perShare; });
       const total = perShare * others.length;
       scores[winnerSeat] += total;
       return total;
     } else {
+      const perShare = baseAndDora + akaCount * 1000;
       scores[loserSeat] -= perShare;
       scores[winnerSeat] += perShare;
       return perShare;
@@ -2637,7 +2887,9 @@
     renderMyHand(false);
   }
 
-  function showResult(seat, result, loserSeat, bonusTotal){
+  // totalGain: 精算後に和了者の持ち点が実際に何点増えたか（供託の総取り分も含む）。
+  // 「持ち点がいきなり変わるだけで分からない」を解消するため、常にこの実数を表示する
+  function showResult(seat, result, loserSeat, bonusTotal, totalGain){
     const box = document.getElementById("resultBox");
     box.style.display = "block";
     const title = result.isTsumo ? (seatLabel[seat] + "のツモ") : (seatLabel[seat] + "のロン（" + seatLabel[loserSeat] + "から）");
@@ -2650,7 +2902,7 @@
       box.innerHTML =
         `<div class="result-title">${title}</div>` +
         `<div class="result-yaku">${subText}</div>` +
-        `<div class="result-score">＋${bonusTotal}点</div>`;
+        `<div class="result-score">＋${totalGain}点</div>`;
       return;
     }
 
@@ -2662,11 +2914,12 @@
       `<div class="result-title">${title}</div>` +
       `<div class="result-yaku">${yakuText}</div>` +
       akaText +
-      `<div class="result-score">${result.han}翻</div>`;
+      `<div class="result-score">${result.han}翻　＋${totalGain}点</div>`;
   }
 
   function finalizeWin(winnerSeat, loserSeat, result){
     gameEnded = true;
+    const scoreBefore = scores[winnerSeat];
     let bonusTotal;
     if(result.yakunashi){
       bonusTotal = settleYakunashi(winnerSeat, loserSeat, result.indicatorDoraCount, result.akaCount, result.isTsumo);
@@ -2684,8 +2937,9 @@
       riichiSticks = 0;
       updateKyotakuDisplay();
     }
+    const totalGain = scores[winnerSeat] - scoreBefore;
     renderScores();
-    showResult(winnerSeat, result, loserSeat, bonusTotal);
+    showResult(winnerSeat, result, loserSeat, bonusTotal, totalGain);
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
@@ -2737,9 +2991,30 @@
     btn.onclick = () => { hideCallPrompt(); advanceTurnAfterDiscard(ctx.discarderSeat); };
   }
 
+  // 下段のチー/ポン/カンボタン：鳴ける選択肢がある時だけ有効にする。
+  // 選択モード中（activeCallSelection）は、途中で別の種類に切り替えられないよう3つとも無効にする
+  // （やめたい時はスルーで選択自体をキャンセルする）
+  function updateCallButtons(){
+    const chiBtn = document.getElementById("chiBtn");
+    const ponBtn = document.getElementById("ponBtn");
+    const kanBtn = document.getElementById("kanBtn");
+    if(gameEnded || !pendingCallOptions || activeCallSelection){
+      [chiBtn, ponBtn, kanBtn].forEach(b => { b.disabled = true; b.onclick = null; });
+      return;
+    }
+    const opts = pendingCallOptions;
+    chiBtn.disabled = !(opts.chiShapes && opts.chiShapes.length > 0);
+    chiBtn.onclick = chiBtn.disabled ? null : () => startCallSelection("chi");
+    ponBtn.disabled = !opts.pon;
+    ponBtn.onclick = ponBtn.disabled ? null : () => startCallSelection("pon");
+    kanBtn.disabled = !opts.kan;
+    kanBtn.onclick = kanBtn.disabled ? null : () => startCallSelection("kan");
+  }
+
   function updateActionButtons(){
     updateWinButton();
     updateThroughButton();
+    updateCallButtons();
   }
 
 
@@ -2748,23 +3023,149 @@
   renderCpuHandBacks("left");
   renderCpuHandBacks("right");
   updateActionButtons();
-  captureWallBandFullSize();
-  updateWallBands();
   setTurnIndicator("あなたの番です（牌をタップして捨ててください）");
 
-  // ドラ表示牌・リーチドラ表示牌（王牌の先頭2枚を表向きにする。以降は一切めくらない）
+  // 指定したid要素に牌の見た目を描き込む（既存のtileEl()を流用し、classとinnerHTMLだけ移す）
+  function paintTile(elId, tile, extraClass){
+    const el = document.getElementById(elId);
+    const temp = tileEl(tile.suit, tile.num, tileClass(tile.suit, tile.num) + " " + extraClass, tile.red);
+    el.className = temp.className;
+    el.innerHTML = temp.innerHTML;
+  }
+
+  // 王牌のうち2枚を表向きにして、実際のドラ表示牌・リーチドラ表示牌として見せる（以降は一切めくらない）
   const doraIndicator = deadWall[0];
   const riichiDoraIndicator = deadWall[1];
-  const doraTileEl = document.getElementById("doraTile");
-  doraTileEl.className = "tile dora-tile " + tileClass(doraIndicator.suit, doraIndicator.num);
-  doraTileEl.innerHTML = tileEl(doraIndicator.suit, doraIndicator.num, "", doraIndicator.red).innerHTML;
-  const riichiDoraTileEl = document.getElementById("riichiDoraTile");
-  riichiDoraTileEl.className = "tile dora-tile riichi-dora-tile " + tileClass(riichiDoraIndicator.suit, riichiDoraIndicator.num);
-  riichiDoraTileEl.innerHTML = tileEl(riichiDoraIndicator.suit, riichiDoraIndicator.num, "", riichiDoraIndicator.red).innerHTML;
+  paintTile("doraIndicatorTile", doraIndicator, "wall-indicator");
+  paintTile("riichiDoraIndicatorTile", riichiDoraIndicator, "wall-indicator");
+  // 局表示の横には、表示牌そのものではなく実際のドラ（次の牌）を出す
+  paintTile("doraActualTile", nextTileForDora(doraIndicator), "dora-tile");
+  paintTile("riichiDoraActualTile", nextTileForDora(riichiDoraIndicator), "dora-tile riichi-dora-tile");
 
   updateWallCount();
   renderScores();
   updateKyotakuDisplay();
+
+  // --- 牌サイズ(--tile-h)を画面いっぱいまで最大化する ---
+  // 縦・横どちらの制約にもぶつからない最大サイズを、実際にDOMへ適用して測りながら二分探索で探す
+  // （山も鳴き面子も含め、卓の見た目を決めるあらゆる余白・比率がCSS側に散らばっているため、
+  // 手計算の式より実測の方が確実で、レイアウトを直すたびに式を書き直さずに済む）。
+  function fitTileSize(){
+    const ring = document.querySelector(".ring.hand-ring");
+    const area = document.querySelector(".table-area");
+    const prevMaxW = ring.style.maxWidth;
+    const prevMaxH = ring.style.maxHeight;
+    // 探索中は.ringのmax-width/height:100%（親に収める制約）を外し、素の必要サイズを測れるようにする
+    ring.style.maxWidth = "none";
+    ring.style.maxHeight = "none";
+
+    function fits(px){
+      document.documentElement.style.setProperty("--tile-h", px + "px");
+      return ring.scrollWidth <= area.clientWidth && ring.scrollHeight <= area.clientHeight;
+    }
+
+    let lo = 10, hi = 80; // 探索範囲(px)。10ptでも収まらない極端な画面ではloのまま使う
+    if(fits(lo)){
+      while(hi - lo > 1){
+        const mid = Math.floor((lo + hi) / 2);
+        if(fits(mid)) lo = mid; else hi = mid;
+      }
+    }
+    document.documentElement.style.setProperty("--tile-h", lo + "px");
+
+    ring.style.maxWidth = prevMaxW;
+    ring.style.maxHeight = prevMaxH;
+    stabilizeCenterInfoCells();
+
+    // 卓の基準幅（山11枚+左右2枚ずつ相当）を、実際に描画された卓(.ring.hand-ring)の幅から
+    // 実測して--table-widthに反映する。下段ボタン行など、卓の入れ子構造の外にあって
+    // グリッドでは自動的に幅を合わせられない要素はこの変数を参照して幅を揃える
+    document.documentElement.style.setProperty("--table-width", ring.offsetWidth + "px");
+
+    // --tile-h（ひいては--table-width）が変わると鳴き面子行の縮小要否・縮小率も
+    // 変わるため、4方向とも計算し直す
+    ["top", "bottom", "left", "right"].forEach(fitMeldRowScale);
+  }
+
+  // ==== 一時デバッグ：捨て牌エリアが中央BOXと被る不具合の検証用（原因特定でき次第削除する） ====
+  // 捨て牌4方向の枠(width/height固定)と中央BOXに赤枠を付け、実際のはみ出し量を
+  // scrollWidth/Height（中身の実サイズ、はみ出せば枠のclientWidth/Heightより大きくなる）で確認する。
+  // コンソールへのコピペが難しい環境向けに、同じ内容を画面右上の固定オーバーレイにも表示する
+  // （スクリーンショット1枚で数値と被り具合を同時に見せるため）
+  function ensureDebugOverlay(){
+    let el = document.getElementById("debugOverlay");
+    if(!el){
+      el = document.createElement("div");
+      el.id = "debugOverlay";
+      el.style.position = "fixed";
+      el.style.top = "4px";
+      el.style.right = "4px";
+      el.style.background = "rgba(0,0,0,0.88)";
+      el.style.color = "#fff";
+      el.style.font = "11px/1.5 monospace";
+      el.style.padding = "6px 8px";
+      el.style.zIndex = "99999";
+      el.style.whiteSpace = "pre";
+      el.style.pointerEvents = "none";
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  function debugDiscardOverflow(){
+    const ids = ["discardTop", "discardBottom", "discardLeft", "discardRight"];
+    const rows = ids.map(id => {
+      const el = document.getElementById(id);
+      el.style.outline = "2px solid red";
+      return {
+        id,
+        clientWidth: el.clientWidth, clientHeight: el.clientHeight,
+        scrollWidth: el.scrollWidth, scrollHeight: el.scrollHeight,
+        offsetWidth: el.offsetWidth, offsetHeight: el.offsetHeight,
+        overflowX: el.scrollWidth - el.clientWidth,
+        overflowY: el.scrollHeight - el.clientHeight
+      };
+    });
+    const centerInfo = document.querySelector(".center-info");
+    centerInfo.style.outline = "2px solid lime";
+    rows.push({
+      id: ".center-info",
+      clientWidth: centerInfo.clientWidth, clientHeight: centerInfo.clientHeight,
+      scrollWidth: centerInfo.scrollWidth, scrollHeight: centerInfo.scrollHeight,
+      offsetWidth: centerInfo.offsetWidth, offsetHeight: centerInfo.offsetHeight,
+      overflowX: centerInfo.scrollWidth - centerInfo.clientWidth,
+      overflowY: centerInfo.scrollHeight - centerInfo.clientHeight
+    });
+
+    const tileW = getComputedStyle(document.documentElement).getPropertyValue("--tile-w").trim();
+    const tileH = getComputedStyle(document.documentElement).getPropertyValue("--tile-h").trim();
+    console.log("--tile-w=" + tileW + " --tile-h=" + tileH);
+    console.table(rows);
+
+    const pad = (s, n) => String(s).padEnd(n);
+    const lines = [];
+    lines.push("--tile-w=" + tileW + " --tile-h=" + tileH);
+    lines.push(pad("id", 14) + pad("clientWxH", 12) + pad("scrollWxH", 12) + pad("ovX", 6) + "ovY");
+    rows.forEach(r => {
+      lines.push(
+        pad(r.id, 14) +
+        pad(r.clientWidth + "x" + r.clientHeight, 12) +
+        pad(r.scrollWidth + "x" + r.scrollHeight, 12) +
+        pad(r.overflowX, 6) +
+        r.overflowY
+      );
+    });
+    ensureDebugOverlay().textContent = lines.join("\n");
+  }
+  window.debugDiscardOverflow = debugDiscardOverflow;
+  // ==== デバッグここまで ====
+
+  fitTileSize();
+  debugDiscardOverflow();
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { fitTileSize(); debugDiscardOverflow(); }, 150);
+  });
 </script>
 
 </body>
