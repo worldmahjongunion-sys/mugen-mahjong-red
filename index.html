@@ -467,6 +467,17 @@
     flex-direction:column;
     width:var(--tile-h); /* 鳴き0組でも常にこの幅を確保 */
   }
+  /* カン（暗槓・大明槓・加槓）で積んだ4枚目は、buildKanGroup()がposition:absoluteで
+     卓中央側へちょうど牌1枚の横幅ぶん(--tile-w)はみ出す形で積む。.meld-rowの厚みは
+     はみ出しぶんを見込んでいないため、王牌と重なっていた。カンがある席だけ、
+     JS(renderMelds)が付ける.has-kanクラスで厚みを牌の横幅ぶん増やして回避する。
+     カンの無い席はこのクラスが付かないため、従来どおりvar(--tile-h)のまま動かない */
+  .ring-top .meld-row.has-kan, .ring-bottom .meld-row.has-kan{
+    height:calc(var(--tile-h) + var(--tile-w));
+  }
+  .ring-left .meld-row.has-kan, .ring-right .meld-row.has-kan{
+    width:calc(var(--tile-h) + var(--tile-w));
+  }
 
   .meld-row .tile{
     width:var(--tile-w);
@@ -541,7 +552,9 @@
     position:absolute;
     top:clamp(4px, 1dvh, 10px);
     right:clamp(4px, 1dvw, 10px);
-    max-width:150px;
+    /* 役名列・合計行の折り返しを防ぐため150pxでは足りなかった。役満の5〜6桁の点数や
+       「8000・16000」のような分割表記でも収まる幅に拡げつつ、狭い画面ではvwで縮める */
+    max-width:min(260px, 68vw);
     z-index:80;
   }
   .result-box .result-title{
@@ -568,6 +581,7 @@
     font-size:12px;
     opacity:0.9;
     text-align:left;
+    white-space:nowrap; /* 「ドラ×1」「赤×1(自摸)」等が途中で折り返されないようにする */
   }
   .result-box .result-row .col-han{
     text-align:center;
@@ -575,7 +589,7 @@
   }
   .result-box .result-row .col-pts{
     text-align:right;
-    min-width:4.5ch;
+    min-width:6ch; /* 役満の5〜6桁の点数でも収まる幅を確保 */
     font-variant-numeric:tabular-nums;
   }
   .result-box .result-row.total-row{
@@ -1350,6 +1364,10 @@
     const scaleVar = "--meld-scale-" + name;
     el.style.flexDirection = flexDir;
     el.innerHTML = "";
+    // カン（暗槓・大明槓・加槓）が1組でもあれば、積んだ4枚目が王牌側にはみ出さないよう
+    // .meld-rowの厚みを牌の横幅ぶん増やす（CSSの.has-kan参照）。無ければ従来どおり
+    const hasKan = melds[name].some(m => m.type === "ankan" || m.type === "kan");
+    el.classList.toggle("has-kan", hasKan);
     // 古く鳴いた組ほど手牌に近く、新しく鳴いた組ほど手牌から遠い側になるよう並べる
     melds[name].slice().reverse().forEach(m => {
       const group = document.createElement("div");
