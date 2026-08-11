@@ -77,6 +77,17 @@
     grid-template-columns:auto 1fr auto;
     grid-template-rows:auto 1fr auto;
   }
+  /* stabilizeCenterInfoCells()が.ring-top等に実測px幅・高さを明示指定すると、
+     グリッドアイテムのjustify-self/align-selfの既定値stretchが効かなくなり
+     start（トラックの開始側＝左/上）に寄ってしまう。1fr側の余白がある軸を
+     明示的にcenterへ固定し、4方向とも中央揃えにする。 */
+  .center-info > .ring-top,
+  .center-info > .ring-bottom,
+  .center-info > .ring-left,
+  .center-info > .ring-right{
+    justify-self:center;
+    align-self:center;
+  }
   /* 中央BOXに置く起家マーク（ネームプレートの中に入る） */
   .dealer-mark{
     background:var(--honor-red);
@@ -1349,7 +1360,7 @@
         return;
       }
 
-      if(m.type === "kan"){
+      if(m.type === "kan" && !m.addedTile){   // 大明槓のみ。加槓は下のpon経路へ
         // 大明槓：手牌にあった3枚を表向きで横一列に並べ、鳴かれた1枚を横向きにして上に積む。
         // 積む位置で誰から鳴いたかを示す（上家=左端／対面=中央／下家=右端、既存のpon/chiと同じ判定）
         const rowEls = m.handTiles.map(t => {
@@ -2904,8 +2915,11 @@
 
   // 役なし和了の精算（簡易ルール）：子1,000点・親1,500点を基準に、
   // ドラは基準と同じ単位（子1,000点/親1,500点）で1枚ごとに加算。この基礎点+ドラ分は
-  // 「合計額」なので、ロンなら1人がそのまま払うが、ツモは3人で均等に割った額を
-  // それぞれが払う（3人分そのまま徴収すると3倍になってしまうので注意）。
+  // 「合計額」なので、ロンなら1人がそのまま払う。ツモは3人均等ではなく「子1・親2」の比で払う：
+  //   子の和了→子payer=合計/4・親payer=合計/2（2人×1/4 + 1人×1/2 = 合計）
+  //   親の和了→支払う3人は全員子なので合計/3の均等
+  // 単位が子1,000点/親1,500点なのでこの比で割り切れる（子payerは250の倍数、親payerは500の倍数）。
+  // 100点単位に揃うとは限らないが端数は出ないため、切り上げ処理は不要。
   // 赤牌だけは親子・ツモロン問わず1枚につき1,000点を、支払う側1人あたりの額として加算する
   function settleYakunashi(winnerSeat, loserSeat, indicatorDoraCount, akaCount, isTsumo){
     const isDealer = winnerSeat === DEALER_SEAT;
@@ -2913,9 +2927,15 @@
     const baseAndDora = unitRate * (1 + indicatorDoraCount); // 基礎点+ドラの合計額
     if(isTsumo){
       const others = ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat);
-      const perShare = Math.ceil((baseAndDora / others.length) / 100) * 100 + akaCount * 1000;
-      others.forEach(s => { scores[s] -= perShare; });
-      const total = perShare * others.length;
+      let total = 0;
+      others.forEach(s => {
+        const share = isDealer
+          ? baseAndDora / 3
+          : (s === DEALER_SEAT ? baseAndDora / 2 : baseAndDora / 4);
+        const pay = share + akaCount * 1000;
+        scores[s] -= pay;
+        total += pay;
+      });
       scores[winnerSeat] += total;
       return total;
     } else {
@@ -2978,43 +2998,88 @@
 
   // totalGain: 精算後に和了者の持ち点が実際に何点増えたか（供託の総取り分も含む）。
   // 「持ち点がいきなり変わるだけで分からない」を解消するため、常にこの実数を表示する
-  function showResult(seat, result, loserSeat, bonusTotal, totalGain){
+  // paymentsBySeat: finalizeWinで供託加算前に控えた、各家の実際の支払額（seat -> 点数）
+  function showResult(seat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat){
     const box = document.getElementById("resultBox");
     box.style.display = "block";
     const title = result.isTsumo ? (seatLabel[seat] + "のツモ") : (seatLabel[seat] + "のロン（" + seatLabel[loserSeat] + "から）");
+    const isTsumo = result.isTsumo;
+    const isDealer = seat === DEALER_SEAT;
 
+    // 役名の括弧書き（例:「役牌（三元牌）」の（三元牌）部分）は表示しない
+    const stripParen = name => name.replace(/（[^）]*）/g, "");
+
+    const row = (name, hanText, pts, cls) =>
+      `<div class="result-row${cls ? " " + cls : ""}">` +
+      `<span class="col-name">${name}</span>` +
+      `<span class="col-han">${hanText}</span>` +
+      `<span class="col-pts">${pts}</span>` +
+      `</div>`;
+
+    let rowsHtml = "";
     if(result.yakunashi){
-      const parts = [];
-      if(result.indicatorDoraCount > 0) parts.push("ドラ" + result.indicatorDoraCount + "枚");
-      if(result.akaCount > 0) parts.push("赤牌" + result.akaCount + "枚");
-      const subText = "役なし和了" + (parts.length ? "（" + parts.join("・") + "）" : "");
-      box.innerHTML =
-        `<div class="result-title">${title}</div>` +
-        `<div class="result-yaku">${subText}</div>` +
-        `<div class="result-score">＋${totalGain}点</div>`;
-      return;
+      const unitRate = isDealer ? 1500 : 1000;
+      const doraCount = result.indicatorDoraCount;
+      // settleYakunashiが100点単位への切り上げをやめ「子1・親2」の比の実額計算に変わったため、
+      // 役無し・ドラの行は名目額（unitRate・doraCount*unitRate）をそのまま出せばよい
+      rowsHtml += row("役無し", "", unitRate);
+      if(doraCount > 0){
+        rowsHtml += row("ドラ×" + doraCount, "", doraCount * unitRate);
+      }
+      if(result.akaCount > 0){
+        const payers = isTsumo ? 3 : 1; // settleYakunashiは赤1枚につき支払う側1人あたり1,000点
+        rowsHtml += row("赤×" + result.akaCount + (isTsumo ? "(自摸)" : ""), "", result.akaCount * 1000 * payers);
+      }
+    } else {
+      // ドラ・リーチドラはハウスルール上、他の役と違って「翻を稼ぐための役」ではなく
+      // 定額ボーナスの性格が強いので、表示上も他の役（飜数の少ない順）とは分けて末尾にまとめる
+      // （赤牌ボーナスも同じ理由で、常にそのさらに後ろの行に表示する）
+      const DORA_YAKU_NAMES = new Set(["ドラ", "リーチドラ"]);
+      // 役満は固定額（親48,000点・子32,000点）で、飜×単位の線形計算に乗らない。
+      // ドラの飜がhan>=13の判定に加わっただけの場合も含め、役満成立時はドラが実際の点数に
+      // 一切寄与しないため、ドラの行自体を出さない（点数欄だけ空欄にすると「本来は点数が
+      // あるのに表示できていない」ように誤読されるため、行ごと省く方が実態に合う）
+      const isYakuman = result.han >= 13;
+      const normalYaku = result.yaku.filter(y => !DORA_YAKU_NAMES.has(y.name)).slice().sort((a, b) => a.han - b.han);
+      const doraYaku = isYakuman ? [] : result.yaku.filter(y => DORA_YAKU_NAMES.has(y.name));
+      const pointsPerHan = isDealer ? 3000 : 2000; // 1翻あたりの合計額（子2,000点・親3,000点）
+      normalYaku.concat(doraYaku).forEach(y => {
+        const isDoraRow = DORA_YAKU_NAMES.has(y.name);
+        const displayName = isDoraRow ? (y.name + "×" + y.han) : stripParen(y.name);
+        const hanText = isYakuman ? "役満" : (y.han + "飜");
+        const pts = isYakuman ? "" : y.han * pointsPerHan;
+        rowsHtml += row(displayName, hanText, pts);
+      });
+      if(bonusTotal > 0){
+        rowsHtml += row("赤×" + result.akaCount + (isTsumo ? "(自摸)" : ""), "", bonusTotal);
+      }
     }
 
-    // ドラ・リーチドラはハウスルール上、他の役と違って「翻を稼ぐための役」ではなく
-    // 定額ボーナスの性格が強いので、表示上も他の役（飜数の少ない順）とは分けて末尾にまとめる
-    // （赤牌ボーナスも同じ理由で、常にそのさらに後ろの行に表示する）
-    const DORA_YAKU_NAMES = new Set(["ドラ", "リーチドラ"]);
-    const normalYaku = result.yaku.filter(y => !DORA_YAKU_NAMES.has(y.name)).slice().sort((a, b) => a.han - b.han);
-    const doraYaku = result.yaku.filter(y => DORA_YAKU_NAMES.has(y.name));
-    const yakuText = normalYaku.concat(doraYaku).map(y => y.name + " " + y.han + "翻").join("　");
-    const akaText = bonusTotal > 0
-      ? `<div class="result-yaku">赤×${result.akaCount}　＋${bonusTotal}</div>`
-      : "";
+    let totalHtml;
+    if(isTsumo){
+      const others = ["bottom", "top", "left", "right"].filter(s => s !== seat);
+      const amounts = others.map(s => paymentsBySeat[s]);
+      const allSame = amounts.every(a => a === amounts[0]);
+      const splitText = allSame
+        ? amounts[0] + "ALL"
+        : paymentsBySeat[others.find(s => s !== DEALER_SEAT)] + "・" + paymentsBySeat[DEALER_SEAT];
+      totalHtml = row(splitText, "", totalGain, "total-row");
+    } else {
+      totalHtml = row("", "", totalGain, "total-row");
+    }
+
     box.innerHTML =
       `<div class="result-title">${title}</div>` +
-      `<div class="result-yaku">${yakuText}</div>` +
-      akaText +
-      `<div class="result-score">${result.han}翻　＋${totalGain}点</div>`;
+      rowsHtml +
+      totalHtml;
   }
 
   function finalizeWin(winnerSeat, loserSeat, result){
     gameEnded = true;
-    const scoreBefore = scores[winnerSeat];
+    // settle系を呼ぶ前に4人全員のscoresを控えておく（供託加算より前の、和了精算のみの差分を後で取るため）
+    const seats = ["bottom", "top", "left", "right"];
+    const scoresBefore = {};
+    seats.forEach(s => { scoresBefore[s] = scores[s]; });
     let bonusTotal;
     if(result.yakunashi){
       bonusTotal = settleYakunashi(winnerSeat, loserSeat, result.indicatorDoraCount, result.akaCount, result.isTsumo);
@@ -3027,14 +3092,19 @@
       else settleRon(winnerSeat, loserSeat, result.base);
       bonusTotal = settleAkaBonus(winnerSeat, loserSeat, result.akaCount, result.isTsumo);
     }
+    // 供託を足す前に、各家の実際の支払額（控えておいた値－現在値）を集計する。
+    // 比率からの逆算はしない：赤牌ボーナスは親子に関係なく1枚につき各家2,000点の均等払いのため、
+    // 通常役の飜による2:1の比が崩れる。実際の支払額を足し上げれば、親の和了は自然に3人同額になる。
+    const paymentsBySeat = {};
+    seats.forEach(s => { paymentsBySeat[s] = scoresBefore[s] - scores[s]; });
     if(riichiSticks > 0 && riichiDeclared[winnerSeat]){
       scores[winnerSeat] += riichiSticks * 1000;
       riichiSticks = 0;
       updateKyotakuDisplay();
     }
-    const totalGain = scores[winnerSeat] - scoreBefore;
+    const totalGain = scores[winnerSeat] - scoresBefore[winnerSeat];
     renderScores();
-    showResult(winnerSeat, result, loserSeat, bonusTotal, totalGain);
+    showResult(winnerSeat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat);
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
