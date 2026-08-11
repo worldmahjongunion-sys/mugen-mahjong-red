@@ -243,6 +243,8 @@
   .wall-gap.horizontal{ display:flex; gap:1px; }
   /* 王牌のうち表向きの2枚（ドラ表示牌・リーチドラ表示牌）は、周りの伏せ牌と同じ枠サイズで表示する */
   .wall-pile .tile.wall-indicator{ width:var(--tile-w); height:var(--tile-h); border-radius:3px; }
+  /* リーチドラ表示牌は、左上パネルの表示（.riichi-dora-tile）と同じ赤枠を付けて区別する */
+  .wall-pile .tile.wall-indicator.riichi-dora-tile{ box-shadow:0 0 0 2px var(--honor-red); }
 
   .nameplate{
     display:flex;
@@ -557,6 +559,33 @@
     font-weight:bold;
     color:var(--gold);
     margin-top:4px;
+  }
+  /* 和了結果：1行1役、役名/飜数/点数の3列グリッド */
+  .result-box .result-row{
+    display:grid;
+    grid-template-columns:1fr auto auto;
+    gap:0 8px;
+    font-size:12px;
+    opacity:0.9;
+    text-align:left;
+  }
+  .result-box .result-row .col-han{
+    text-align:center;
+    min-width:2.4em;
+  }
+  .result-box .result-row .col-pts{
+    text-align:right;
+    min-width:4.5ch;
+    font-variant-numeric:tabular-nums;
+  }
+  .result-box .result-row.total-row{
+    font-size:15px;
+    font-weight:bold;
+    color:var(--gold);
+    opacity:1;
+    margin-top:4px;
+    padding-top:3px;
+    border-top:1px solid rgba(255,255,255,0.25);
   }
 
   /* .boardの左上（和了結果表示＝右上の対角）に固定表示する。中身は.center-midのレイアウトを流用する */
@@ -1051,7 +1080,7 @@
   const handMineEl = document.getElementById("handMine");
   const cpuHandElByName = { top: document.getElementById("handTop"), left: document.getElementById("handLeft"), right: document.getElementById("handRight") };
   const backClassByName = { top: "tile-back", left: "tile-back rot", right: "tile-back rot" };
-  const seatLabel = { right:"下家", top:"対面", left:"上家", bottom:"あなた" };
+  const seatLabel = { right:"下家", top:"対面", left:"上家", bottom:"自家" };
 
   // 手番の順番（あなた→下家→対面→上家→あなた…）と、各自の上家（鳴き元がこの人ならチー可）
   const NEXT_SEAT = { bottom:"right", right:"top", top:"left", left:"bottom" };
@@ -1285,11 +1314,6 @@
     }
   }
 
-  // 暗槓の伏せ牌は横一列(baseRot)と積む1枚(baseRot-90)で必要なswap(幅高入替)が逆になる。
-  // 伏せ柄の向き自体はCSSクラス(tile-back / tile-back rot)で切り替えているため、
-  // 積む1枚は横一列側と常に逆のクラスを使う
-  const STACKED_BACK_CLASS = { bottom:"tile-back rot", top:"tile-back rot", left:"tile-back", right:"tile-back" };
-
   // 暗槓・大明槓共通：横一列3枚(rowEls)の指定位置(stackedIndex:0/1/2)の上に、
   // 回転済みの4枚目(stackedEl)を幅を増やさず積み重ねる。
   // 積む方向は常に卓中央側（KAN_STACK_SIDE）＝手牌から離れる向きにして、
@@ -1337,7 +1361,7 @@
 
       if(m.type === "ankan"){
         // 暗槓：伏せ牌3枚を横一列に並べ、4枚目を横向き（90度回転）にして上に積む。
-        // 自分(bottom)の暗槓だけ、積んだ1枚を表向きにして確認できるようにする。CPUは4枚とも伏せのまま
+        // 積む1枚は大明槓と同じく席によらず常に表向き。赤牌があれば積む1枚に優先して選ぶ
         const rowBackCls = backClassByName[name] || "tile-back";
         const rowEls = m.handTiles.slice(0, 3).map(() => {
           const backEl = document.createElement("div");
@@ -1345,15 +1369,8 @@
           applyMeldRotation(backEl, baseRot, scaleVar);
           return backEl;
         });
-        const isSelf = (name === "bottom");
-        let stackedEl;
-        if(isSelf){
-          const t = m.handTiles[3];
-          stackedEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
-        } else {
-          stackedEl = document.createElement("div");
-          stackedEl.className = STACKED_BACK_CLASS[name];
-        }
+        const stackedTile = m.handTiles.find(t => t.red) || m.handTiles[3];
+        const stackedEl = tileEl(stackedTile.suit, stackedTile.num, tileClass(stackedTile.suit, stackedTile.num), stackedTile.red);
         applyMeldRotation(stackedEl, baseRot - 90, scaleVar);
         buildKanGroup(name, flexDir, rowEls, stackedEl, 1).forEach(elx => group.appendChild(elx));
         el.appendChild(group);
@@ -2958,25 +2975,16 @@
   function showRyuukyokuResult(tenpaiSeats, notenSeats){
     const box = document.getElementById("resultBox");
     box.style.display = "block";
-    // 全員テンパイ／全員ノーテンは点数移動が発生しないので、席ごとの行は出さず1行で済ませる
-    if(notenSeats.length === 0){
-      box.innerHTML = `<div class="result-title">流局</div><div class="result-yaku">全員テンパイ</div>`;
-      return;
-    }
-    if(tenpaiSeats.length === 0){
-      box.innerHTML = `<div class="result-title">流局</div><div class="result-yaku">全員ノーテン</div>`;
-      return;
-    }
-    // 席ごとに1行ずつ、あなた→下家→対面→上家の順（＝seats配列の順）で、
-    // テンパイ／ノーテンの別と実際の点数増減を併記する
-    const gainEach = 1000 * notenSeats.length;
-    const lossEach = 1000 * tenpaiSeats.length;
+    // 全員テンパイ／全員ノーテンは点数移動が発生しない（settleRyuukyoku側で0扱い）ので、
+    // その場合は自然に±0点になる。テンパイ／ノーテンの文言は出さず点数だけを表示する
+    const hasMovement = tenpaiSeats.length > 0 && notenSeats.length > 0;
+    const gainEach = hasMovement ? 1000 * notenSeats.length : 0;
+    const lossEach = hasMovement ? 1000 * tenpaiSeats.length : 0;
+    // 席ごとに1行ずつ、あなた→下家→対面→上家の順（＝seats配列の順）で点数増減だけを出す
     const rows = ["bottom", "right", "top", "left"].map(s => {
-      const isTenpaiSeat = tenpaiSeats.includes(s);
-      const delta = isTenpaiSeat ? gainEach : -lossEach;
-      const deltaText = delta > 0 ? "＋" + delta + "点" : "－" + (-delta) + "点";
-      const statusText = isTenpaiSeat ? "テンパイ" : "ノーテン";
-      return `<div class="result-yaku">${seatLabel[s]}　${statusText}　${deltaText}</div>`;
+      const delta = tenpaiSeats.includes(s) ? gainEach : -lossEach;
+      const deltaText = delta > 0 ? "＋" + delta + "点" : (delta < 0 ? "－" + (-delta) + "点" : "±0点");
+      return `<div class="result-yaku">${seatLabel[s]}　${deltaText}</div>`;
     }).join("");
     box.innerHTML = `<div class="result-title">流局</div>` + rows;
   }
@@ -3008,6 +3016,9 @@
 
     // 役名の括弧書き（例:「役牌（三元牌）」の（三元牌）部分）は表示しない
     const stripParen = name => name.replace(/（[^）]*）/g, "");
+    // 表示だけの短縮名（役判定側のnameキーは変更しない）
+    const DISPLAY_NAME_ALIAS = { "門前清自摸和": "門前清" };
+    const displayNameOf = name => DISPLAY_NAME_ALIAS[name] || stripParen(name);
 
     const row = (name, hanText, pts, cls) =>
       `<div class="result-row${cls ? " " + cls : ""}">` +
@@ -3045,7 +3056,7 @@
       const pointsPerHan = isDealer ? 3000 : 2000; // 1翻あたりの合計額（子2,000点・親3,000点）
       normalYaku.concat(doraYaku).forEach(y => {
         const isDoraRow = DORA_YAKU_NAMES.has(y.name);
-        const displayName = isDoraRow ? (y.name + "×" + y.han) : stripParen(y.name);
+        const displayName = isDoraRow ? (y.name + "×" + y.han) : displayNameOf(y.name);
         const hanText = isYakuman ? "役満" : (y.han + "飜");
         const pts = isYakuman ? "" : y.han * pointsPerHan;
         rowsHtml += row(displayName, hanText, pts);
@@ -3202,7 +3213,7 @@
   const doraIndicator = deadWall[0];
   const riichiDoraIndicator = deadWall[1];
   paintTile("doraIndicatorTile", doraIndicator, "wall-indicator");
-  paintTile("riichiDoraIndicatorTile", riichiDoraIndicator, "wall-indicator");
+  paintTile("riichiDoraIndicatorTile", riichiDoraIndicator, "wall-indicator riichi-dora-tile");
   // 局表示の横には、表示牌そのものではなく実際のドラ（次の牌）を出す
   paintTile("doraActualTile", nextTileForDora(doraIndicator), "dora-tile");
   paintTile("riichiDoraActualTile", nextTileForDora(riichiDoraIndicator), "dora-tile riichi-dora-tile");
