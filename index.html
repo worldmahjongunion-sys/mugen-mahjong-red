@@ -1296,6 +1296,8 @@
   const MELD_BASE_ROTATION = { bottom:0, top:180, left:90, right:-90 };
   // 各自の「読む向き」を画面の軸に対応させる（対面は左右反転、上家・下家は縦方向）
   const MELD_FLEX_DIRECTION = { bottom:"row", top:"row-reverse", left:"column", right:"column-reverse" };
+  // 鳴き牌グループを卓の外側の辺に揃える（内側にはみ出さず、増えた厚みは外側にのみ配分される）
+  const MELD_ALIGN_ITEMS = { top:"flex-start", bottom:"flex-end", left:"flex-start", right:"flex-end" };
 
   // 暗槓・大明槓（横幅を牌3枚分に抑えるレイアウト）で、積む側の1枚をどちら向きに
   // 積むかを決める：卓中央側（＝手牌から遠い側）に、幅を増やさず高さ方向にだけ突き出す。
@@ -1373,7 +1375,7 @@
       const group = document.createElement("div");
       group.style.display = "flex";
       group.style.flexDirection = flexDir;
-      group.style.alignItems = "center";
+      group.style.alignItems = MELD_ALIGN_ITEMS[name];
       group.style.justifyContent = "center";
       group.style.gap = "3px"; // 鳴き牌3枚の間隔＝捨て牌の間隔と同じ
 
@@ -1745,6 +1747,7 @@
       }
       setTimeout(() => cpuDiscardOnly(callerSeat), 600);
     }
+    fitTileSize();
   }
 
   // --- チーの実行(プレイヤーのみ) ---
@@ -1854,6 +1857,7 @@
     }
 
     setTimeout(() => cpuChooseAndDiscard(seat), 500);
+    fitTileSize();
   }
 
   function playerDraw(){
@@ -1923,6 +1927,7 @@
     renderMyHand(true);
     setTurnIndicator("暗槓しました。捨てる牌をタップしてください");
     updateActionButtons();
+    fitTileSize();
   }
 
   function executeKakan(meldIdx, drawnTile){
@@ -1942,6 +1947,7 @@
     renderMyHand(true);
     setTurnIndicator("加カンしました。捨てる牌をタップしてください");
     updateActionButtons();
+    fitTileSize();
   }
 
   // ==================== STEP5: 和了判定・役・点数計算・流局処理 ====================
