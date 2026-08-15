@@ -3287,6 +3287,74 @@
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => { fitTileSize(); }, 150);
   });
+
+  // DEBUG-KAN ここから
+  // devtoolsコンソールから
+  //   window.debugSetupKan("ankan"|"minkan"|"kakan", "bottom"|"top"|"left"|"right", "kamicha"|"toimen"|"shimocha")
+  // で呼び出し、指定した種類・席にカンを1組だけ作って再描画する表示確認用の一時関数。
+  // 呼ぶたびにその席の melds を作り直すので、何度呼んでも積み重ならない。
+  // 実際の手牌・山・スコア等のゲーム状態には一切触れない。
+  function debugResolveFromSeat(seat, from){
+    if(from === "shimocha") return NEXT_SEAT[seat];
+    if(from === "toimen"){
+      return ["bottom", "top", "left", "right"].find(s => s !== seat && s !== KAMICHA[seat] && s !== NEXT_SEAT[seat]);
+    }
+    return KAMICHA[seat]; // 省略時・"kamicha"指定時
+  }
+  function debugSetupKan(type, seat, from){
+    const seats = ["bottom", "top", "left", "right"];
+    if(seats.indexOf(seat) < 0){
+      console.error("debugSetupKan: seatは bottom/top/left/right のいずれかを指定してください");
+      return;
+    }
+    melds[seat].length = 0; // 呼ぶたびに作り直す（積み重ね防止）
+    const fromSeat = debugResolveFromSeat(seat, from);
+    if(type === "ankan"){
+      // 暗槓：赤5を先頭(index 0)に置く（renderMelds側の「赤牌優先で積む」判定を確認するため）
+      const redFive = { suit:"man", num:5 };
+      redFive.red = true;
+      melds[seat].push({
+        type: "ankan",
+        handTiles: [
+          redFive,
+          { suit:"man", num:5 },
+          { suit:"man", num:5 },
+          { suit:"man", num:5 }
+        ]
+      });
+    } else if(type === "minkan"){
+      // 大明槓：fromで指定した相手から鳴いた9索
+      melds[seat].push({
+        type: "kan",
+        handTiles: [
+          { suit:"sou", num:9 },
+          { suit:"sou", num:9 },
+          { suit:"sou", num:9 }
+        ],
+        calledTile: { suit:"sou", num:9 },
+        calledFrom: fromSeat
+      });
+    } else if(type === "kakan"){
+      // 加槓：fromで指定した相手からポンした3筒に、自分でツモった1枚を加えた形
+      melds[seat].push({
+        type: "kan",
+        handTiles: [
+          { suit:"pin", num:3 },
+          { suit:"pin", num:3 }
+        ],
+        calledTile: { suit:"pin", num:3 },
+        calledFrom: fromSeat,
+        addedTile: { suit:"pin", num:3 }
+      });
+    } else {
+      console.error("debugSetupKan: typeは ankan/minkan/kakan のいずれかを指定してください");
+      return;
+    }
+    renderMelds(seat);
+    fitMeldRowScale(seat); // renderMelds内でも呼ばれるが、指定どおり明示的にも呼ぶ
+  }
+  window.debugSetupKan = debugSetupKan;
+  // DEBUG-KAN ここまで
 </script>
 
 </body>
