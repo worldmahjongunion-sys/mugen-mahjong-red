@@ -26,6 +26,8 @@
        （--tile-wは常に--tile-hの0.73倍で連動する） */
     --tile-h: clamp(22px, 3.8dvh, 38px);
     --tile-w: calc(var(--tile-h) * 0.73);
+    /* 相手の伏せ手牌を「上から見た薄い帯」で表示するための厚み(.tile-top用) */
+    --tile-thick: calc(var(--tile-h) * 0.5);
     /* 鳴き面子の行(4方向とも)の縮小率。既定は等倍(1)で、卓は正方形のため
        卓幅(--table-width)を長さの基準として使い、それを超える行だけ
        JS(fitMeldRowScale)が1未満の値に書き換える */
@@ -361,6 +363,31 @@
     transform:translate(-50%, -50%) rotate(90deg);
   }
 
+  /* 相手の伏せ手牌を「上から見た薄い帯」として表示する。柄は使わず、牌を横から見た
+     二色（象牙色=牌の表面／青=牌の裏側）をlinear-gradientで塗る。
+     暗槓の伏せ牌(.tile-back)とは別クラスにして、暗槓側の柄付き表示に影響しないようにする */
+  .tile-top{
+    width:var(--tile-w);
+    height:var(--tile-thick);
+    border:1px solid rgba(255,255,255,0.35);
+    border-radius:3px;
+    flex-shrink:0;
+  }
+  .tile-top.rot{
+    width:var(--tile-thick);
+    height:var(--tile-w);
+  }
+  /* 青(牌の裏側)が卓の中央を向くよう、席ごとに象牙色80%／青20%の向きを変える */
+  .tile-top.seat-top{
+    background:linear-gradient(to bottom, var(--tile-bg) 0% 75%, #5BC7E8 75% 100%);
+  }
+  .tile-top.seat-left{
+    background:linear-gradient(to right, var(--tile-bg) 0% 75%, #5BC7E8 75% 100%);
+  }
+  .tile-top.seat-right{
+    background:linear-gradient(to left, var(--tile-bg) 0% 75%, #5BC7E8 75% 100%);
+  }
+
   /* 手牌の行：鳴きで枚数が減っても常に「13枚+ツモ1枚=14枚分」の幅（縦向きは高さ）を
      min-width/min-height で確保する（旧padCount＝透明なプレースホルダー牌を並べる方式の代わり）。
      実際の牌はjustify-content:centerでその枠の中央に寄る。
@@ -399,7 +426,7 @@
   .discard-grid{
     display:grid;
     gap:2px;
-    outline:2px solid var(--discard-frame); /* 捨て牌エリアの外周を示す正式な枠線 */
+    outline:1px solid var(--discard-frame); /* 捨て牌エリアの外周を示す正式な枠線 */
   }
   /* 牌自体の幅・高さはCSSでは決めない。回転あり(top/left/right)はJS側の
      applyMeldRotation()が回転後の見た目に合わせて実寸をインラインで設定するため、
@@ -1094,6 +1121,8 @@
   const handMineEl = document.getElementById("handMine");
   const cpuHandElByName = { top: document.getElementById("handTop"), left: document.getElementById("handLeft"), right: document.getElementById("handRight") };
   const backClassByName = { top: "tile-back", left: "tile-back rot", right: "tile-back rot" };
+  // 相手の伏せ手牌（帯表示）専用。暗槓の伏せ牌(backClassByName)とは別扱いにする
+  const cpuHandBackClassByName = { top: "tile-top seat-top", left: "tile-top rot seat-left", right: "tile-top rot seat-right" };
   const seatLabel = { right:"下家", top:"対面", left:"上家", bottom:"自家" };
 
   // 手番の順番（あなた→下家→対面→上家→あなた…）と、各自の上家（鳴き元がこの人ならチー可）
@@ -1236,7 +1265,7 @@
 
     function makeBack(hidden){
       const b = document.createElement("div");
-      b.className = backClassByName[name];
+      b.className = cpuHandBackClassByName[name];
       if(hidden) b.style.visibility = "hidden";
       return b;
     }
