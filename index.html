@@ -3284,6 +3284,10 @@
     const area = document.querySelector(".table-area");
     const prevMaxW = ring.style.maxWidth;
     const prevMaxH = ring.style.maxHeight;
+    const prevVisibility = area.style.visibility;
+    // 二分探索の途中経過が描画されて見えてしまわないよう、探索中はareaを不可視にする
+    // （display:noneにするとclientWidthが0になり探索が壊れるためvisibilityを使う）
+    area.style.visibility = "hidden";
     // 探索中は.ringのmax-width/height:100%（親に収める制約）を外し、素の必要サイズを測れるようにする
     ring.style.maxWidth = "none";
     ring.style.maxHeight = "none";
@@ -3304,6 +3308,7 @@
 
     ring.style.maxWidth = prevMaxW;
     ring.style.maxHeight = prevMaxH;
+    area.style.visibility = prevVisibility;
     stabilizeCenterInfoCells();
 
     // 卓の基準幅（山11枚+左右2枚ずつ相当）を、実際に描画された卓(.ring.hand-ring)の幅から
