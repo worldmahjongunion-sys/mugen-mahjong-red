@@ -267,6 +267,10 @@
     font-variant-numeric:tabular-nums;
   }
   .nameplate.you{ background:rgba(0,0,0,0.4); }
+  /* リーチ宣言中の席のネームプレートを光らせて、誰がリーチしているか一目でわかるようにする */
+  .nameplate.riichi{
+    box-shadow:0 0 6px 2px rgba(255,60,60,0.9), 0 0 0 1.5px rgba(255,120,120,0.9) inset;
+  }
   /* 4人とも中身は横書きのまま「方角→点数」の順で並べ、プレート全体をtransformで1回だけ回す。
      90度回転で箱の実寸（レイアウト上の幅・高さ）が回転前のままになる問題は、
      JS側で.center-info内の各セルに実測サイズを固定で入れて吸収する（stabilizeCenterInfoCells参照）。 */
@@ -570,6 +574,11 @@
   .hand-row.mine .tile.callable:hover{
     transform:translateY(-6px);
   }
+  /* リーチ宣言直後、切ると聴牌を崩す牌はクリック不可にした上で暗くして見た目でもわかるようにする */
+  .hand-row.mine .tile.riichi-locked{
+    opacity:0.45;
+    filter:grayscale(70%);
+  }
 
   /* .boardの右上（空きスペース）に固定表示する。.boardがposition:relativeなのでこれが基準になる */
   .result-box{
@@ -807,7 +816,7 @@
     <button class="row-btn" id="chiBtn" disabled>チー</button>
     <button class="row-btn" id="ponBtn" disabled>ポン</button>
     <button class="row-btn" id="kanBtn" disabled>カン</button>
-    <button class="row-btn" disabled>リーチ</button>
+    <button class="row-btn" id="riichiBtn" disabled>リーチ</button>
     <button class="row-btn" disabled>自動和了</button>
     <button class="row-btn" disabled>自摸切り</button>
     <button class="row-btn" id="winBtn" disabled>和了</button>
@@ -1224,6 +1233,16 @@
     return map;
   }
 
+  // 手牌の牌をクリックして切れるか：
+  //  - 未リーチなら常にクリック可
+  //  - リーチ宣言直後（awaitingRiichiDiscard中）は、聴牌を保てる牌（riichiValidDiscards.bottom）だけクリック可
+  //  - リーチ確定後（宣言牌を切り終えた後）は自動ツモ切りにするため、一切クリックさせない
+  function isRiichiWaitDiscardable(t){
+    if(!riichiDeclared.bottom) return true;
+    if(awaitingRiichiDiscard.bottom) return riichiValidDiscards.bottom.includes(t.suit + "_" + t.num);
+    return false;
+  }
+
   function renderMyHand(clickable){
     const priorityMap = suitPriorityMap();
     // ツモ牌は並び替えの対象に含めず、常に手牌全体の一番右に別枠で表示する
@@ -1246,9 +1265,11 @@
           el.classList.add("callable");
           el.addEventListener("click", () => onSelectCallTile(t));
         }
-      } else if(clickable){
+      } else if(clickable && isRiichiWaitDiscardable(t)){
         el.classList.add("clickable");
         el.addEventListener("click", () => onDiscardMyTile(myHandTiles.indexOf(t)));
+      } else if(clickable){
+        el.classList.add("riichi-locked"); // 聴牌を崩すので切れないことを見た目でも示す
       }
       handMineEl.appendChild(el);
     });
@@ -1257,9 +1278,11 @@
     if(lastDrawnTile){
       const el = tileEl(lastDrawnTile.suit, lastDrawnTile.num, tileClass(lastDrawnTile.suit, lastDrawnTile.num), lastDrawnTile.red);
       el.classList.add("drawn");
-      if(clickable){
+      if(clickable && isRiichiWaitDiscardable(lastDrawnTile)){
         el.classList.add("clickable");
         el.addEventListener("click", () => onDiscardMyTile(myHandTiles.indexOf(lastDrawnTile)));
+      } else if(clickable){
+        el.classList.add("riichi-locked");
       }
       handMineEl.appendChild(el);
     } else {
@@ -1323,7 +1346,9 @@
     el.innerHTML = "";
     discards[name].forEach((t, idx) => {
       const tileElx = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
-      applyMeldRotation(tileElx, DISCARD_ROTATION[name]);
+      // リーチ宣言牌はさらに90度回して横向きにする（applyMeldRotation自体はいじらない）
+      const extraDeg = (t === riichiDeclareTile[name]) ? 90 : 0;
+      applyMeldRotation(tileElx, DISCARD_ROTATION[name] + extraDeg);
       const pos = discardGridPosition(name, idx);
       tileElx.style.gridRow = pos.row;
       tileElx.style.gridColumn = pos.col;
@@ -1556,6 +1581,10 @@
   function onDiscardMyTile(idx){
     const discarded = myHandTiles.splice(idx, 1)[0];
     discards.bottom.push(discarded);
+    if(awaitingRiichiDiscard.bottom){
+      riichiDeclareTile.bottom = discarded; // リーチ宣言直後の1枚だけ、河で横向き表示する対象として覚えておく
+      awaitingRiichiDiscard.bottom = false;
+    }
     lastDrawnTile = null;
     renderMyHand(false);
     renderDiscard("bottom");
@@ -1570,9 +1599,10 @@
 
     if(discarderSeat !== "bottom"){
       const ronResult = attemptWin("bottom", tile, false);
-      const pon = canPon(myHandTiles, tile);
-      const kan = canKan(myHandTiles, tile) && rinshanAvailable();
-      const chi = (KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
+      // リーチ後は一切鳴けない（ロンだけは可）。呼び鳴きの選択肢自体を作らないので、プロンプトも出ない
+      const pon = !riichiDeclared.bottom && canPon(myHandTiles, tile);
+      const kan = !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
+      const chi = (!riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
       pendingRon = ronResult ? { discarderSeat, result: ronResult } : null;
       if(ronResult || pon || kan || chi.length > 0){
         pendingCallOptions = { discarderSeat, tile, pon, kan, chiShapes: chi };
@@ -1915,6 +1945,24 @@
     myHandTiles.push(drawn);
     lastDrawnTile = drawn;
     updateWallCount();
+
+    // リーチ確定後（宣言牌を切り終えた後）は自動ツモ切り。ただしツモ和了できる時は止めて選ばせる
+    if(riichiDeclared.bottom && !awaitingRiichiDiscard.bottom){
+      renderMyHand(true); // isRiichiWaitDiscardable()により手牌は全てクリック不可で描画される
+      updateActionButtons(); // ツモ和了できるならここで和了ボタンが有効になる
+      if(attemptWin("bottom", null, true)){
+        setTurnIndicator("あなたの番です（ツモ！）");
+        return;
+      }
+      setTurnIndicator("あなたの番です（リーチ中のため自動でツモ切りします）");
+      // CPUの打牌と同じ間（500〜600ms）を置いてから、引いた牌をそのまま捨てる
+      setTimeout(() => {
+        if(gameEnded) return;
+        onDiscardMyTile(myHandTiles.indexOf(drawn));
+      }, 550);
+      return;
+    }
+
     setTurnIndicator("あなたの番です（牌をタップして捨ててください）");
     renderMyHand(true);
     updateActionButtons();
@@ -1924,6 +1972,7 @@
   // --- 加カン（ポンした牌と同じ牌を自分でツモった時） ---
   // プロンプトを表示できたら true、できなければ false を返す（呼び出し側で暗槓チェックへ続けるかの判定に使う）
   function checkKakanOpportunity(drawnTile){
+    if(riichiDeclared.bottom) return false; // リーチ後は加槓不可
     const meldIdx = melds.bottom.findIndex(m => m.type === "pon" && m.calledTile.suit === drawnTile.suit && m.calledTile.num === drawnTile.num);
     if(meldIdx < 0 || !rinshanAvailable()) return false;
     const el = document.getElementById("callPrompt");
@@ -1938,6 +1987,9 @@
 
   // --- 暗槓（鳴きを介さず、自分の手牌だけで同じ牌が4枚揃った時） ---
   function checkAnkanOpportunity(){
+    // リーチ後は今のところ暗槓を一律禁止にしている。本来は「牌姿(待ち)が変わらない暗槓のみ可」だが、
+    // その判定は別途実装するまでの間、ここだけ書き換えれば例外を入れられるようにしてある
+    if(riichiDeclared.bottom) return false;
     const candidates = findAllAnkanTiles(myHandTiles);
     if(candidates.length === 0 || !rinshanAvailable()) return false;
     const el = document.getElementById("callPrompt");
@@ -2003,8 +2055,14 @@
   // （リーチせずに和了しても供託には触れない。流局してもそのまま場に残る）
   let riichiSticks = 0;
   // 各自が今の局でリーチを宣言しているか。局の開始時に全員falseへリセットする
-  // （リーチ宣言そのものは第2段階で実装し、宣言時にtrueにしてriichiSticksを1増やす）
   let riichiDeclared = { bottom:false, top:false, left:false, right:false };
+  // リーチ宣言後、まだ宣言牌（河で横向きにする1枚）を確定させていない席。宣言直後の次の打牌だけを狙い撃ちするためのワンショットフラグ
+  let awaitingRiichiDiscard = { bottom:false, top:false, left:false, right:false };
+  // リーチ宣言牌そのもの（discards[seat]内の同一オブジェクト参照）。renderDiscardでこの1枚だけ追加で90度回す
+  let riichiDeclareTile = { bottom:null, top:null, left:null, right:null };
+  // リーチ宣言時点で「切っても聴牌を保てる」と確定した牌の種類(suit+num)一覧。
+  // awaitingRiichiDiscard中はこのリストに無い牌をクリックできないようにする
+  let riichiValidDiscards = { bottom:[], top:[], left:[], right:[] };
   const scores = { bottom: 35000, top: 35000, left: 35000, right: 35000 };
   // ネームプレート（方角+名前+点数）は中央情報ボックスの中、各家の方角位置に置かれている
   const scoreElByName = {
@@ -2013,6 +2071,9 @@
     left: document.getElementById("scoreLeft"),
     right: document.getElementById("scoreRight")
   };
+  // リーチ表示用：各家のネームプレート本体（.riichiクラスを付け外しして光らせる）
+  const nameplateElByName = {};
+  Object.keys(scoreElByName).forEach(s => { nameplateElByName[s] = scoreElByName[s].closest(".nameplate"); });
   const DEALER_SEAT = "bottom"; // 今回は東1局のみのため、あなたが常に親
   const ROUND_WIND = 1; // 東場
   const SEAT_WIND = { bottom: 1, right: 2, top: 3, left: 4 }; // 東南西北
@@ -2311,6 +2372,10 @@
     // 暗槓は鳴きを介さないため、それ以外の鳴き（ポン・チー・大明槓・加槓）が無ければ門前扱いのまま
     const closedHand = melds[seat].every(m => m.type === "ankan");
     const allTiles = [pairTile, pairTile, ...allSets.flatMap(s => s.tiles)];
+
+    // リーチ：宣言した本人が和了した時のみ1翻。リーチは門前でしか宣言できないため、門前限定の条件は不要
+    // （ダブルリーチ・一発は未実装）
+    if(riichiDeclared[seat]) yaku.push({ name:"リーチ", han:1 });
 
     if(isTsumo && closedHand) yaku.push({ name:"門前清自摸和", han:1 });
 
@@ -2861,6 +2926,8 @@
       else if(isHyakumangokuChiitoi) yaku = [{ name:"百万石", han:13 }];
       else if(isRenchitoi) yaku = [{ name:"連七対", han:13 }];
       else yaku = [{ name:"七対子", han:2 }];
+      // computeYaku()を経由しない役なので、ここでも同様にリーチをカウントする
+      if(riichiDeclared[seat]) yaku.push({ name:"リーチ", han:1 });
       if(isTsumo) yaku.push({ name:"門前清自摸和", han:1 });
       if(hasAllFiveSuits(concealed)) yaku.push({ name:"五門斉", han:1 });
       if(concealed.every(isToibudaoTile)) yaku.push({ name:"推不倒", han:2 });
@@ -2937,6 +3004,54 @@
   // どれか1つでも和了の形になれば（役なし和了も可の本ルールでは attemptWin が非nullを返せば）テンパイとする
   function isTenpai(seat){
     return ALL_TILE_TYPES.some(t => attemptWin(seat, t, true) !== null);
+  }
+
+  // 門前（鳴きが無い、または暗槓のみ）かどうか。役判定側(closedHand)と同じ考え方
+  function isClosedHand(seat){
+    return melds[seat].every(m => m.type === "ankan");
+  }
+
+  // リーチ可能な場合に「切っても聴牌を保てる牌」の種類(suit+num)一覧を返す。門前でない／
+  // 既にリーチ済みなら空配列。isTenpai(seat)はhands[seat]が13枚である前提の関数なので、
+  // ツモ後の14枚から候補牌を1枚ずつ仮に抜いて13枚に戻し、判定が終わったらすぐ元の位置へ戻す
+  function riichiValidDiscardTypes(seat){
+    if(riichiDeclared[seat]) return [];
+    if(!isClosedHand(seat)) return [];
+    const hand = hands[seat];
+    const seenTypes = new Set(); // 同じ種類(suit+num)の牌を何度も試さないための重複除去（赤ドラかどうかは形に影響しない）
+    const valid = [];
+    for(let i = 0; i < hand.length; i++){
+      const typeKey = hand[i].suit + "_" + hand[i].num;
+      if(seenTypes.has(typeKey)) continue;
+      seenTypes.add(typeKey);
+      const removed = hand.splice(i, 1)[0];
+      const tenpai = isTenpai(seat);
+      hand.splice(i, 0, removed);
+      if(tenpai) valid.push(typeKey);
+    }
+    return valid;
+  }
+
+  // リーチ可能か：門前・聴牌・未リーチの3条件のみ（このアプリのハウスルールでは持ち点・山残りは問わない）
+  function canDeclareRiichi(seat){
+    return riichiValidDiscardTypes(seat).length > 0;
+  }
+
+  // --- 自分のリーチ宣言 ---
+  function declareRiichi(seat){
+    // riichiValidDiscardTypes()はriichiDeclared[seat]がfalseである前提で判定するので、
+    // 必ずriichiDeclaredをtrueにする前に計算する
+    riichiValidDiscards[seat] = riichiValidDiscardTypes(seat); // 聴牌を保てる牌だけに手牌のクリックを絞り込むための一覧
+    riichiDeclared[seat] = true;
+    scores[seat] -= 1000;
+    renderScores();
+    riichiSticks += 1;
+    updateKyotakuDisplay();
+    awaitingRiichiDiscard[seat] = true;
+    nameplateElByName[seat].classList.add("riichi");
+    setTurnIndicator("リーチ！捨てる牌を選んでください");
+    updateActionButtons();
+    renderMyHand(true); // 打牌可能な牌をリーチ宣言直後の一覧に絞り込んで再描画する
   }
 
   function settleTsumo(winnerSeat, base){
@@ -3076,7 +3191,8 @@
   // totalGain: 精算後に和了者の持ち点が実際に何点増えたか（供託の総取り分も含む）。
   // 「持ち点がいきなり変わるだけで分からない」を解消するため、常にこの実数を表示する
   // paymentsBySeat: finalizeWinで供託加算前に控えた、各家の実際の支払額（seat -> 点数）
-  function showResult(seat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat){
+  // collectedKyotaku: この和了で供託から受け取った額（0なら「リーチ供託」の行を出さない）
+  function showResult(seat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat, collectedKyotaku){
     const box = document.getElementById("resultBox");
     box.style.display = "block";
     const title = result.isTsumo ? (seatLabel[seat] + "のツモ") : (seatLabel[seat] + "のロン（" + seatLabel[loserSeat] + "から）");
@@ -3086,7 +3202,7 @@
     // 役名の括弧書き（例:「役牌（三元牌）」の（三元牌）部分）は表示しない
     const stripParen = name => name.replace(/（[^）]*）/g, "");
     // 表示だけの短縮名（役判定側のnameキーは変更しない）
-    const DISPLAY_NAME_ALIAS = { "門前清自摸和": "門前清" };
+    const DISPLAY_NAME_ALIAS = { "門前清自摸和": "門前清", "リーチドラ": "Rドラ" };
     const displayNameOf = name => DISPLAY_NAME_ALIAS[name] || stripParen(name);
 
     const row = (name, hanText, pts, cls) =>
@@ -3125,7 +3241,7 @@
       const pointsPerHan = isDealer ? 3000 : 2000; // 1翻あたりの合計額（子2,000点・親3,000点）
       normalYaku.concat(doraYaku).forEach(y => {
         const isDoraRow = DORA_YAKU_NAMES.has(y.name);
-        const displayName = isDoraRow ? (y.name + "×" + y.han) : displayNameOf(y.name);
+        const displayName = isDoraRow ? (displayNameOf(y.name) + "×" + y.han) : displayNameOf(y.name);
         const hanText = isYakuman ? "役満" : (y.han + "飜");
         const pts = isYakuman ? "" : y.han * pointsPerHan;
         rowsHtml += row(displayName, hanText, pts);
@@ -3133,6 +3249,10 @@
       if(bonusTotal > 0){
         rowsHtml += row("赤×" + result.akaCount + (isTsumo ? "(自摸)" : ""), "", bonusTotal);
       }
+    }
+
+    if(collectedKyotaku > 0){
+      rowsHtml += row("リーチ供託", "", collectedKyotaku);
     }
 
     let totalHtml;
@@ -3177,14 +3297,16 @@
     // 通常役の飜による2:1の比が崩れる。実際の支払額を足し上げれば、親の和了は自然に3人同額になる。
     const paymentsBySeat = {};
     seats.forEach(s => { paymentsBySeat[s] = scoresBefore[s] - scores[s]; });
+    let collectedKyotaku = 0; // この和了で実際に受け取った供託額（表示用。riichiSticksをリセットする前に控えておく）
     if(riichiSticks > 0 && riichiDeclared[winnerSeat]){
+      collectedKyotaku = riichiSticks * 1000;
       scores[winnerSeat] += riichiSticks * 1000;
       riichiSticks = 0;
       updateKyotakuDisplay();
     }
     const totalGain = scores[winnerSeat] - scoresBefore[winnerSeat];
     renderScores();
-    showResult(winnerSeat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat);
+    showResult(winnerSeat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat, collectedKyotaku);
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
@@ -3243,7 +3365,8 @@
     const chiBtn = document.getElementById("chiBtn");
     const ponBtn = document.getElementById("ponBtn");
     const kanBtn = document.getElementById("kanBtn");
-    if(gameEnded || !pendingCallOptions || activeCallSelection){
+    // リーチ後は一切鳴けない（念のための二重ガード。本来pendingCallOptions側で既に選択肢が作られない）
+    if(gameEnded || !pendingCallOptions || activeCallSelection || riichiDeclared.bottom){
       [chiBtn, ponBtn, kanBtn].forEach(b => { b.disabled = true; b.onclick = null; });
       return;
     }
@@ -3256,10 +3379,24 @@
     kanBtn.onclick = kanBtn.disabled ? null : () => startCallSelection("kan");
   }
 
+  // 下段の「リーチ」ボタン：和了ボタンと同じく、今まさに牌を引いた直後（lastDrawnTileがある間）
+  // だけ、リーチ可能条件(canDeclareRiichi)を満たす時に有効化する
+  function updateRiichiButton(){
+    const btn = document.getElementById("riichiBtn");
+    if(gameEnded || !lastDrawnTile || !canDeclareRiichi("bottom")){
+      btn.disabled = true;
+      btn.onclick = null;
+      return;
+    }
+    btn.disabled = false;
+    btn.onclick = () => declareRiichi("bottom");
+  }
+
   function updateActionButtons(){
     updateWinButton();
     updateThroughButton();
     updateCallButtons();
+    updateRiichiButton();
   }
 
 
