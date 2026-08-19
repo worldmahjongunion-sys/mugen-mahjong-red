@@ -308,6 +308,11 @@
     height:88%;
     display:block;
   }
+  .tile img{
+    width:100%;
+    height:100%;
+    display:block;
+  }
   .tile.man{ color:var(--man); }
   .tile.red-five{ box-shadow:0 0 0 1px rgba(194,59,59,0.7), 0 2px 0 rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.8); }
   .tile.pin{ color:var(--pin); }
@@ -1001,14 +1006,25 @@
     return KANJI_NUM[tile.num] + suitCh;
   }
 
+  // suit/num（+赤ドラ）から images/tiles/ 内の画像ファイル名を引く対応表
+  const WIND_IMAGE = { 1:"ji1", 2:"ji2", 3:"ji3", 4:"ji4" };
+  const DRAGON_IMAGE = { 1:"ji6", 2:"ji5", 3:"ji7" }; // 白と發が入れ替わっている点に注意
+  const RED_FIVE_IMAGE = { man:"aka3", pin:"aka1", sou:"aka2" }; // man/pin/souの順ではない
+
+  function tileImageName(suit, num, isRed){
+    if(isRed && (suit === "man" || suit === "pin" || suit === "sou") && num === 5){
+      return RED_FIVE_IMAGE[suit];
+    }
+    if(suit === "wind") return WIND_IMAGE[num];
+    if(suit === "dragon") return DRAGON_IMAGE[num];
+    return suit + num; // man/pin/sou の通常牌
+  }
+
   function tileEl(suit, num, cls, isRed){
     const div = document.createElement("div");
     div.className = "tile " + cls + (isRed ? " red-five" : "");
-    if(suit === "pin") div.innerHTML = pinSVG(num, isRed);
-    else if(suit === "sou") div.innerHTML = souSVG(num, isRed);
-    else if(suit === "man") div.innerHTML = manSVG(num, isRed);
-    else if(suit === "wind") div.innerHTML = windSVG(num);
-    else if(suit === "dragon") div.innerHTML = dragonSVG(num);
+    const imgName = tileImageName(suit, num, isRed);
+    div.innerHTML = `<img src="images/tiles/${imgName}.png">`;
     return div;
   }
 
@@ -1335,7 +1351,7 @@
   const KAN_STACK_SIDE = { bottom:"bottom", top:"top", left:"left", right:"right" };
 
   // 90度・270度回転の牌は、外側の箱を見た目通りの寸法(Tier A: main-h×main-w)にして、
-  // 中のSVGだけを回転させる（箱と見た目がズレて余分な隙間ができるのを防ぐ）。
+  // 中のimgだけを回転させる（箱と見た目がズレて余分な隙間ができるのを防ぐ）。
   // scaleVarを渡すと、その名前のCSS変数（例:--meld-scale-top）ぶんだけ縮小した実寸にする
   // （鳴き面子の行(top/bottom)が卓幅を超える時にfitMeldRowScale()が使う）
   function applyMeldRotation(tileDiv, deg, scaleVar){
@@ -1344,18 +1360,18 @@
     const scale = scaleVar ? "var(" + scaleVar + ")" : "1";
     tileDiv.style.width = "calc(" + (swapped ? "var(--tile-h)" : "var(--tile-w)") + " * " + scale + ")";
     tileDiv.style.height = "calc(" + (swapped ? "var(--tile-w)" : "var(--tile-h)") + " * " + scale + ")";
-    const svg = tileDiv.querySelector("svg");
-    if(svg){
-      svg.style.position = "absolute";
-      svg.style.left = "50%";
-      svg.style.top = "50%";
+    const img = tileDiv.querySelector("img");
+    if(img){
+      img.style.position = "absolute";
+      img.style.left = "50%";
+      img.style.top = "50%";
       // 幅・高さは常に非回転基準(--tile-w×--tile-h)で固定し、向きはtransform:rotate()だけで
-      // 与える。外側の箱(width/height)は90/270度でswapされるが、SVG自身のサイズをそれに
-      // 追従させると（%指定だと親のswap後の寸法を基準にしてしまい）viewBoxとの縦横比が
-      // ズレて「meet」が縮む基準辺を変えてしまい、絵のサイズが縦横で不揃いになるので注意。
-      svg.style.width = "calc(var(--tile-w) * 0.88 * " + scale + ")";
-      svg.style.height = "calc(var(--tile-h) * 0.88 * " + scale + ")";
-      svg.style.transform = "translate(-50%, -50%) rotate(" + deg + "deg)";
+      // 与える。外側の箱(width/height)は90/270度でswapされるが、img自身のサイズをそれに
+      // 追従させると（%指定だと親のswap後の寸法を基準にしてしまい）元画像との縦横比が
+      // ズレてしまうので注意。
+      img.style.width = "calc(var(--tile-w) * " + scale + ")";
+      img.style.height = "calc(var(--tile-h) * " + scale + ")";
+      img.style.transform = "translate(-50%, -50%) rotate(" + deg + "deg)";
     }
   }
 
