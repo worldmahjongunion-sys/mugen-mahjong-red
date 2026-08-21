@@ -633,6 +633,12 @@
     min-width:6ch; /* 役満の5〜6桁の点数でも収まる幅を確保 */
     font-variant-numeric:tabular-nums;
   }
+  /* リーチドラ「Rドラ」・赤牌ボーナスの「赤」部分だけ、左上のリーチドラ表示と同じ色・太さにする
+     （「×1」「(自摸)」までは赤くしない。col-name全体ではなく中のspanだけを対象にする） */
+  .result-box .result-row .col-name .bonus-red-text{
+    color:var(--honor-red);
+    font-weight:bold;
+  }
   .result-box .result-row.total-row{
     font-size:15px;
     font-weight:bold;
@@ -1813,6 +1819,7 @@
       renderMyHand(true);
       setTurnIndicator((type === "pon" ? "ポン" : "カン") + "しました。捨てる牌をタップしてください");
       updateActionButtons();
+      if(type === "kan") checkAnkanOpportunity(); // 大明槓の嶺上牌で新たに暗槓が成立する場合を拾う
     } else {
       renderCpuHandBacks(callerSeat);
       setTurnIndicator(seatLabel[callerSeat] + "が" + (type === "pon" ? "ポン" : "カン") + "しました");
@@ -2024,6 +2031,7 @@
     renderMyHand(true);
     setTurnIndicator("暗槓しました。捨てる牌をタップしてください");
     updateActionButtons();
+    checkAnkanOpportunity(); // 続けて引いた嶺上牌で新たに暗槓が成立する場合を拾う
     fitTileSize();
   }
 
@@ -2044,6 +2052,7 @@
     renderMyHand(true);
     setTurnIndicator("加カンしました。捨てる牌をタップしてください");
     updateActionButtons();
+    checkAnkanOpportunity(); // 続けて引いた嶺上牌で新たに暗槓が成立する場合を拾う
     fitTileSize();
   }
 
@@ -3224,7 +3233,7 @@
       }
       if(result.akaCount > 0){
         const payers = isTsumo ? 3 : 1; // settleYakunashiは赤1枚につき支払う側1人あたり1,000点
-        rowsHtml += row("赤×" + result.akaCount + (isTsumo ? "(自摸)" : ""), "", result.akaCount * 1000 * payers);
+        rowsHtml += row("<span class=\"bonus-red-text\">赤</span>×" + result.akaCount + (isTsumo ? "(自摸)" : ""), "", result.akaCount * 1000 * payers);
       }
     } else {
       // ドラ・リーチドラはハウスルール上、他の役と違って「翻を稼ぐための役」ではなく
@@ -3241,13 +3250,15 @@
       const pointsPerHan = isDealer ? 3000 : 2000; // 1翻あたりの合計額（子2,000点・親3,000点）
       normalYaku.concat(doraYaku).forEach(y => {
         const isDoraRow = DORA_YAKU_NAMES.has(y.name);
-        const displayName = isDoraRow ? (displayNameOf(y.name) + "×" + y.han) : displayNameOf(y.name);
+        // リーチドラの「Rドラ」部分だけ赤くする。通常のドラ・他の役名は素のまま
+        const namePart = y.name === "リーチドラ" ? `<span class="bonus-red-text">${displayNameOf(y.name)}</span>` : displayNameOf(y.name);
+        const displayName = isDoraRow ? (namePart + "×" + y.han) : namePart;
         const hanText = isYakuman ? "役満" : (y.han + "飜");
         const pts = isYakuman ? "" : y.han * pointsPerHan;
         rowsHtml += row(displayName, hanText, pts);
       });
       if(bonusTotal > 0){
-        rowsHtml += row("赤×" + result.akaCount + (isTsumo ? "(自摸)" : ""), "", bonusTotal);
+        rowsHtml += row("<span class=\"bonus-red-text\">赤</span>×" + result.akaCount + (isTsumo ? "(自摸)" : ""), "", bonusTotal);
       }
     }
 
