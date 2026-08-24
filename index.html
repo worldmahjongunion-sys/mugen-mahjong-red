@@ -2015,10 +2015,11 @@
 
   // --- 暗槓（鳴きを介さず、自分の手牌だけで同じ牌が4枚揃った時） ---
   function checkAnkanOpportunity(){
-    // リーチ後は今のところ暗槓を一律禁止にしている。本来は「牌姿(待ち)が変わらない暗槓のみ可」だが、
-    // その判定は別途実装するまでの間、ここだけ書き換えれば例外を入れられるようにしてある
-    if(riichiDeclared.bottom) return false;
-    const candidates = findAllAnkanTiles(myHandTiles);
+    // リーチ後は「牌姿（面子の解釈）が変わらない暗槓のみ」に絞る（canAnkanAfterRiichi参照）。
+    // リーチしていない時は従来通り、4枚揃っている種類を無条件に候補にする
+    const candidates = riichiDeclared.bottom
+      ? findAllAnkanTiles(myHandTiles).filter(canAnkanAfterRiichi)
+      : findAllAnkanTiles(myHandTiles);
     if(candidates.length === 0 || !rinshanAvailable()) return false;
     const el = document.getElementById("callPrompt");
     el.innerHTML = "";
@@ -2203,6 +2204,100 @@
       }
     }
     return null;
+  }
+
+  // 面子の分解を1通りに絞らず、あり得るすべての組み合わせを列挙する版。
+  // リーチ後の暗槓制限（対象牌がどの分解でも独立した暗刻として使われているか）の判定専用に使う。
+  // 既存のdecomposeMeldsは最初に成立した1通りで打ち切るため流用できず、
+  // ここでは毎回countsを複製して両方の枝（刻子/順子）を打ち切らずに探索する
+  function decompositionSignature(pairKey, sets){
+    const setSigs = sets.map(s => s.type + ":" + s.tiles.map(tileKey).sort().join(",")).sort();
+    return pairKey + "#" + setSigs.join("|");
+  }
+  function decomposeMeldsAll(counts, sets, results, pairKey, seen){
+    const sortedKeys = Object.keys(counts).sort((a, b) => {
+      const ta = keyToTile(a), tb = keyToTile(b);
+      if(ta.suit !== tb.suit) return ta.suit < tb.suit ? -1 : 1;
+      return ta.num - tb.num;
+    });
+    let key = null;
+    for(const k of sortedKeys){ if(counts[k] > 0){ key = k; break; } }
+    if(!key){
+      const sig = decompositionSignature(pairKey, sets);
+      if(!seen.has(sig)){
+        seen.add(sig);
+        results.push({ pairKey, sets: sets.slice() });
+      }
+      return;
+    }
+    const t = keyToTile(key);
+
+    if(counts[key] >= 3){
+      const next = Object.assign({}, counts);
+      next[key] -= 3;
+      decomposeMeldsAll(next, [...sets, { type:"triplet", tiles:[t, t, t], open:false }], results, pairKey, seen);
+    }
+    if((t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num <= 7){
+      const k2 = t.suit + "_" + (t.num + 1), k3 = t.suit + "_" + (t.num + 2);
+      if((counts[k2] || 0) > 0 && (counts[k3] || 0) > 0){
+        const next = Object.assign({}, counts);
+        next[key] -= 1; next[k2] -= 1; next[k3] -= 1;
+        decomposeMeldsAll(next, [...sets, { type:"sequence", tiles:[t, keyToTile(k2), keyToTile(k3)], open:false }], results, pairKey, seen);
+      }
+    }
+  }
+  // 標準形（4面子+雀頭）のあり得る分解をすべて返す（[{pairKey, sets}, ...]）。重複は除く
+  function findAllDecompositions(concealedTiles){
+    if(concealedTiles.length % 3 !== 2) return [];
+    const baseCounts = countTiles(concealedTiles);
+    const results = [];
+    const seen = new Set();
+    for(const k in baseCounts){
+      if(baseCounts[k] >= 2){
+        const counts = Object.assign({}, baseCounts);
+        counts[k] -= 2;
+        decomposeMeldsAll(counts, [], results, k, seen);
+      }
+    }
+    return results;
+  }
+
+  // リーチ後の暗槓が許されるか：対象牌tileが手に4枚ある前提で、1枚除いた13枚に
+  // 待ち牌それぞれを加えた和了形すべてを調べ、どの分解でもtileの3枚が独立した暗刻
+  // （他の面子や雀頭に使われない）として現れる場合だけtrueにする。
+  // リーチ後は必ず門前（鳴きは無いか暗槓のみ）なので、鳴き面子は考慮しない
+  function canAnkanAfterRiichi(tile){
+    const idx = myHandTiles.findIndex(t => t.suit === tile.suit && t.num === tile.num);
+    if(idx < 0) return false; // 手牌に無い（呼び出し側の前提が崩れている異常系）
+    const removed = myHandTiles.splice(idx, 1)[0]; // 1枚だけ除いて13枚にする（riichiValidDiscardTypesと同じやり方）
+
+    const waits = getWaits("bottom"); // 13枚に対する待ち（getWaitsはhands[seat]＝myHandTilesを直接見る）
+
+    let ok;
+    if(waits.length === 0){
+      ok = false; // 待ちが存在しない場合はfalse（異常系）
+    } else {
+      const tKey = tileKey(tile);
+      ok = waits.every(w => {
+        const hand14 = [...myHandTiles, w]; // 13枚＋待ち牌＝14枚の和了形
+        const decomps = findAllDecompositions(hand14);
+        // 標準形（4面子+雀頭）の分解が1つも無い場合はfalse。実在するケース：本ルールは
+        // 七対子の「同じ牌4枚を2対子として使う」を認めているため、tileが4枚とも
+        // 対子×2として七対子を構成し、標準形には一切分解できない手がありうる
+        // （例：5m×4 + 1p1p+3p3p+5p5p+7p7p+9p9p）。この場合tileは独立した暗刻ではなく
+        // 2組の対子として使われており、暗槓すると七対子の牌姿が崩れるため禁止が正しい
+        if(decomps.length === 0) return false;
+        return decomps.every(d => {
+          if(d.pairKey === tKey) return false; // 雀頭に使われている＝独立した暗刻ではない
+          const tripletCount = d.sets.filter(s => s.type === "triplet" && tileKey(s.tiles[0]) === tKey).length;
+          const usedElsewhere = d.sets.some(s => s.type !== "triplet" && s.tiles.some(x => tileKey(x) === tKey));
+          return tripletCount === 1 && !usedElsewhere;
+        });
+      });
+    }
+
+    myHandTiles.splice(idx, 0, removed); // 必ず元の14枚に戻す
+    return ok;
   }
 
   function meldsToSets(seat){
