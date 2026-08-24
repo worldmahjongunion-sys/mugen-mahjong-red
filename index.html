@@ -1597,6 +1597,7 @@
     if(awaitingRiichiDiscard.bottom){
       riichiDeclareTile.bottom = discarded; // リーチ宣言直後の1枚だけ、河で横向き表示する対象として覚えておく
       awaitingRiichiDiscard.bottom = false;
+      ippatsuActive = true; // 一発権発生：宣言牌を切った瞬間から、鳴きが入るか自分の次の打牌までが有効期間
     }
     lastDrawnTile = null;
     renderMyHand(false);
@@ -1809,6 +1810,7 @@
   // --- ポン・カンの実行（プレイヤー／CPU共通） ---
   // chosenTiles: プレイヤーが牌の画像で選んだ実際の手牌（省略時はCPU用に自動選択する）
   function executeCall(callerSeat, discarderSeat, tile, type, chosenTiles){
+    ippatsuActive = false; // ポン・大明槓（鳴き）が成立した時点で一発は消える
     discards[discarderSeat].pop();
     renderDiscard(discarderSeat);
 
@@ -1852,6 +1854,7 @@
   // --- チーの実行(プレイヤーのみ) ---
   // comboTiles: プレイヤーが牌の画像で選んだ実際の手牌2枚（[小さい方, 大きい方]）
   function executeChi(comboTiles, tile){
+    ippatsuActive = false; // チーが成立した時点で一発は消える
     discards.left.pop();
     renderDiscard("left");
     const handTiles = [];
@@ -1934,6 +1937,7 @@
   }
 
   function executeCpuAnkan(seat, tile){
+    ippatsuActive = false; // 誰の暗槓であっても鳴きなので一発は消える
     const hand = hands[seat];
     const removed = [];
     for(let i = hand.length - 1; i >= 0 && removed.length < 4; i--){
@@ -1986,6 +1990,9 @@
       // CPUの打牌と同じ間（500〜600ms）を置いてから、引いた牌をそのまま捨てる
       setTimeout(() => {
         if(gameEnded) return;
+        // 折る②：ツモ和了できなかった＝この一巡での一発の権利は使い切ったので、
+        // 打牌の結果を待たずこの打牌をもって先に失効させる（ツモ和了した場合はここに来ない）
+        ippatsuActive = false;
         onDiscardMyTile(myHandTiles.indexOf(drawn));
       }, 550);
       return;
@@ -2035,6 +2042,7 @@
   }
 
   function executeAnkan(tile){
+    ippatsuActive = false; // 自分自身の暗槓でも鳴きなので一発は消える（リーチ後の暗槓も対象）
     const removed = [];
     for(let i = myHandTiles.length - 1; i >= 0 && removed.length < 4; i--){
       if(myHandTiles[i].suit === tile.suit && myHandTiles[i].num === tile.num){
@@ -2058,6 +2066,7 @@
   }
 
   function executeKakan(meldIdx, drawnTile){
+    ippatsuActive = false; // 既存meldの書き換えとはいえ加槓も鳴きなので一発は消える
     const meld = melds.bottom[meldIdx];
     const idx = myHandTiles.indexOf(drawnTile);
     if(idx >= 0) myHandTiles.splice(idx, 1);
@@ -2094,6 +2103,9 @@
   // リーチ宣言時点で「切っても聴牌を保てる」と確定した牌の種類(suit+num)一覧。
   // awaitingRiichiDiscard中はこのリストに無い牌をクリックできないようにする
   let riichiValidDiscards = { bottom:[], top:[], left:[], right:[] };
+  // 一発権（自分＝bottom専用。CPUはリーチしないためbottom以外は使わない）。
+  // リーチ宣言牌を切った時にtrueにし、鳴きが入るか自分の次の打牌が終わったらfalseに戻す
+  let ippatsuActive = false;
   const scores = { bottom: 35000, top: 35000, left: 35000, right: 35000 };
   // ネームプレート（方角+名前+点数）は中央情報ボックスの中、各家の方角位置に置かれている
   const scoreElByName = {
@@ -2499,8 +2511,11 @@
     const allTiles = [pairTile, pairTile, ...allSets.flatMap(s => s.tiles)];
 
     // リーチ：宣言した本人が和了した時のみ1翻。リーチは門前でしか宣言できないため、門前限定の条件は不要
-    // （ダブルリーチ・一発は未実装）
+    // （ダブルリーチは未実装）
     if(riichiDeclared[seat]) yaku.push({ name:"リーチ", han:1 });
+    // 一発：CPUはリーチしないため自分（bottom）専用。ippatsuActiveは
+    // リーチ宣言牌を切った時にtrue、鳴きが入るか自分の次の打牌が終わるとfalseになる
+    if(riichiDeclared[seat] && seat === "bottom" && ippatsuActive) yaku.push({ name:"一発", han:1 });
 
     if(isTsumo && closedHand) yaku.push({ name:"門前清自摸和", han:1 });
 
@@ -3051,8 +3066,9 @@
       else if(isHyakumangokuChiitoi) yaku = [{ name:"百万石", han:13 }];
       else if(isRenchitoi) yaku = [{ name:"連七対", han:13 }];
       else yaku = [{ name:"七対子", han:2 }];
-      // computeYaku()を経由しない役なので、ここでも同様にリーチをカウントする
+      // computeYaku()を経由しない役なので、ここでも同様にリーチ・一発をカウントする
       if(riichiDeclared[seat]) yaku.push({ name:"リーチ", han:1 });
+      if(riichiDeclared[seat] && seat === "bottom" && ippatsuActive) yaku.push({ name:"一発", han:1 });
       if(isTsumo) yaku.push({ name:"門前清自摸和", han:1 });
       if(hasAllFiveSuits(concealed)) yaku.push({ name:"五門斉", han:1 });
       if(concealed.every(isToibudaoTile)) yaku.push({ name:"推不倒", han:2 });
