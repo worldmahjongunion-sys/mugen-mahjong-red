@@ -1135,6 +1135,12 @@
   let activeCallSelection = null; // { type, discarderSeat, tile, shapes, selected:[] } | null
   const hands = { bottom: myHandTiles, top: cpuTopTiles, left: cpuLeftTiles, right: cpuRightTiles };
   const discards = { top: [], left: [], right: [], bottom: [] };
+  // フリテン判定専用：discardsと違い鳴かれても消さない、捨て牌の「種類キー」（tileKey）だけの履歴
+  const discardHistory = { top: [], left: [], right: [], bottom: [] };
+  // 同巡内フリテン（見逃した巡の間だけ）／リーチ後の見逃しによる永続フリテン。
+  // 局を繰り返す機能が無いため、宣言時の初期値がそのまま「局初期化」を兼ねる
+  let furitenTemp = { top:false, left:false, right:false, bottom:false };
+  let furitenRiichi = { top:false, left:false, right:false, bottom:false };
   const melds = { top: [], left: [], right: [], bottom: [] };
 
   const discardElByName = {
@@ -1587,6 +1593,7 @@
   function onDiscardMyTile(idx){
     const discarded = myHandTiles.splice(idx, 1)[0];
     discards.bottom.push(discarded);
+    discardHistory.bottom.push(tileKey(discarded));
     if(awaitingRiichiDiscard.bottom){
       riichiDeclareTile.bottom = discarded; // リーチ宣言直後の1枚だけ、河で横向き表示する対象として覚えておく
       awaitingRiichiDiscard.bottom = false;
@@ -1604,7 +1611,7 @@
     if(gameEnded) return;
 
     if(discarderSeat !== "bottom"){
-      const ronResult = attemptWin("bottom", tile, false);
+      const ronResult = canRon("bottom", tile);
       // リーチ後は一切鳴けない（ロンだけは可）。呼び鳴きの選択肢自体を作らないので、プロンプトも出ない
       const pon = !riichiDeclared.bottom && canPon(myHandTiles, tile);
       const kan = !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
@@ -1622,7 +1629,7 @@
     // CPUのロン判定（可能なら必ずロンする簡易AI）
     const ronCandidates = ["top", "left", "right"].filter(s => s !== discarderSeat);
     for(const s of ronCandidates){
-      const result = attemptWin(s, tile, false);
+      const result = canRon(s, tile);
       if(result){
         discards[discarderSeat].pop();
         renderDiscard(discarderSeat);
@@ -1715,9 +1722,14 @@
     const combos = callComboOptions(type, opts.tile, opts.chiShapes);
     if(combos.length <= 1){
       const chosen = combos[0] || defaultChosenTiles(myHandTiles, opts.tile, type === "kan" ? 3 : 2);
+      const hadRon = !!pendingRon; // ロン可能だった場面でポン/チー/カンを選んだ＝フリテン。クリア前に確保する
       pendingCallOptions = null;
       pendingCallContext = null;
       pendingRon = null;
+      if(hadRon){
+        furitenTemp.bottom = true;
+        if(riichiDeclared.bottom) furitenRiichi.bottom = true;
+      }
       if(type === "chi") executeChi(chosen, opts.tile);
       else executeCall("bottom", opts.discarderSeat, opts.tile, type, chosen);
       return;
@@ -1759,10 +1771,15 @@
   function confirmCallSelection(){
     const sel = activeCallSelection;
     if(!sel) return;
+    const hadRon = !!pendingRon; // ロン可能だった場面でポン/チー/カンを選んだ＝フリテン。クリア前に確保する
     activeCallSelection = null;
     pendingCallOptions = null;
     pendingCallContext = null;
     pendingRon = null;
+    if(hadRon){
+      furitenTemp.bottom = true;
+      if(riichiDeclared.bottom) furitenRiichi.bottom = true;
+    }
     if(sel.type === "chi") executeChi(sel.selected, sel.tile);
     else executeCall("bottom", sel.discarderSeat, sel.tile, sel.type, sel.selected);
   }
@@ -1856,6 +1873,7 @@
     const idx = Math.floor(Math.random() * hand.length);
     const discarded = hand.splice(idx, 1)[0];
     discards[seat].push(discarded);
+    discardHistory[seat].push(tileKey(discarded));
     lastDrawnCpu[seat] = null;
     renderCpuHandBacks(seat);
     renderDiscard(seat);
@@ -1879,6 +1897,7 @@
       handleRyuukyoku();
       return;
     }
+    furitenTemp[seat] = false; // 同巡内フリテンは自分の次のツモで解除（リーチ後の永続フリテンは触らない）
     setTurnIndicator(seatLabel[seat] + "の番です");
     const drawn = wall.shift();
     hands[seat].push(drawn);
@@ -1907,6 +1926,7 @@
     const idx = Math.floor(Math.random() * hands[seat].length);
     const discarded = hands[seat].splice(idx, 1)[0];
     discards[seat].push(discarded);
+    discardHistory[seat].push(tileKey(discarded));
     lastDrawnCpu[seat] = null;
     renderCpuHandBacks(seat);
     renderDiscard(seat);
@@ -1948,6 +1968,7 @@
       handleRyuukyoku();
       return;
     }
+    furitenTemp.bottom = false; // 同巡内フリテンは自分の次のツモで解除（リーチ後の永続フリテンは触らない）
     const drawn = wall.shift();
     myHandTiles.push(drawn);
     lastDrawnTile = drawn;
@@ -3009,10 +3030,29 @@
     return candidates.reduce((best, r) => (r.han > best.han ? r : best));
   }
 
-  // テンパイ判定（役の有無は問わない、形式テンパイ）：34種類の牌を1枚ずつ仮に加えてみて、
-  // どれか1つでも和了の形になれば（役なし和了も可の本ルールでは attemptWin が非nullを返せば）テンパイとする
+  // 待ち一覧：34種類の牌を1枚ずつ仮に加えてみて、和了の形になる（役なし和了も可の本ルールでは
+  // attemptWin が非nullを返す）牌の種類だけを集めて返す（{suit,num}の配列）
+  function getWaits(seat){
+    return ALL_TILE_TYPES.filter(t => attemptWin(seat, t, true) !== null);
+  }
+
+  // テンパイ判定（役の有無は問わない、形式テンパイ）：待ちが1種類でもあればテンパイ
   function isTenpai(seat){
-    return ALL_TILE_TYPES.some(t => attemptWin(seat, t, true) !== null);
+    return getWaits(seat).length > 0;
+  }
+
+  // フリテン判定：今の待ちのどれか1つでも、過去に自分で捨てていれば（鳴かれて消えていても）フリテン。
+  // 同巡内フリテン・リーチ後の永続フリテンも合わせて見る
+  function isFuriten(seat){
+    if(furitenRiichi[seat] || furitenTemp[seat]) return true;
+    const waitKeys = getWaits(seat).map(tileKey); // discardHistoryは文字列キーなので同じ形式に揃える
+    return waitKeys.some(k => discardHistory[seat].includes(k));
+  }
+
+  // ロン判定はここを必ず通す：フリテン中は和了の形になっていてもロンできない
+  function canRon(seat, tile){
+    if(isFuriten(seat)) return false;
+    return attemptWin(seat, tile, false);
   }
 
   // 門前（鳴きが無い、または暗槓のみ）かどうか。役判定側(closedHand)と同じ考え方
@@ -3365,8 +3405,16 @@
       return;
     }
     const ctx = pendingCallContext; // hideCallPrompt()がクリアする前にクロージャで確保しておく
+    const hadRon = !!pendingRon; // ロン可能だった場面でスルーした＝フリテン。同じくクリア前に確保する
     btn.disabled = false;
-    btn.onclick = () => { hideCallPrompt(); advanceTurnAfterDiscard(ctx.discarderSeat); };
+    btn.onclick = () => {
+      hideCallPrompt();
+      if(hadRon){
+        furitenTemp.bottom = true;
+        if(riichiDeclared.bottom) furitenRiichi.bottom = true;
+      }
+      advanceTurnAfterDiscard(ctx.discarderSeat);
+    };
   }
 
   // 下段のチー/ポン/カンボタン：鳴ける選択肢がある時だけ有効にする。
