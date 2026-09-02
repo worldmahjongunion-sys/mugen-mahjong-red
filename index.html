@@ -90,7 +90,8 @@
     justify-self:center;
     align-self:center;
   }
-  /* 中央BOXに置く起家マーク（ネームプレートの中に入る） */
+  /* 中央BOXに置く起家マーク（ネームプレートの中に入る）。
+     表東場(東1〜4局)は赤、親が一巡して裏東場(東5〜8局)に入ったら緑にする */
   .dealer-mark{
     background:var(--honor-red);
     color:#fff;
@@ -98,6 +99,9 @@
     font-size:13px;
     padding:0 4px;
     line-height:1.4;
+  }
+  .dealer-mark.second-lap{
+    background:var(--honor-green);
   }
   .center-mid{
     display:flex;
@@ -580,7 +584,19 @@
     filter:grayscale(70%);
   }
 
-  /* .boardの右上（空きスペース）に固定表示する。.boardがposition:relativeなのでこれが基準になる */
+  /* .boardの右上（空きスペース）に、和了/流局結果と最終順位画面を縦に並べて固定表示する。
+     .boardがposition:relativeなのでこれが基準になる。実際の絶対配置は.result-stack側が持ち、
+     #resultBoxと#finalOverlayはその中でflex-directionColumnに並ぶだけ（高さが違っても重ならない） */
+  .result-stack{
+    position:absolute;
+    top:clamp(4px, 1dvh, 10px);
+    right:clamp(4px, 1dvw, 10px);
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+    gap:6px;
+    z-index:200;
+  }
   .result-box{
     background:rgba(5,20,12,0.97);
     border:1px solid var(--gold);
@@ -590,13 +606,9 @@
     /* 卓の牌サイズ(--tile-h)に連動して縮小し、狭い画面で卓の隅（鳴き牌等）と重ならないようにする */
     font-size:clamp(9px, calc(var(--tile-h) * 0.4), 15px);
     line-height:1.7;
-    position:absolute;
-    top:clamp(4px, 1dvh, 10px);
-    right:clamp(4px, 1dvw, 10px);
     /* 役名列・合計行の折り返しを防ぐため150pxでは足りなかった。役満の5〜6桁の点数や
        「8000・16000」のような分割表記でも収まる幅に拡げつつ、狭い画面ではvwで縮める */
     max-width:min(260px, 68vw);
-    z-index:80;
   }
   .result-box .result-title{
     font-size:17px;
@@ -661,15 +673,10 @@
     cursor:pointer;
   }
 
-  /* 半荘終了時の最終順位画面。卓全体を覆う全画面オーバーレイ */
+  /* 半荘終了時の最終順位画面。以前は卓全体を暗転させる全画面オーバーレイだったが、
+     卓全体を暗くしないでほしいとの要望で撤廃。今は.result-stack内で#resultBoxの
+     すぐ下に並ぶだけの単純な入れ物（表示切替は従来通りJS側のstyle.display） */
   .final-overlay{
-    position:fixed;
-    inset:0;
-    background:rgba(0,0,0,0.75);
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    z-index:200;
   }
   .final-standings{
     background:rgba(5,20,12,0.98);
@@ -768,6 +775,11 @@
 </style>
 </head>
 <body>
+
+<!-- ズンダモン音声(VOICEVOX)の通信状況を画面上に小さく表示するデバッグ表示。
+     DevToolsを開かなくても状態が分かるようにするための常設パネル。
+     普段は「待機中」の薄い表示のみ、エラー時は赤字でメッセージを表示する。 -->
+<div id="voicevoxDebug" style="position:fixed; left:4px; bottom:4px; z-index:9999; font-size:11px; line-height:1.4; padding:3px 6px; border-radius:4px; background:rgba(0,0,0,0.55); color:#ccc; font-family:monospace; max-width:60vw; pointer-events:none;">ずんだもん音声: 待機中</div>
 
 <div class="board">
 
@@ -890,14 +902,17 @@
 
   <!-- 結果・鳴きプロンプト＋常時表示の操作ボタン行 -->
   <div class="status-area">
-    <div class="result-box" id="resultBox" style="display:none;"></div>
+    <!-- 和了/流局結果と最終順位画面を縦に並べる入れ物。対局終了時も卓は暗転させず、
+         #resultBoxのすぐ下に#finalStandingsが並ぶ（捨て牌を隠さないようにするための変更） -->
+    <div class="result-stack">
+      <div class="result-box" id="resultBox" style="display:none;"></div>
+      <div class="final-overlay" id="finalOverlay" style="display:none;">
+        <div class="final-standings" id="finalStandings"></div>
+      </div>
+    </div>
     <div class="call-prompt" id="callPrompt" style="display:none;"></div>
   </div>
 
-  <!-- 半荘終了時の最終順位画面。全画面オーバーレイで、対局終了までは非表示 -->
-  <div class="final-overlay" id="finalOverlay" style="display:none;">
-    <div class="final-standings" id="finalStandings"></div>
-  </div>
   <div class="button-row" id="buttonRow">
     <button class="row-btn" disabled>理牌</button>
     <button class="row-btn" disabled>理牌無し</button>
@@ -1200,6 +1215,12 @@
   let DEALER_SEAT = savedMatchState ? savedMatchState.dealerSeat : "bottom"; // 親（局ごとにNEXT_SEATで交代しうる）
   // 起家（＝東1局の親）は半荘を通じて固定。DEALER_SEATと違い連荘・親交代でも一切動かない
   const STARTING_DEALER_SEAT = savedMatchState ? savedMatchState.startingDealerSeat : DEALER_SEAT;
+  // 半荘開始時刻（対局終了時のアナウンス「◯局◯分◯秒で終了なのだ」用）。
+  // location.reload()で局をまたいでも最初の1局の開始時刻を引き継ぐ
+  const matchStartTime = (savedMatchState && savedMatchState.matchStartTime) ? savedMatchState.matchStartTime : Date.now();
+  // ここまでに打った延べ局数（本場を含む。連荘で同じ局数に留まってもカウントは進む）。
+  // ページ読み込み1回＝1局なので、読み込み時点でこの値をインクリメントして確定させる
+  const handsPlayedCount = (savedMatchState && savedMatchState.handsPlayedCount ? savedMatchState.handsPlayedCount : 0) + 1;
 
   // --- 牌山を作ってシャッフル ---
   const wall = buildWall();
@@ -1237,6 +1258,10 @@
   let pendingCallOptions = null; // { discarderSeat, tile, pon, kan, chiShapes } | null
   // チー/ポン/カンボタンを押した後、実際に使う手牌を自分でクリックして選んでいる間の状態
   let activeCallSelection = null; // { type, discarderSeat, tile, shapes, selected:[] } | null
+  // 自分のツモに対する加槓・暗槓の候補（ポップアップは出さず、下段のカン/スルーボタンで扱う）
+  let pendingSelfKan = null; // { candidates: [{kind:"kakan"|"ankan", tile, meldIdx?}] } | null
+  // pendingSelfKanの候補が2つ以上あり、カンボタンを押した後、手牌クリックでどちらか選んでいる最中かどうか
+  let selfKanSelecting = false;
   const hands = { bottom: myHandTiles, top: cpuTopTiles, left: cpuLeftTiles, right: cpuRightTiles };
   const discards = { top: [], left: [], right: [], bottom: [] };
   // フリテン判定専用：discardsと違い鳴かれても消さない、捨て牌の「種類キー」（tileKey）だけの履歴
@@ -1381,6 +1406,10 @@
           el.classList.add("callable");
           el.addEventListener("click", () => onSelectCallTile(t));
         }
+      } else if(selfKanSelecting && isSelfKanSelectable(t)){
+        // 自摸カン（暗槓・加槓）の候補が2種類以上あり、カンボタンでどちらか選んでいる最中
+        el.classList.add("callable");
+        el.addEventListener("click", () => onSelectSelfKanTile(t));
       } else if(clickable && isRiichiWaitDiscardable(t)){
         el.classList.add("clickable");
         el.addEventListener("click", () => onDiscardMyTile(myHandTiles.indexOf(t)));
@@ -1394,7 +1423,10 @@
     if(lastDrawnTile){
       const el = tileEl(lastDrawnTile.suit, lastDrawnTile.num, tileClass(lastDrawnTile.suit, lastDrawnTile.num), lastDrawnTile.red);
       el.classList.add("drawn");
-      if(clickable && isRiichiWaitDiscardable(lastDrawnTile)){
+      if(selfKanSelecting && isSelfKanSelectable(lastDrawnTile)){
+        el.classList.add("callable");
+        el.addEventListener("click", () => onSelectSelfKanTile(lastDrawnTile));
+      } else if(clickable && isRiichiWaitDiscardable(lastDrawnTile)){
         el.classList.add("clickable");
         el.addEventListener("click", () => onDiscardMyTile(myHandTiles.indexOf(lastDrawnTile)));
       } else if(clickable){
@@ -1800,14 +1832,6 @@
     return null;
   }
 
-  function makeCallButton(label, onClick){
-    const b = document.createElement("button");
-    b.className = "action-btn";
-    b.textContent = label;
-    b.addEventListener("click", onClick);
-    return b;
-  }
-
   // 同じ牌でも赤5とノーマルは結果が変わるため、「代表牌」として区別して1つずつ残す
   // （ノーマルが複数あっても選ぶ結果は同じなので1枚に畳んでよい）
   function dedupeByRed(tiles){
@@ -1976,10 +2000,15 @@
 
     if(callerSeat === "bottom"){
       if(type !== "kan") lastDrawnTile = null;
+      if(type === "kan"){
+        updateSelfKanOpportunity(lastDrawnTile); // 大明槓の嶺上牌で新たに暗槓・加槓が成立する場合を拾う
+      } else {
+        pendingSelfKan = null;
+        selfKanSelecting = false;
+      }
       renderMyHand(true);
       setTurnIndicator((type === "pon" ? "ポン" : "カン") + "しました。捨てる牌をタップしてください");
       updateActionButtons();
-      if(type === "kan") checkAnkanOpportunity(); // 大明槓の嶺上牌で新たに暗槓が成立する場合を拾う
     } else {
       renderCpuHandBacks(callerSeat);
       setTurnIndicator(seatLabel[callerSeat] + "が" + (type === "pon" ? "ポン" : "カン") + "しました");
@@ -2140,46 +2169,72 @@
     }
 
     setTurnIndicator("あなたの番です（牌をタップして捨ててください）");
+    updateSelfKanOpportunity(drawn);
     renderMyHand(true);
     updateActionButtons();
-    if(!checkKakanOpportunity(drawn)) checkAnkanOpportunity();
   }
 
-  // --- 加カン（ポンした牌と同じ牌を自分でツモった時） ---
-  // プロンプトを表示できたら true、できなければ false を返す（呼び出し側で暗槓チェックへ続けるかの判定に使う）
-  function checkKakanOpportunity(drawnTile){
-    if(riichiDeclared.bottom) return false; // リーチ後は加槓不可
-    const meldIdx = melds.bottom.findIndex(m => m.type === "pon" && m.calledTile.suit === drawnTile.suit && m.calledTile.num === drawnTile.num);
-    if(meldIdx < 0 || !rinshanAvailable()) return false;
-    const el = document.getElementById("callPrompt");
-    el.innerHTML = "";
-    el.style.display = "flex";
-    el.appendChild(makeCallButton("カン", () => { hideCallPrompt(); executeKakan(meldIdx, drawnTile); }));
-    el.appendChild(makeCallButton("この牌を捨てる", () => { hideCallPrompt(); onDiscardMyTile(myHandTiles.indexOf(drawnTile)); }));
-    el.appendChild(makeCallButton("手牌に保留", () => { hideCallPrompt(); }));
-    setTurnIndicator("同じ牌をツモりました。加カンしますか？");
-    return true;
-  }
-
-  // --- 暗槓（鳴きを介さず、自分の手牌だけで同じ牌が4枚揃った時） ---
-  function checkAnkanOpportunity(){
+  // --- 自摸カン（加槓・暗槓）の候補判定 ---
+  // 独立したポップアップは出さず、下段の「カン」「スルー」ボタンを有効にする方式に変更。
+  // 加槓：ポンした牌と同じ牌を自分でツモった時（drawnTile限定、既存仕様どおり）
+  // 暗槓：鳴きを介さず、手牌だけで同じ牌が4枚揃っている時（手牌全体を毎回スキャン）
+  // 両方が同時に成立することもあるため、候補は配列でまとめて返す
+  function computeSelfKanCandidates(drawnTile){
+    if(!rinshanAvailable()) return [];
+    const list = [];
+    if(drawnTile && !riichiDeclared.bottom){ // リーチ後は加槓不可
+      const meldIdx = melds.bottom.findIndex(m => m.type === "pon" && m.calledTile.suit === drawnTile.suit && m.calledTile.num === drawnTile.num);
+      if(meldIdx >= 0) list.push({ kind:"kakan", meldIdx, tile: drawnTile });
+    }
     // リーチ後は「牌姿（面子の解釈）が変わらない暗槓のみ」に絞る（canAnkanAfterRiichi参照）。
     // リーチしていない時は従来通り、4枚揃っている種類を無条件に候補にする
-    const candidates = riichiDeclared.bottom
+    const ankanTiles = riichiDeclared.bottom
       ? findAllAnkanTiles(myHandTiles).filter(canAnkanAfterRiichi)
       : findAllAnkanTiles(myHandTiles);
-    if(candidates.length === 0 || !rinshanAvailable()) return false;
-    const el = document.getElementById("callPrompt");
-    el.innerHTML = "";
-    el.style.display = "flex";
-    // 候補が2種類以上ある時は、どれを暗槓するかボタンで選ばせる（1種類なら従来通り1つだけ出る）
-    candidates.forEach(tile => {
-      const label = "暗槓（" + tileLabel(tile) + "）";
-      el.appendChild(makeCallButton(label, () => { hideCallPrompt(); executeAnkan(tile); }));
-    });
-    el.appendChild(makeCallButton("手牌に保留", () => { hideCallPrompt(); }));
-    setTurnIndicator(candidates.length > 1 ? "暗槓できる牌が複数あります。どちらを暗槓しますか？" : "同じ牌が4枚揃いました。暗槓しますか？");
-    return true;
+    ankanTiles.forEach(tile => list.push({ kind:"ankan", tile }));
+    return list;
+  }
+
+  // ツモの直後（またはカン後の嶺上ツモの直後）に呼び、pendingSelfKan/selfKanSelectingを更新する。
+  // 呼び出し側はこの後で必ずupdateActionButtons()を呼び、カン・スルーボタンの表示に反映させること
+  function updateSelfKanOpportunity(drawnTile){
+    pendingSelfKan = null;
+    selfKanSelecting = false;
+    const candidates = computeSelfKanCandidates(drawnTile);
+    if(candidates.length > 0) pendingSelfKan = { candidates };
+  }
+
+  // 下段の「カン」ボタン（自摸カン候補がある時）を押した時の処理。
+  // 候補が1つだけならそのまま実行、2つ以上あれば手牌の該当牌をハイライトしてクリックで選ばせる
+  function handleSelfKanButtonClick(){
+    if(!pendingSelfKan || pendingSelfKan.candidates.length === 0) return;
+    if(pendingSelfKan.candidates.length === 1){
+      executeSelfKanCandidate(pendingSelfKan.candidates[0]);
+    } else {
+      selfKanSelecting = true;
+      updateActionButtons();
+      renderMyHand(true);
+    }
+  }
+
+  // 自摸カンの選択中（selfKanSelecting）に、その牌が選択候補かどうか
+  function isSelfKanSelectable(t){
+    if(!selfKanSelecting || !pendingSelfKan) return false;
+    return pendingSelfKan.candidates.some(c => c.tile.suit === t.suit && c.tile.num === t.num);
+  }
+
+  // 選択候補の牌がクリックされた時（selfKanSelecting中のみ有効）
+  function onSelectSelfKanTile(t){
+    if(!selfKanSelecting || !pendingSelfKan) return;
+    const candidate = pendingSelfKan.candidates.find(c => c.tile.suit === t.suit && c.tile.num === t.num);
+    if(candidate) executeSelfKanCandidate(candidate);
+  }
+
+  function executeSelfKanCandidate(candidate){
+    pendingSelfKan = null;
+    selfKanSelecting = false;
+    if(candidate.kind === "kakan") executeKakan(candidate.meldIdx, candidate.tile);
+    else executeAnkan(candidate.tile);
   }
 
   function executeAnkan(tile){
@@ -2199,10 +2254,10 @@
     myHandTiles.push(rinshan);
     lastDrawnTile = rinshan;
 
+    updateSelfKanOpportunity(rinshan); // 続けて引いた嶺上牌で新たに暗槓・加槓が成立する場合を拾う
     renderMyHand(true);
     setTurnIndicator("暗槓しました。捨てる牌をタップしてください");
     updateActionButtons();
-    checkAnkanOpportunity(); // 続けて引いた嶺上牌で新たに暗槓が成立する場合を拾う
     fitTileSize();
   }
 
@@ -2221,10 +2276,10 @@
     myHandTiles.push(rinshan);
     lastDrawnTile = rinshan;
 
+    updateSelfKanOpportunity(rinshan); // 続けて引いた嶺上牌で新たに暗槓・加槓が成立する場合を拾う
     renderMyHand(true);
     setTurnIndicator("加カンしました。捨てる牌をタップしてください");
     updateActionButtons();
-    checkAnkanOpportunity(); // 続けて引いた嶺上牌で新たに暗槓が成立する場合を拾う
     fitTileSize();
   }
 
@@ -2304,10 +2359,15 @@
   const WIND_CHAR = { 1:"東", 2:"南", 3:"西", 4:"北" };
   function renderMatchHeader(){
     document.getElementById("roundText").textContent = "東" + kyokuNumber + "局 " + honba + "本場";
+    // ハウスルール：親が一巡(東1〜4局＝表東場)したら南場にはせず、そのまま東5〜8局(裏東場)を
+    // 続ける。起家マークの色で表/裏を区別する(赤=表東場、緑=裏東場)
+    const isSecondLap = kyokuNumber > 4;
     Object.keys(nameplateElByName).forEach(seat => {
       const plate = nameplateElByName[seat];
       plate.querySelector(".wind-mark").textContent = WIND_CHAR[SEAT_WIND[seat]];
-      plate.querySelector(".dealer-mark").style.display = (seat === STARTING_DEALER_SEAT) ? "" : "none";
+      const dealerMarkEl = plate.querySelector(".dealer-mark");
+      dealerMarkEl.style.display = (seat === STARTING_DEALER_SEAT) ? "" : "none";
+      dealerMarkEl.classList.toggle("second-lap", isSecondLap);
     });
   }
 
@@ -3492,6 +3552,102 @@
 
   // 流局時のテンパイ料精算：ノーテンの人がテンパイの人それぞれに1,000点ずつ払う
 
+  // ==================== ズンダモン音声アナウンス(VOICEVOX連携) ====================
+  // ローカルで起動しているVOICEVOX Engine(既定ポート50021)のREST APIを呼び出して、
+  // 局の節目・トビ/コールド終了・最終順位を実際にずんだもんの声で読み上げる。
+  // VOICEVOXが起動していない環境ではfetchが失敗するだけなので、必ずcatchで握りつぶし
+  // 無音フォールバックにする（音声関連の失敗でゲーム進行を止めないこと最優先）
+  const VOICEVOX_BASE = "http://127.0.0.1:50021";
+  // 話者(style) IDはVOICEVOXのバージョン・インストール環境で変わりうるため、決め打ちにせず
+  // /speakers から「ずんだもん」の「ノーマル」スタイルIDを毎回引く（取得できなければ3を使う。
+  // 3は多くのVOICEVOX配布版で「ずんだもん(ノーマル)」に割り当てられている既定値）
+  let zundamonStyleIdPromise = null;
+  function getZundamonStyleId(){
+    if(!zundamonStyleIdPromise){
+      zundamonStyleIdPromise = fetch(VOICEVOX_BASE + "/speakers")
+        .then(res => res.json())
+        .then(speakers => {
+          const zunda = speakers.find(s => s.name === "ずんだもん");
+          const normal = zunda && zunda.styles.find(st => st.name === "ノーマル");
+          return normal ? normal.id : 3;
+        })
+        .catch(() => 3);
+    }
+    return zundamonStyleIdPromise;
+  }
+
+  // DevToolsを開かなくても状態が分かるよう、通信の様子を画面左下の常設パネルに反映する
+  function setVoicevoxDebug(text, isError){
+    const el = document.getElementById("voicevoxDebug");
+    if(!el) return;
+    el.textContent = "ずんだもん音声: " + text;
+    el.style.color = isError ? "#ff6b6b" : "#ccc";
+  }
+
+  // 発声どうしが重ならないよう、1本の待ち行列に直列化して順番に再生する
+  let zundamonQueue = Promise.resolve();
+  function speakZundamon(text){
+    zundamonQueue = zundamonQueue.catch(() => {}).then(async () => {
+      setVoicevoxDebug("「" + text + "」再生準備中…", false);
+      const speaker = await getZundamonStyleId();
+      const queryRes = await fetch(
+        VOICEVOX_BASE + "/audio_query?speaker=" + speaker + "&text=" + encodeURIComponent(text),
+        { method: "POST" }
+      );
+      if(!queryRes.ok) throw new Error("audio_query失敗 status=" + queryRes.status);
+      const query = await queryRes.json();
+      const synthRes = await fetch(
+        VOICEVOX_BASE + "/synthesis?speaker=" + speaker,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(query) }
+      );
+      if(!synthRes.ok) throw new Error("synthesis失敗 status=" + synthRes.status);
+      const blob = await synthRes.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      setVoicevoxDebug("「" + text + "」再生中", false);
+      await new Promise(resolve => {
+        audio.onended = resolve;
+        audio.onerror = resolve;
+        audio.play().catch(resolve);
+      });
+      URL.revokeObjectURL(url);
+      setVoicevoxDebug("待機中(直前:「" + text + "」再生完了)", false);
+    }).catch(err => {
+      // VOICEVOX未起動・CORS拒否などでの失敗はゲーム進行自体は止めず、
+      // 画面のパネルに赤字でエラー内容だけ残す（DevTools不要で原因が分かるように）
+      setVoicevoxDebug("エラー(" + (err && err.message ? err.message : String(err)) + ") ※VOICEVOXが起動していないか、CORS設定(cors_policy_mode)がallになっていない可能性があります", true);
+    });
+  }
+
+  // 局の節目のセリフ。honba===0は「この局数に入った最初の手（連荘で戻ってきたのではない）」を
+  // 意味するので、これで判定すれば同じ局に連荘で何度いても1回しか鳴らない
+  function announceKyokuMilestone(){
+    if(honba !== 0) return;
+    if(kyokuNumber === 5) speakZundamon("裏入なのだ");
+    else if(kyokuNumber === 7) speakZundamon("ラス前なのだ");
+    else if(kyokuNumber === 8) speakZundamon("オーラスなのだ");
+  }
+
+  // 「12局45分15秒」のように読み上げ用の文言を組み立てる（1時間以上かかった場合だけ時間も含める）
+  function formatElapsedForSpeech(ms){
+    const totalSeconds = Math.max(0, Math.round(ms / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return (hours > 0 ? hours + "時間" : "") + minutes + "分" + seconds + "秒";
+  }
+
+  // 対局終了時のセリフ。終了理由(トビ／コールド)→自分(bottom)の最終順位→対局時間と局数、の順で鳴らす
+  function announceMatchEnd(reason, ranked){
+    if(reason.type === "bust") speakZundamon("飛び終了なのだ");
+    else if(reason.type === "over70000") speakZundamon("コールド終了なのだ");
+    const myRank = ranked.indexOf("bottom") + 1;
+    const rankText = myRank === 1 ? "トップ" : (myRank === 4 ? "ラス" : (myRank + "着"));
+    speakZundamon(rankText + "なのだ");
+    const elapsed = formatElapsedForSpeech(Date.now() - matchStartTime);
+    speakZundamon(handsPlayedCount + "局" + elapsed + "で終了なのだ");
+  }
+
   // 次局の状態（局数・本場・親）を決める純粋関数。
   // renchan=true：連荘（親はそのまま、本場+1、局数据え置き）
   // renchan=false：親交代（親はNEXT_SEAT、局数+1、本場0にリセット）
@@ -3551,25 +3707,34 @@
     return { ranked, umaBySeat };
   }
 
+  // 40,000点（返し）を原点とした±表示にする（例：素点80,500点→＋40,500点）
+  function formatOriginDiff(n){
+    const sign = n > 0 ? "＋" : (n < 0 ? "－" : "±");
+    return sign + Math.abs(n) + "点";
+  }
+
   // 最終順位画面を表示する（持ち点の高い順。同点はあなた→下家→対面→上家の順を優先）。
-  // 素点・順位点（ウマ／オカ）・合計の3列を各行に表示する
+  // 素点・順位点（ウマ／オカ）・合計の3列を各行に表示する。
+  // 素点・合計は35,000持ち・40,000返しのハウスルールに合わせ、40,000点を原点とした±表示にする
+  // （合計＝(素点-40,000)+順位点）
   function showFinalStandings(reason){
     const { ranked, umaBySeat } = computeUmaBySeat(scores);
+    announceMatchEnd(reason, ranked);
     const rows = ranked.map((s, i) => {
       const uma = umaBySeat[s];
-      const umaText = uma > 0 ? ("＋" + uma) : (uma < 0 ? ("－" + (-uma)) : "±0");
-      const total = scores[s] + uma;
+      const rawDiff = scores[s] - 40000;
+      const total = rawDiff + uma;
       return `<div class="final-rank-row"><span class="final-rank-num">${i + 1}位</span>` +
         `<span class="final-rank-name">${seatLabel[s]}</span>` +
-        `<span class="final-rank-pts">${scores[s]}点</span>` +
-        `<span class="final-rank-uma">${umaText}</span>` +
-        `<span class="final-rank-total">${total}点</span></div>`;
+        `<span class="final-rank-pts">${formatOriginDiff(rawDiff)}</span>` +
+        `<span class="final-rank-uma">${formatOriginDiff(uma)}</span>` +
+        `<span class="final-rank-total">${formatOriginDiff(total)}</span></div>`;
     }).join("");
     document.getElementById("finalStandings").innerHTML =
       `<div class="final-title">対局終了</div>` +
       `<div class="final-reason">${finalReasonText(reason)}</div>` +
       `<div class="final-rank-row final-rank-header">` +
-      `<span></span><span></span><span>素点</span><span>順位点</span><span>合計</span></div>` +
+      `<span></span><span></span><span>素点(40,000基準)</span><span>順位点</span><span>合計</span></div>` +
       rows;
     document.getElementById("finalOverlay").style.display = "flex";
   }
@@ -3595,7 +3760,7 @@
     const box = document.getElementById("resultBox");
     box.insertAdjacentHTML("beforeend", `<button type="button" class="next-kyoku-btn" id="nextKyokuBtn">次局へ</button>`);
     document.getElementById("nextKyokuBtn").onclick = () => {
-      saveMatchState({ scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks, startingDealerSeat: STARTING_DEALER_SEAT });
+      saveMatchState({ scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount });
       location.reload();
     };
   }
@@ -3640,6 +3805,7 @@
     hideCallPrompt();
     renderMyHand(false);
     revealAllHands(); // 流局時も4人全員の手牌を公開する
+    fitTileSize(); // 公開した牌の実寸に合わせて再計算し、自分の手牌がボタン行と被らないようにする
     proceedOrEndMatch(false); // 上がり連荘：流局は常に親交代
   }
 
@@ -3781,6 +3947,7 @@
     hideCallPrompt();
     renderMyHand(false);
     revealAllHands(); // 和了時も4人全員の手牌を公開する
+    fitTileSize(); // 公開した牌の実寸に合わせて再計算し、自分の手牌がボタン行と被らないようにする
     proceedOrEndMatch(winnerSeat === DEALER_SEAT, winnerSeat); // 親の和了＝連荘、それ以外＝親交代
   }
 
@@ -3816,47 +3983,86 @@
     }
   }
 
-  // 下段の「スルー」ボタン：他家の捨て牌に対する鳴きプロンプトが開いている間だけ有効にする
-  // （鳴きプロンプト側の「スルー」ボタンは廃止し、こちらに一本化した）
+  // 下段の「スルー」ボタン：他家の捨て牌に対する鳴きプロンプトが開いている間、
+  // または自分のツモに対する加槓・暗槓の候補（pendingSelfKan）がある間だけ有効にする
   function updateThroughButton(){
     const btn = document.getElementById("throughBtn");
-    if(gameEnded || !pendingCallContext){
+    if(gameEnded){
       btn.disabled = true;
       btn.onclick = null;
       return;
     }
-    const ctx = pendingCallContext; // hideCallPrompt()がクリアする前にクロージャで確保しておく
-    const hadRon = !!pendingRon; // ロン可能だった場面でスルーした＝フリテン。同じくクリア前に確保する
-    btn.disabled = false;
-    btn.onclick = () => {
-      hideCallPrompt();
-      if(hadRon){
-        furitenTemp.bottom = true;
-        if(riichiDeclared.bottom) furitenRiichi.bottom = true;
-      }
-      advanceTurnAfterDiscard(ctx.discarderSeat);
-    };
+    if(pendingCallContext){
+      const ctx = pendingCallContext; // hideCallPrompt()がクリアする前にクロージャで確保しておく
+      const hadRon = !!pendingRon; // ロン可能だった場面でスルーした＝フリテン。同じくクリア前に確保する
+      btn.disabled = false;
+      btn.onclick = () => {
+        hideCallPrompt();
+        if(hadRon){
+          furitenTemp.bottom = true;
+          if(riichiDeclared.bottom) furitenRiichi.bottom = true;
+        }
+        advanceTurnAfterDiscard(ctx.discarderSeat);
+      };
+      return;
+    }
+    if(pendingSelfKan && pendingSelfKan.candidates.length > 0){
+      // 加槓・暗槓をせず手牌に保留する＝通常の打牌に戻るだけなので、ターンを進める処理は不要
+      btn.disabled = false;
+      btn.onclick = () => {
+        pendingSelfKan = null;
+        selfKanSelecting = false;
+        updateActionButtons();
+        renderMyHand(true);
+      };
+      return;
+    }
+    btn.disabled = true;
+    btn.onclick = null;
   }
 
-  // 下段のチー/ポン/カンボタン：鳴ける選択肢がある時だけ有効にする。
+  // 下段のチー/ポン/カンボタン。
+  // ・他家の捨て牌へのチー/ポン/カン（pendingCallOptions）が開いている間はそちらを優先
+  // ・自分の番で加槓・暗槓の候補（pendingSelfKan）がある間は、カンボタンだけを有効にする
+  //   （チー・ポンは他家の捨て牌に対してしか成立しないため対象外）
   // 選択モード中（activeCallSelection）は、途中で別の種類に切り替えられないよう3つとも無効にする
   // （やめたい時はスルーで選択自体をキャンセルする）
   function updateCallButtons(){
     const chiBtn = document.getElementById("chiBtn");
     const ponBtn = document.getElementById("ponBtn");
     const kanBtn = document.getElementById("kanBtn");
-    // リーチ後は一切鳴けない（念のための二重ガード。本来pendingCallOptions側で既に選択肢が作られない）
-    if(gameEnded || !pendingCallOptions || activeCallSelection || riichiDeclared.bottom){
+    if(gameEnded){
       [chiBtn, ponBtn, kanBtn].forEach(b => { b.disabled = true; b.onclick = null; });
       return;
     }
-    const opts = pendingCallOptions;
-    chiBtn.disabled = !(opts.chiShapes && opts.chiShapes.length > 0);
-    chiBtn.onclick = chiBtn.disabled ? null : () => startCallSelection("chi");
-    ponBtn.disabled = !opts.pon;
-    ponBtn.onclick = ponBtn.disabled ? null : () => startCallSelection("pon");
-    kanBtn.disabled = !opts.kan;
-    kanBtn.onclick = kanBtn.disabled ? null : () => startCallSelection("kan");
+    // リーチ後は一切鳴けない（念のための二重ガード。本来pendingCallOptions側で既に選択肢が作られない）
+    if(pendingCallOptions && !activeCallSelection && !riichiDeclared.bottom){
+      const opts = pendingCallOptions;
+      chiBtn.disabled = !(opts.chiShapes && opts.chiShapes.length > 0);
+      chiBtn.onclick = chiBtn.disabled ? null : () => startCallSelection("chi");
+      ponBtn.disabled = !opts.pon;
+      ponBtn.onclick = ponBtn.disabled ? null : () => startCallSelection("pon");
+      kanBtn.disabled = !opts.kan;
+      kanBtn.onclick = kanBtn.disabled ? null : () => startCallSelection("kan");
+      return;
+    }
+    chiBtn.disabled = true;
+    chiBtn.onclick = null;
+    ponBtn.disabled = true;
+    ponBtn.onclick = null;
+    if(pendingCallOptions || activeCallSelection){
+      // 他家の捨て牌への応答中（選択モード含む）は自摸カンの余地が無い
+      kanBtn.disabled = true;
+      kanBtn.onclick = null;
+      return;
+    }
+    if(pendingSelfKan && pendingSelfKan.candidates.length > 0){
+      kanBtn.disabled = false;
+      kanBtn.onclick = () => handleSelfKanButtonClick();
+    } else {
+      kanBtn.disabled = true;
+      kanBtn.onclick = null;
+    }
   }
 
   // 下段の「リーチ」ボタン：和了ボタンと同じく、今まさに牌を引いた直後（lastDrawnTileがある間）
@@ -3911,6 +4117,7 @@
   renderScores();
   updateKyotakuDisplay();
   renderMatchHeader();
+  announceKyokuMilestone(); // 裏入・ラス前・オーラスのセリフ（honba===0で該当局の最初の1回だけ）
 
   // 最初の手番を開始する（親が「あなた」ならplayerDraw()、CPUならcpuDrawAndDiscard()から連鎖する）
   if(DEALER_SEAT === "bottom"){
