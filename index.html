@@ -648,6 +648,70 @@
     padding-top:3px;
     border-top:1px solid rgba(255,255,255,0.25);
   }
+  .result-box .next-kyoku-btn{
+    display:block;
+    margin:8px auto 0;
+    padding:0.35em 1.2em;
+    font-size:13px;
+    font-weight:bold;
+    color:#052014;
+    background:var(--gold);
+    border:none;
+    border-radius:6px;
+    cursor:pointer;
+  }
+
+  /* 半荘終了時の最終順位画面。卓全体を覆う全画面オーバーレイ */
+  .final-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.75);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:200;
+  }
+  .final-standings{
+    background:rgba(5,20,12,0.98);
+    border:1px solid var(--gold);
+    border-radius:12px;
+    padding:1.4em 1.8em;
+    min-width:260px;
+    text-align:center;
+    color:#eee;
+  }
+  .final-standings .final-title{
+    font-size:20px;
+    font-weight:bold;
+    color:var(--gold);
+    margin-bottom:4px;
+  }
+  .final-standings .final-reason{
+    font-size:13px;
+    opacity:0.85;
+    margin-bottom:14px;
+  }
+  .final-standings .final-rank-row{
+    display:grid;
+    grid-template-columns:2em 1fr auto;
+    gap:0 10px;
+    font-size:15px;
+    padding:5px 0;
+    border-top:1px solid rgba(255,255,255,0.15);
+    text-align:left;
+  }
+  .final-standings .final-rank-row:first-of-type{
+    border-top:none;
+  }
+  .final-standings .final-rank-row .final-rank-num{
+    font-weight:bold;
+    color:var(--gold);
+    text-align:center;
+  }
+  .final-standings .final-rank-row .final-rank-pts{
+    text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
 
   /* .boardの左上（和了結果表示＝右上の対角）に固定表示する。中身は.center-midのレイアウトを流用する */
   .top-left-info{
@@ -765,10 +829,10 @@
               <div class="ring-center">
                 <div id="center">
                   <div class="ring center-info">
-                    <div class="ring-top"><div class="nameplate rot180"><span class="wind-mark">西</span><span class="score" id="scoreTop">35000</span></div></div>
-                    <div class="ring-left"><div class="nameplate rot90"><span class="wind-mark">北</span><span class="score" id="scoreLeft">35000</span></div></div>
-                    <div class="ring-right"><div class="nameplate rotm90"><span class="wind-mark">南</span><span class="score" id="scoreRight">35000</span></div></div>
-                    <div class="ring-bottom"><div class="nameplate you"><span class="dealer-mark">起</span><span class="wind-mark">東</span><span class="score" id="scoreBottom">35000</span></div></div>
+                    <div class="ring-top"><div class="nameplate rot180"><span class="dealer-mark" style="display:none;">起</span><span class="wind-mark">西</span><span class="score" id="scoreTop">35000</span></div></div>
+                    <div class="ring-left"><div class="nameplate rot90"><span class="dealer-mark" style="display:none;">起</span><span class="wind-mark">北</span><span class="score" id="scoreLeft">35000</span></div></div>
+                    <div class="ring-right"><div class="nameplate rotm90"><span class="dealer-mark" style="display:none;">起</span><span class="wind-mark">南</span><span class="score" id="scoreRight">35000</span></div></div>
+                    <div class="ring-bottom"><div class="nameplate you"><span class="dealer-mark" style="display:none;">起</span><span class="wind-mark">東</span><span class="score" id="scoreBottom">35000</span></div></div>
                     <div class="ring-center">
                       <div class="center-mid">
                         <div id="wallCount" class="wall-count">
@@ -794,7 +858,7 @@
        1段目=局・供託、2段目=表ドラ・リーチドラの2段組 -->
   <div class="center-mid top-left-info">
     <div class="round-kyotaku-row">
-      <div class="round">東1局 0本場</div>
+      <div class="round" id="roundText">東1局 0本場</div>
       <div id="kyotakuCount" class="kyotaku-row">供託 0本</div>
     </div>
     <div class="dora-row">
@@ -813,6 +877,11 @@
   <div class="status-area">
     <div class="result-box" id="resultBox" style="display:none;"></div>
     <div class="call-prompt" id="callPrompt" style="display:none;"></div>
+  </div>
+
+  <!-- 半荘終了時の最終順位画面。全画面オーバーレイで、対局終了までは非表示 -->
+  <div class="final-overlay" id="finalOverlay" style="display:none;">
+    <div class="final-standings" id="finalStandings"></div>
   </div>
   <div class="button-row" id="buttonRow">
     <button class="row-btn" disabled>理牌</button>
@@ -1094,6 +1163,27 @@
     return order[t.suit] * 100 + t.num;
   }
 
+  // ==================== 半荘進行（局・本場・親交代）の永続状態 ====================
+  // 局をまたぐ状態（持ち点・局数・本場・親）はsessionStorageに保存し、次局は
+  // location.reload()でページ全体を作り直す方式にしている（配牌・進行・和了判定の
+  // 既存ロジックを一切変更せずに「1局完結」の前提のまま使い回せるため）。
+  // DEALER_SEATは配牌（誰が最初の1枚をツモるか）にも関わるため、ここで先に読み込む
+  const MATCH_STATE_KEY = "mugenMahjongRedMatchState";
+  function loadMatchState(){
+    try {
+      const raw = sessionStorage.getItem(MATCH_STATE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch(e){ return null; }
+  }
+  function saveMatchState(state){
+    try { sessionStorage.setItem(MATCH_STATE_KEY, JSON.stringify(state)); } catch(e){}
+  }
+  function clearMatchState(){
+    try { sessionStorage.removeItem(MATCH_STATE_KEY); } catch(e){}
+  }
+  const savedMatchState = loadMatchState();
+  let DEALER_SEAT = savedMatchState ? savedMatchState.dealerSeat : "bottom"; // 親（局ごとにNEXT_SEATで交代しうる）
+
   // --- 牌山を作ってシャッフル ---
   const wall = buildWall();
   shuffle(wall);
@@ -1103,7 +1193,7 @@
   // 補充しないため、山からの生きたツモは常に136-8-52=76回、海底牌は開局時から確定する
   const deadWall = wall.splice(0, 8);
 
-  // 自分・CPU3人へ配牌（13枚ずつ）
+  // 自分・CPU3人へ配牌（13枚ずつ。山は既にシャッフル済みのため、誰が親でも配る順序自体は無関係）
   const myTiles13 = wall.splice(0, 13);
   const cpuRightTiles = wall.splice(0, 13);
   const cpuTopTiles = wall.splice(0, 13);
@@ -1112,18 +1202,15 @@
   // 山の絵の基準にする、配牌直後・自摸前の生きたツモ回数（＝76）
   const LIVE_WALL_TOTAL = wall.length;
 
-  // 親（あなた）が最初の1枚をツモる
-  const firstDraw = wall.splice(0, 1)[0];
-
-  // 手牌は13枚を並び替え、ツモ牌だけ最後に離して表示
+  // 手牌は13枚を並び替えて表示する（親の最初の1枚は、後段でplayerDraw()/cpuDrawAndDiscard()を
+  // 通常のツモと同じ経路で呼び出して引かせる）
   const sortedHand = myTiles13.slice().sort((a, b) => sortKey(a) - sortKey(b));
-  const myHand = [...sortedHand, firstDraw].map(t => [t.suit, t.num, tileClass(t.suit, t.num)]);
 
   // ==================== STEP3+4: ターン進行（ツモ→打牌）＋ 鳴き（ポン・チー・カン） ====================
 
   // 状態（手牌・捨て牌・鳴き牌はすべてここで管理し、変更のたびに描画し直す）
-  const myHandTiles = [...sortedHand, firstDraw]; // {suit,num} の配列
-  let lastDrawnTile = firstDraw; // 直前にツモった牌（並び替えても離して表示するため参照で管理）
+  const myHandTiles = [...sortedHand]; // {suit,num} の配列（13枚。親が「あなた」の場合はこの後playerDraw()で14枚になる）
+  let lastDrawnTile = null; // 直前にツモった牌（並び替えても離して表示するため参照で管理）。手番が来るまではnull
   const lastDrawnCpu = { top:null, left:null, right:null }; // CPU各自の現在のツモ牌（カン後の嶺上牌も含めて明示的に管理）
   // 他家の捨て牌に対してロン可能な間だけ保持する状態（下段の「和了」ボタンの有効/無効に使う）
   let pendingRon = null; // { discarderSeat, result } | null
@@ -2088,12 +2175,12 @@
   }
 
   // ==================== STEP5: 和了判定・役・点数計算・流局処理 ====================
-  // ※簡易実装です。リーチ・平和の待ちの形・ドラ以外の詳細な符計算・半荘の進行（親流れ等）は省略しています。
+  // ※簡易実装です。リーチ・平和の待ちの形・ドラ以外の詳細な符計算は省略しています。
 
   let gameEnded = false;
   // 供託（リーチ棒）の本数。局をまたいで場に残り続け、その局でリーチして和了した人だけが総取りする
   // （リーチせずに和了しても供託には触れない。流局してもそのまま場に残る）
-  let riichiSticks = 0;
+  let riichiSticks = savedMatchState ? savedMatchState.riichiSticks : 0;
   // 各自が今の局でリーチを宣言しているか。局の開始時に全員falseへリセットする
   let riichiDeclared = { bottom:false, top:false, left:false, right:false };
   // リーチ宣言後、まだ宣言牌（河で横向きにする1枚）を確定させていない席。宣言直後の次の打牌だけを狙い撃ちするためのワンショットフラグ
@@ -2106,7 +2193,12 @@
   // 一発権（自分＝bottom専用。CPUはリーチしないためbottom以外は使わない）。
   // リーチ宣言牌を切った時にtrueにし、鳴きが入るか自分の次の打牌が終わったらfalseに戻す
   let ippatsuActive = false;
-  const scores = { bottom: 35000, top: 35000, left: 35000, right: 35000 };
+  const scores = savedMatchState
+    ? { ...savedMatchState.scores }
+    : { bottom: 35000, top: 35000, left: 35000, right: 35000 };
+  // 半荘（8局固定・東場2周）の進行状態。savedMatchStateが無ければ東1局・0本場・自分が親から開始
+  let kyokuNumber = savedMatchState ? savedMatchState.kyokuNumber : 1; // 1〜8（連番。東1〜8局として表示）
+  let honba = savedMatchState ? savedMatchState.honba : 0;
   // ネームプレート（方角+名前+点数）は中央情報ボックスの中、各家の方角位置に置かれている
   const scoreElByName = {
     bottom: document.getElementById("scoreBottom"),
@@ -2117,9 +2209,16 @@
   // リーチ表示用：各家のネームプレート本体（.riichiクラスを付け外しして光らせる）
   const nameplateElByName = {};
   Object.keys(scoreElByName).forEach(s => { nameplateElByName[s] = scoreElByName[s].closest(".nameplate"); });
-  const DEALER_SEAT = "bottom"; // 今回は東1局のみのため、あなたが常に親
-  const ROUND_WIND = 1; // 東場
-  const SEAT_WIND = { bottom: 1, right: 2, top: 3, left: 4 }; // 東南西北
+  // DEALER_SEATはファイル冒頭（配牌処理の直前）で既に読み込み済み
+  const ROUND_WIND = 1; // 場風は東のみ固定（東場を2周する半荘のため、南入はしない）
+  // 自風は親を基準に東→南→西→北の順で決まる（NEXT_SEATの手番順＝親交代順と同じ並び）
+  function computeSeatWind(dealerSeat){
+    const winds = {};
+    let seat = dealerSeat;
+    for(let w = 1; w <= 4; w++){ winds[seat] = w; seat = NEXT_SEAT[seat]; }
+    return winds;
+  }
+  const SEAT_WIND = computeSeatWind(DEALER_SEAT);
 
   function renderScores(){
     Object.keys(scores).forEach(s => { scoreElByName[s].textContent = scores[s]; });
@@ -2144,6 +2243,18 @@
 
   function updateKyotakuDisplay(){
     document.getElementById("kyotakuCount").textContent = "供託 " + riichiSticks + "本";
+  }
+
+  // 局表示（「東n局 m本場」）・各家の自風マーク・起家（＝その局の親）マークを、
+  // 現在のkyokuNumber/honba/DEALER_SEAT/SEAT_WINDに合わせて描き直す
+  const WIND_CHAR = { 1:"東", 2:"南", 3:"西", 4:"北" };
+  function renderMatchHeader(){
+    document.getElementById("roundText").textContent = "東" + kyokuNumber + "局 " + honba + "本場";
+    Object.keys(nameplateElByName).forEach(seat => {
+      const plate = nameplateElByName[seat];
+      plate.querySelector(".wind-mark").textContent = WIND_CHAR[SEAT_WIND[seat]];
+      plate.querySelector(".dealer-mark").style.display = (seat === DEALER_SEAT) ? "" : "none";
+    });
   }
 
   function tileKey(t){ return t.suit + "_" + t.num; }
@@ -3307,7 +3418,89 @@
     }
   }
 
+  // ==================== 半荘進行ロジック（局・本場・親交代・終了判定） ====================
+
+  // 本場ボーナス：ロンなら放銃者から、ツモなら他家3人からそれぞれ、本場1につき合計1,500点を
+  // 和了者へ加算する（ロン+1,500点/本場、ツモ+500点/本場×3人）。honbaCountはこの局開始時点の本場数
+  function applyHonbaBonus(honbaCount, isTsumo, winnerSeat, loserSeat){
+    if(honbaCount <= 0) return 0;
+    const total = honbaCount * 1500;
+    if(isTsumo){
+      ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat).forEach(s => {
+        scores[s] -= honbaCount * 500;
+      });
+    } else {
+      scores[loserSeat] -= total;
+    }
+    scores[winnerSeat] += total;
+    return total;
+  }
+
   // 流局時のテンパイ料精算：ノーテンの人がテンパイの人それぞれに1,000点ずつ払う
+
+  // 次局の状態（局数・本場・親）を決める純粋関数。
+  // renchan=true：連荘（親はそのまま、本場+1、局数据え置き）
+  // renchan=false：親交代（親はNEXT_SEAT、局数+1、本場0にリセット）
+  function computeNextMatchState(current, renchan){
+    if(renchan){
+      return { kyokuNumber: current.kyokuNumber, honba: current.honba + 1, dealerSeat: current.dealerSeat };
+    }
+    return { kyokuNumber: current.kyokuNumber + 1, honba: 0, dealerSeat: NEXT_SEAT[current.dealerSeat] };
+  }
+
+  // 終了判定：トビ（マイナス）＞70,000点超え＞東8局終了、の優先順で理由を返す（無ければnull）。
+  // finishedKyokuNumberは今終わった局の番号（連荘か親交代かによらず、次局へ進む前の値）
+  function checkMatchEnd(currentScores, finishedKyokuNumber){
+    const seats = ["bottom", "top", "left", "right"];
+    const bustSeat = seats.find(s => currentScores[s] < 0);
+    if(bustSeat) return { type:"bust", seat:bustSeat };
+    const overSeat = seats.find(s => currentScores[s] > 70000);
+    if(overSeat) return { type:"over70000", seat:overSeat };
+    if(finishedKyokuNumber >= 8) return { type:"final" };
+    return null;
+  }
+
+  function finalReasonText(reason){
+    if(reason.type === "bust") return seatLabel[reason.seat] + "の持ち点がマイナスになったため終了（トビ）";
+    if(reason.type === "over70000") return seatLabel[reason.seat] + "が70,000点を超えたため終了";
+    return "東8局が終了したため終了";
+  }
+
+  // 最終順位画面を表示する（持ち点の高い順。同点はあなた→下家→対面→上家の順を優先）
+  function showFinalStandings(reason){
+    const seats = ["bottom", "right", "top", "left"];
+    const ranked = seats.slice().sort((a, b) => scores[b] - scores[a]);
+    const rows = ranked.map((s, i) =>
+      `<div class="final-rank-row"><span class="final-rank-num">${i + 1}位</span>` +
+      `<span class="final-rank-name">${seatLabel[s]}</span>` +
+      `<span class="final-rank-pts">${scores[s]}点</span></div>`
+    ).join("");
+    document.getElementById("finalStandings").innerHTML =
+      `<div class="final-title">対局終了</div>` +
+      `<div class="final-reason">${finalReasonText(reason)}</div>` +
+      rows;
+    document.getElementById("finalOverlay").style.display = "flex";
+  }
+
+  // 局終了後の共通処理：終了条件を満たしていれば最終順位画面を出し、満たしていなければ
+  // 結果パネルに「次局へ」ボタンを追加する（押すと次局の状態をsessionStorageへ保存してリロードする）
+  function proceedOrEndMatch(renchan){
+    const finishedKyoku = kyokuNumber;
+    const reason = checkMatchEnd(scores, finishedKyoku);
+    if(reason){
+      clearMatchState();
+      showFinalStandings(reason);
+      return;
+    }
+    const next = computeNextMatchState({ kyokuNumber, honba, dealerSeat: DEALER_SEAT }, renchan);
+    const box = document.getElementById("resultBox");
+    box.insertAdjacentHTML("beforeend", `<button type="button" class="next-kyoku-btn" id="nextKyokuBtn">次局へ</button>`);
+    document.getElementById("nextKyokuBtn").onclick = () => {
+      saveMatchState({ scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks });
+      location.reload();
+    };
+  }
+
   function settleRyuukyoku(tenpaiSeats, notenSeats){
     if(tenpaiSeats.length === 0 || notenSeats.length === 0) return;
     const gainEach = 1000 * notenSeats.length;
@@ -3333,8 +3526,9 @@
     box.innerHTML = `<div class="result-title">流局</div>` + rows;
   }
 
-  // 山が尽きた（誰もツモれなくなった）ときの流局処理
-  // ※この段階では親交代・連荘・半荘進行は行わず、ここでゲームを終了する
+  // 山が尽きた（誰もツモれなくなった）ときの流局処理。
+  // 「上がり連荘」ルールのため、流局は親のテンパイ／ノーテンを問わず常に親交代
+  // （ノーテン料の精算＝settleRyuukyokuは従来通り。連荘判定にのみ影響しない）
   function handleRyuukyoku(){
     gameEnded = true;
     const seats = ["bottom", "right", "top", "left"]; // あなた・下家・対面・上家の順で表示する
@@ -3346,13 +3540,17 @@
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
+    proceedOrEndMatch(false); // 上がり連荘：流局は常に親交代
   }
 
   // totalGain: 精算後に和了者の持ち点が実際に何点増えたか（供託の総取り分も含む）。
   // 「持ち点がいきなり変わるだけで分からない」を解消するため、常にこの実数を表示する
-  // paymentsBySeat: finalizeWinで供託加算前に控えた、各家の実際の支払額（seat -> 点数）
+  // paymentsBySeat: finalizeWinで本場ボーナス適用後に控えた、各家の実際の支払額（seat -> 点数）。
+  // 本場ボーナスは合算済み。供託は勝者のscoresにしか加算しないため、他家のpaymentsBySeatには影響しない
   // collectedKyotaku: この和了で供託から受け取った額（0なら「リーチ供託」の行を出さない）
-  function showResult(seat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat, collectedKyotaku){
+  // honbaCount/honbaBonusTotal: 「◯本場」の内訳行を出すための値（0なら行を出さない）。
+  // paymentsBySeat/totalGainには既に合算済みなので、この行は内訳の補足表示という位置づけ
+  function showResult(seat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat, collectedKyotaku, honbaCount, honbaBonusTotal){
     const box = document.getElementById("resultBox");
     box.style.display = "block";
     const title = result.isTsumo ? (seatLabel[seat] + "のツモ") : (seatLabel[seat] + "のロン（" + seatLabel[loserSeat] + "から）");
@@ -3416,6 +3614,9 @@
     if(collectedKyotaku > 0){
       rowsHtml += row("リーチ供託", "", collectedKyotaku);
     }
+    if(honbaBonusTotal > 0){
+      rowsHtml += row(honbaCount + "本場", "", honbaBonusTotal);
+    }
 
     let totalHtml;
     if(isTsumo){
@@ -3454,11 +3655,6 @@
       else settleRon(winnerSeat, loserSeat, result.base);
       bonusTotal = settleAkaBonus(winnerSeat, loserSeat, result.akaCount, result.isTsumo);
     }
-    // 供託を足す前に、各家の実際の支払額（控えておいた値－現在値）を集計する。
-    // 比率からの逆算はしない：赤牌ボーナスは親子に関係なく1枚につき各家2,000点の均等払いのため、
-    // 通常役の飜による2:1の比が崩れる。実際の支払額を足し上げれば、親の和了は自然に3人同額になる。
-    const paymentsBySeat = {};
-    seats.forEach(s => { paymentsBySeat[s] = scoresBefore[s] - scores[s]; });
     let collectedKyotaku = 0; // この和了で実際に受け取った供託額（表示用。riichiSticksをリセットする前に控えておく）
     if(riichiSticks > 0 && riichiDeclared[winnerSeat]){
       collectedKyotaku = riichiSticks * 1000;
@@ -3466,12 +3662,25 @@
       riichiSticks = 0;
       updateKyotakuDisplay();
     }
+    // 本場ボーナス：この局の開始時点の本場数（honba）を使う。ロンなら放銃者から、
+    // ツモなら他家3人からそれぞれ、本場1につき合計1,500点を和了者へ加算する。
+    // honbaBonusTotalは「◯本場」の内訳行に、paymentsBySeat（下）は「◯◯ALL」・ロンの合計行に、
+    // それぞれ本場ボーナス込みの金額として使う（内訳行と合計欄の両方に出す＝合算はしても内訳は消さない）
+    const honbaBonusTotal = applyHonbaBonus(honba, result.isTsumo, winnerSeat, loserSeat);
+    // 各家の実際の支払額（控えておいた値－現在値）を集計する。供託を除く（供託は場からの受け取りで
+    // 特定の支払者がいないため）本場ボーナス適用後の値を使うことで、結果パネルの合計欄
+    // （ツモの「◯◯ALL」・ロンの合計）に本場ボーナス込みの実額をそのまま表示できる。
+    // 比率からの逆算はしない：赤牌ボーナスは親子に関係なく1枚につき各家2,000点の均等払いのため、
+    // 通常役の飜による2:1の比が崩れる。実際の支払額を足し上げれば、親の和了は自然に3人同額になる。
+    const paymentsBySeat = {};
+    seats.forEach(s => { paymentsBySeat[s] = scoresBefore[s] - scores[s]; });
     const totalGain = scores[winnerSeat] - scoresBefore[winnerSeat];
     renderScores();
-    showResult(winnerSeat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat, collectedKyotaku);
+    showResult(winnerSeat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat, collectedKyotaku, honba, honbaBonusTotal);
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
+    proceedOrEndMatch(winnerSeat === DEALER_SEAT); // 親の和了＝連荘、それ以外＝親交代
   }
 
   // 下段の「和了」ボタンはツモとロンを兼ねる。
@@ -3570,12 +3779,15 @@
   }
 
 
-  renderMyHand(true);
+  // 親が誰でも配牌自体は13枚ずつ（画面位置は固定、風だけが親を基準に回る）。
+  // 最初の1枚は、親の席に応じて通常のツモと同じ経路（playerDraw/cpuDrawAndDiscard）で
+  // 引かせる。CPUが親の場合はcpuDrawAndDiscardがadvanceTurnAfterDiscard経由で自動的に
+  // 連鎖し、手番が「あなた」に回ってきた時点で自然にplayerDraw()へつながる
+  renderMyHand(DEALER_SEAT === "bottom");
   renderCpuHandBacks("top");
   renderCpuHandBacks("left");
   renderCpuHandBacks("right");
   updateActionButtons();
-  setTurnIndicator("あなたの番です（牌をタップして捨ててください）");
 
   // 指定したid要素に牌の見た目を描き込む（既存のtileEl()を流用し、classとinnerHTMLだけ移す）
   function paintTile(elId, tile, extraClass){
@@ -3597,6 +3809,15 @@
   updateWallCount();
   renderScores();
   updateKyotakuDisplay();
+  renderMatchHeader();
+
+  // 最初の手番を開始する（親が「あなた」ならplayerDraw()、CPUならcpuDrawAndDiscard()から連鎖する）
+  if(DEALER_SEAT === "bottom"){
+    playerDraw();
+  } else {
+    setTurnIndicator(seatLabel[DEALER_SEAT] + "の番です");
+    setTimeout(() => cpuDrawAndDiscard(DEALER_SEAT), 500);
+  }
 
   // --- 牌サイズ(--tile-h)を画面いっぱいまで最大化する ---
   // 縦・横どちらの制約にもぶつからない最大サイズを、実際にDOMへ適用して測りながら二分探索で探す
