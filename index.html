@@ -693,7 +693,7 @@
   }
   .final-standings .final-rank-row{
     display:grid;
-    grid-template-columns:2em 1fr auto;
+    grid-template-columns:2em 3.6em auto auto auto;
     gap:0 10px;
     font-size:15px;
     padding:5px 0;
@@ -708,9 +708,24 @@
     color:var(--gold);
     text-align:center;
   }
-  .final-standings .final-rank-row .final-rank-pts{
+  .final-standings .final-rank-row .final-rank-pts,
+  .final-standings .final-rank-row .final-rank-uma,
+  .final-standings .final-rank-row .final-rank-total{
     text-align:right;
     font-variant-numeric:tabular-nums;
+  }
+  .final-standings .final-rank-row .final-rank-total{
+    font-weight:bold;
+    color:var(--gold);
+  }
+  .final-standings .final-rank-row.final-rank-header{
+    border-top:none;
+    padding:0 0 4px;
+    font-size:11px;
+    opacity:0.7;
+  }
+  .final-standings .final-rank-row.final-rank-header + .final-rank-row{
+    border-top:1px solid rgba(255,255,255,0.15);
   }
 
   /* .boardの左上（和了結果表示＝右上の対角）に固定表示する。中身は.center-midのレイアウトを流用する */
@@ -1183,6 +1198,8 @@
   }
   const savedMatchState = loadMatchState();
   let DEALER_SEAT = savedMatchState ? savedMatchState.dealerSeat : "bottom"; // 親（局ごとにNEXT_SEATで交代しうる）
+  // 起家（＝東1局の親）は半荘を通じて固定。DEALER_SEATと違い連荘・親交代でも一切動かない
+  const STARTING_DEALER_SEAT = savedMatchState ? savedMatchState.startingDealerSeat : DEALER_SEAT;
 
   // --- 牌山を作ってシャッフル ---
   const wall = buildWall();
@@ -1497,6 +1514,43 @@
       img.style.height = "calc(var(--tile-h) * " + scale + ")";
       img.style.transform = "translate(-50%, -50%) rotate(" + deg + "deg)";
     }
+  }
+
+  // 毎局終了時（和了・流局とも）に、CPU3人の伏せ手牌(renderCpuHandBacks)を実際の牌の表に
+  // 差し替えて全員の手牌を公開する。#handTop/#handLeft/#handRightは元々renderCpuHandBacksの
+  // 帯表示(tile-top)専用に使っていたコンテナだが、.tileはposition:relativeでapplyMeldRotationが
+  // 実寸・向きの両方をインラインで確定させるため、同じ枠にそのまま実牌を並べられる
+  // （鳴き面子は常にmeldsTop等の別枠に表示済みなので、ここではhands[name]＝面前分だけを扱う）
+  const HAND_FACE_SUIT_ORDER = { man:0, pin:1, sou:2, wind:3, dragon:4 };
+  function renderCpuHandFaces(name){
+    const el = cpuHandElByName[name];
+    el.innerHTML = "";
+    const rotationDeg = MELD_BASE_ROTATION[name];
+    const drawn = lastDrawnCpu[name];
+    const others = hands[name].filter(t => t !== drawn).slice().sort((a, b) =>
+      (HAND_FACE_SUIT_ORDER[a.suit] - HAND_FACE_SUIT_ORDER[b.suit]) || (a.num - b.num)
+    );
+
+    function makeFace(t){
+      const d = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+      applyMeldRotation(d, rotationDeg);
+      return d;
+    }
+
+    const drawnEl = drawn ? makeFace(drawn) : null;
+    if(drawnEl) drawnEl.classList.add("drawn");
+
+    if(DRAWN_SLOT_FIRST[name]){
+      if(drawnEl) el.appendChild(drawnEl);
+      others.forEach(t => el.appendChild(makeFace(t)));
+    } else {
+      others.forEach(t => el.appendChild(makeFace(t)));
+      if(drawnEl) el.appendChild(drawnEl);
+    }
+  }
+
+  function revealAllHands(){
+    ["top", "left", "right"].forEach(renderCpuHandFaces);
   }
 
   // 暗槓・大明槓共通：横一列3枚(rowEls)の指定位置(stackedIndex:0/1/2)の上に、
@@ -2253,7 +2307,7 @@
     Object.keys(nameplateElByName).forEach(seat => {
       const plate = nameplateElByName[seat];
       plate.querySelector(".wind-mark").textContent = WIND_CHAR[SEAT_WIND[seat]];
-      plate.querySelector(".dealer-mark").style.display = (seat === DEALER_SEAT) ? "" : "none";
+      plate.querySelector(".dealer-mark").style.display = (seat === STARTING_DEALER_SEAT) ? "" : "none";
     });
   }
 
@@ -3466,28 +3520,73 @@
     return "東8局が終了したため終了";
   }
 
-  // 最終順位画面を表示する（持ち点の高い順。同点はあなた→下家→対面→上家の順を優先）
+  // 順位点（ウマ）テーブル。40,000点（返し）超えの人数＝浮き人数で使うテーブルを切り替える。
+  // 浮き0人（全員沈み）のときは順位点ではなくオカ20,000点のみをトップに加算する
+  // （他家からの徴収を伴わない固定ボーナスのため、他の3人は0のまま＝合計は増える）
+  const UMA_TABLE_BY_UKI_COUNT = {
+    1: [48000, -8000, -16000, -24000],
+    2: [24000, 8000, -8000, -24000],
+    3: [12000, 8000, 4000, -24000]
+  };
+  const OKA_ONLY_TABLE = [20000, 0, 0, 0];
+
+  // 最終素点から各家の順位点を計算する。同点の場合は同順位グループとして扱い、
+  // そのグループが占める順位ぶんの順位点（オカ含む）を合計してグループ人数で均等に折半する
+  function computeUmaBySeat(finalScores){
+    const seats = ["bottom", "right", "top", "left"]; // 同点時：あなた→下家→対面→上家の順を優先
+    const ranked = seats.slice().sort((a, b) => finalScores[b] - finalScores[a]);
+    const ukiCount = seats.filter(s => finalScores[s] > 40000).length;
+    const table = ukiCount === 0 ? OKA_ONLY_TABLE : UMA_TABLE_BY_UKI_COUNT[ukiCount];
+    const umaBySeat = {};
+    let i = 0;
+    while(i < ranked.length){
+      let j = i;
+      while(j + 1 < ranked.length && finalScores[ranked[j + 1]] === finalScores[ranked[i]]) j++;
+      const groupSeats = ranked.slice(i, j + 1);
+      const groupSum = table.slice(i, j + 1).reduce((a, b) => a + b, 0);
+      const split = Math.round(groupSum / groupSeats.length / 100) * 100;
+      groupSeats.forEach(s => { umaBySeat[s] = split; });
+      i = j + 1;
+    }
+    return { ranked, umaBySeat };
+  }
+
+  // 最終順位画面を表示する（持ち点の高い順。同点はあなた→下家→対面→上家の順を優先）。
+  // 素点・順位点（ウマ／オカ）・合計の3列を各行に表示する
   function showFinalStandings(reason){
-    const seats = ["bottom", "right", "top", "left"];
-    const ranked = seats.slice().sort((a, b) => scores[b] - scores[a]);
-    const rows = ranked.map((s, i) =>
-      `<div class="final-rank-row"><span class="final-rank-num">${i + 1}位</span>` +
-      `<span class="final-rank-name">${seatLabel[s]}</span>` +
-      `<span class="final-rank-pts">${scores[s]}点</span></div>`
-    ).join("");
+    const { ranked, umaBySeat } = computeUmaBySeat(scores);
+    const rows = ranked.map((s, i) => {
+      const uma = umaBySeat[s];
+      const umaText = uma > 0 ? ("＋" + uma) : (uma < 0 ? ("－" + (-uma)) : "±0");
+      const total = scores[s] + uma;
+      return `<div class="final-rank-row"><span class="final-rank-num">${i + 1}位</span>` +
+        `<span class="final-rank-name">${seatLabel[s]}</span>` +
+        `<span class="final-rank-pts">${scores[s]}点</span>` +
+        `<span class="final-rank-uma">${umaText}</span>` +
+        `<span class="final-rank-total">${total}点</span></div>`;
+    }).join("");
     document.getElementById("finalStandings").innerHTML =
       `<div class="final-title">対局終了</div>` +
       `<div class="final-reason">${finalReasonText(reason)}</div>` +
+      `<div class="final-rank-row final-rank-header">` +
+      `<span></span><span></span><span>素点</span><span>順位点</span><span>合計</span></div>` +
       rows;
     document.getElementById("finalOverlay").style.display = "flex";
   }
 
   // 局終了後の共通処理：終了条件を満たしていれば最終順位画面を出し、満たしていなければ
-  // 結果パネルに「次局へ」ボタンを追加する（押すと次局の状態をsessionStorageへ保存してリロードする）
-  function proceedOrEndMatch(renchan){
+  // 結果パネルに「次局へ」ボタンを追加する（押すと次局の状態をsessionStorageへ保存してリロードする）。
+  // winnerSeat：この局の和了者（流局時はundefined）。トビ終了時、飛んだ人は飛ばした人＝winnerSeatに
+  // 10,000点を支払ってから順位を確定する（流局によるトビは「誰が飛ばしたか」が一意に定まらないため対象外）
+  function proceedOrEndMatch(renchan, winnerSeat){
     const finishedKyoku = kyokuNumber;
     const reason = checkMatchEnd(scores, finishedKyoku);
     if(reason){
+      if(reason.type === "bust" && winnerSeat){
+        scores[reason.seat] -= 10000;
+        scores[winnerSeat] += 10000;
+        renderScores();
+      }
       clearMatchState();
       showFinalStandings(reason);
       return;
@@ -3496,7 +3595,7 @@
     const box = document.getElementById("resultBox");
     box.insertAdjacentHTML("beforeend", `<button type="button" class="next-kyoku-btn" id="nextKyokuBtn">次局へ</button>`);
     document.getElementById("nextKyokuBtn").onclick = () => {
-      saveMatchState({ scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks });
+      saveMatchState({ scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks, startingDealerSeat: STARTING_DEALER_SEAT });
       location.reload();
     };
   }
@@ -3540,6 +3639,7 @@
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
+    revealAllHands(); // 流局時も4人全員の手牌を公開する
     proceedOrEndMatch(false); // 上がり連荘：流局は常に親交代
   }
 
@@ -3680,7 +3780,8 @@
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
-    proceedOrEndMatch(winnerSeat === DEALER_SEAT); // 親の和了＝連荘、それ以外＝親交代
+    revealAllHands(); // 和了時も4人全員の手牌を公開する
+    proceedOrEndMatch(winnerSeat === DEALER_SEAT, winnerSeat); // 親の和了＝連荘、それ以外＝親交代
   }
 
   // 下段の「和了」ボタンはツモとロンを兼ねる。
