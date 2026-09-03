@@ -1770,7 +1770,7 @@
     if(awaitingRiichiDiscard.bottom){
       riichiDeclareTile.bottom = discarded; // リーチ宣言直後の1枚だけ、河で横向き表示する対象として覚えておく
       awaitingRiichiDiscard.bottom = false;
-      ippatsuActive = true; // 一発権発生：宣言牌を切った瞬間から、鳴きが入るか自分の次の打牌までが有効期間
+      ippatsuActive.bottom = true; // 一発権発生：宣言牌を切った瞬間から、鳴きが入るか自分の次の打牌までが有効期間
     }
     lastDrawnTile = null;
     renderMyHand(false);
@@ -1783,6 +1783,7 @@
   // --- 打牌のあと：鳴きが入るか判定してから次に進む ---
   function handleDiscard(discarderSeat, tile){
     if(gameEnded) return;
+    playSfx(SFX.discard); // 自分・CPU問わず、打牌のたび毎回鳴らす
 
     if(discarderSeat !== "bottom"){
       const ronResult = canRon("bottom", tile);
@@ -1820,14 +1821,15 @@
     advanceTurnAfterDiscard(discarderSeat);
   }
 
-  // CPUのポン・カン簡易AI（チーはプレイヤーのみ対応）
+  // CPUのポン・カンAI（チーはプレイヤーのみ対応）。リーチ後は一切鳴けない（本物のルール通り）。
+  // shouldCpuCall()でシャンテンが悪化しない場合だけ検討する
   function maybeCpuCalls(discarderSeat, tile){
-    const seats = ["right", "top", "left"].filter(s => s !== discarderSeat);
+    const seats = ["right", "top", "left"].filter(s => s !== discarderSeat && !riichiDeclared[s]);
     for(const s of seats){
-      if(canKan(hands[s], tile) && rinshanAvailable() && Math.random() < 0.5) return { seat:s, type:"kan" };
+      if(canKan(hands[s], tile) && rinshanAvailable() && shouldCpuCall(s, tile, "kan")) return { seat:s, type:"kan" };
     }
     for(const s of seats){
-      if(canPon(hands[s], tile) && Math.random() < 0.45) return { seat:s, type:"pon" };
+      if(canPon(hands[s], tile) && shouldCpuCall(s, tile, "pon")) return { seat:s, type:"pon" };
     }
     return null;
   }
@@ -1975,7 +1977,9 @@
   // --- ポン・カンの実行（プレイヤー／CPU共通） ---
   // chosenTiles: プレイヤーが牌の画像で選んだ実際の手牌（省略時はCPU用に自動選択する）
   function executeCall(callerSeat, discarderSeat, tile, type, chosenTiles){
-    ippatsuActive = false; // ポン・大明槓（鳴き）が成立した時点で一発は消える
+    clearAllIppatsu(); // ポン・大明槓（鳴き）が成立した時点で一発は消える（誰の一発権であっても）
+    if(type === "pon") playSfx(SFX.callPon); // 自分・CPU問わず、ポンが成立した瞬間に鳴らす
+    else if(type === "kan") playSfx(SFX.callKan); // 大明槓が成立した瞬間に鳴らす（自分・CPU問わず）
     discards[discarderSeat].pop();
     renderDiscard(discarderSeat);
 
@@ -2016,7 +2020,7 @@
         const rinshanWin = attemptWin(callerSeat, null, true);
         if(rinshanWin){ finalizeWin(callerSeat, callerSeat, rinshanWin); return; }
       }
-      setTimeout(() => cpuDiscardOnly(callerSeat), 600);
+      setTimeout(() => cpuDiscardOnly(callerSeat), DRAW_TO_DISCARD_DELAY);
     }
     fitTileSize();
   }
@@ -2024,7 +2028,8 @@
   // --- チーの実行(プレイヤーのみ) ---
   // comboTiles: プレイヤーが牌の画像で選んだ実際の手牌2枚（[小さい方, 大きい方]）
   function executeChi(comboTiles, tile){
-    ippatsuActive = false; // チーが成立した時点で一発は消える
+    clearAllIppatsu(); // チーが成立した時点で一発は消える（誰の一発権であっても）
+    playSfx(SFX.callChi); // チーが成立した瞬間に鳴らす
     discards.left.pop();
     renderDiscard("left");
     const handTiles = [];
@@ -2040,11 +2045,17 @@
     updateActionButtons();
   }
 
-  // 鳴いた後、その人はツモらずすぐ打牌する
+  // 手番のテンポ調整（ユーザー要望2026-09-03）：誰かがツモってから捨てるまでは0.5秒、
+  // 誰かが捨ててから次の人がツモるまでは1秒、という間隔で統一する
+  const DRAW_TO_DISCARD_DELAY = 500;
+  const DISCARD_TO_NEXT_DRAW_DELAY = 1000;
+
+  // 鳴いた後、その人はツモらずすぐ打牌する（鳴いた直後は必ず門前が崩れているのでリーチはあり得ない）
   function cpuDiscardOnly(seat){
     const hand = hands[seat];
-    const idx = Math.floor(Math.random() * hand.length);
-    const discarded = hand.splice(idx, 1)[0];
+    const chosen = pickCpuDiscard(seat);
+    const idx = hand.indexOf(chosen.tile);
+    const discarded = hand.splice(idx >= 0 ? idx : Math.floor(Math.random() * hand.length), 1)[0];
     discards[seat].push(discarded);
     discardHistory[seat].push(tileKey(discarded));
     lastDrawnCpu[seat] = null;
@@ -2058,9 +2069,9 @@
     if(gameEnded) return;
     const next = NEXT_SEAT[discarderSeat];
     if(next === "bottom"){
-      playerDraw();
+      setTimeout(() => playerDraw(), DISCARD_TO_NEXT_DRAW_DELAY);
     } else {
-      setTimeout(() => cpuDrawAndDiscard(next), 550);
+      setTimeout(() => cpuDrawAndDiscard(next), DISCARD_TO_NEXT_DRAW_DELAY);
     }
   }
 
@@ -2072,6 +2083,7 @@
     }
     furitenTemp[seat] = false; // 同巡内フリテンは自分の次のツモで解除（リーチ後の永続フリテンは触らない）
     setTurnIndicator(seatLabel[seat] + "の番です");
+    playSfx(SFX.draw, DRAW_SFX_VOLUME);
     const drawn = wall.shift();
     hands[seat].push(drawn);
     lastDrawnCpu[seat] = drawn;
@@ -2083,23 +2095,46 @@
       finalizeWin(seat, seat, tsumoResult);
       return;
     }
+    // ツモ和了できなかった＝この一巡での自分の一発の権利は使い切ったので、自分の分だけ消す
+    // （他家がリーチしていればその一発権はまだ生きている。リーチしていなければ元々falseなので無害）
+    ippatsuActive[seat] = false;
 
-    // CPUの暗槓（簡易AI：4枚揃っていれば必ず暗槓する。rinshanAvailable()が通算カン4回の上限を管理する）
-    const ankanTile = findAnkanTile(hands[seat]);
+    // CPUの暗槓（簡易AI：4枚揃っていれば必ず暗槓する。rinshanAvailable()が通算カン4回の上限を管理する）。
+    // リーチ後は待ちを変えない暗槓しか許されないが、その判定(canAnkanAfterRiichi)が自分専用実装のため
+    // CPUには未対応。安全側に倒して、リーチ後のCPUは暗槓自体を行わない
+    const ankanTile = !riichiDeclared[seat] ? findAnkanTile(hands[seat]) : null;
     if(ankanTile && rinshanAvailable()){
       executeCpuAnkan(seat, ankanTile);
       return;
     }
 
-    setTimeout(() => cpuChooseAndDiscard(seat), 500);
+    setTimeout(() => cpuChooseAndDiscard(seat), DRAW_TO_DISCARD_DELAY);
   }
 
   function cpuChooseAndDiscard(seat){
     if(gameEnded) return;
-    const idx = Math.floor(Math.random() * hands[seat].length);
-    const discarded = hands[seat].splice(idx, 1)[0];
+    const hand = hands[seat];
+    let discarded;
+    if(riichiDeclared[seat]){
+      // リーチ後は待ちを変えられないので、ツモった牌をそのまま切る（自摸切り固定）
+      const drawn = lastDrawnCpu[seat];
+      const idx = drawn ? hand.indexOf(drawn) : hand.length - 1;
+      discarded = hand.splice(idx >= 0 ? idx : hand.length - 1, 1)[0];
+    } else {
+      const chosen = pickCpuDiscard(seat);
+      // declareRiichi()はriichiValidDiscardTypes()内で手牌14枚(打牌前)を前提に聴牌チェックするため、
+      // 必ず打牌(hand.splice)より前に呼ぶ
+      if(chosen.declareRiichi) declareRiichi(seat);
+      const idx = hand.indexOf(chosen.tile);
+      discarded = hand.splice(idx >= 0 ? idx : Math.floor(Math.random() * hand.length), 1)[0];
+    }
     discards[seat].push(discarded);
     discardHistory[seat].push(tileKey(discarded));
+    if(awaitingRiichiDiscard[seat]){
+      riichiDeclareTile[seat] = discarded; // リーチ宣言直後の1枚だけ、河で横向き表示する対象として覚えておく
+      awaitingRiichiDiscard[seat] = false;
+      ippatsuActive[seat] = true; // 一発権発生：宣言牌を切った瞬間から、鳴きが入るか自分の次の打牌までが有効期間
+    }
     lastDrawnCpu[seat] = null;
     renderCpuHandBacks(seat);
     renderDiscard(seat);
@@ -2107,7 +2142,8 @@
   }
 
   function executeCpuAnkan(seat, tile){
-    ippatsuActive = false; // 誰の暗槓であっても鳴きなので一発は消える
+    clearAllIppatsu(); // 誰の暗槓であっても鳴きなので一発は消える（誰の一発権であっても）
+    playSfx(SFX.callKan); // CPUの暗槓が成立した瞬間に鳴らす
     const hand = hands[seat];
     const removed = [];
     for(let i = hand.length - 1; i >= 0 && removed.length < 4; i--){
@@ -2132,7 +2168,7 @@
       return;
     }
 
-    setTimeout(() => cpuChooseAndDiscard(seat), 500);
+    setTimeout(() => cpuChooseAndDiscard(seat), DRAW_TO_DISCARD_DELAY);
     fitTileSize();
   }
 
@@ -2143,6 +2179,7 @@
       return;
     }
     furitenTemp.bottom = false; // 同巡内フリテンは自分の次のツモで解除（リーチ後の永続フリテンは触らない）
+    playSfx(SFX.draw, DRAW_SFX_VOLUME);
     const drawn = wall.shift();
     myHandTiles.push(drawn);
     lastDrawnTile = drawn;
@@ -2161,8 +2198,9 @@
       setTimeout(() => {
         if(gameEnded) return;
         // 折る②：ツモ和了できなかった＝この一巡での一発の権利は使い切ったので、
-        // 打牌の結果を待たずこの打牌をもって先に失効させる（ツモ和了した場合はここに来ない）
-        ippatsuActive = false;
+        // 打牌の結果を待たずこの打牌をもって先に失効させる（ツモ和了した場合はここに来ない）。
+        // 自分の分だけ消す（他家がリーチしていればその一発権はまだ生きている）
+        ippatsuActive.bottom = false;
         onDiscardMyTile(myHandTiles.indexOf(drawn));
       }, 550);
       return;
@@ -2238,7 +2276,8 @@
   }
 
   function executeAnkan(tile){
-    ippatsuActive = false; // 自分自身の暗槓でも鳴きなので一発は消える（リーチ後の暗槓も対象）
+    clearAllIppatsu(); // 自分自身の暗槓でも鳴きなので一発は消える（リーチ後の暗槓も対象。誰の一発権であっても）
+    playSfx(SFX.callKan); // 自分の暗槓が成立した瞬間に鳴らす
     const removed = [];
     for(let i = myHandTiles.length - 1; i >= 0 && removed.length < 4; i--){
       if(myHandTiles[i].suit === tile.suit && myHandTiles[i].num === tile.num){
@@ -2262,7 +2301,8 @@
   }
 
   function executeKakan(meldIdx, drawnTile){
-    ippatsuActive = false; // 既存meldの書き換えとはいえ加槓も鳴きなので一発は消える
+    clearAllIppatsu(); // 既存meldの書き換えとはいえ加槓も鳴きなので一発は消える（誰の一発権であっても）
+    playSfx(SFX.callKan); // 自分の加槓が成立した瞬間に鳴らす
     const meld = melds.bottom[meldIdx];
     const idx = myHandTiles.indexOf(drawnTile);
     if(idx >= 0) myHandTiles.splice(idx, 1);
@@ -2299,9 +2339,12 @@
   // リーチ宣言時点で「切っても聴牌を保てる」と確定した牌の種類(suit+num)一覧。
   // awaitingRiichiDiscard中はこのリストに無い牌をクリックできないようにする
   let riichiValidDiscards = { bottom:[], top:[], left:[], right:[] };
-  // 一発権（自分＝bottom専用。CPUはリーチしないためbottom以外は使わない）。
-  // リーチ宣言牌を切った時にtrueにし、鳴きが入るか自分の次の打牌が終わったらfalseに戻す
-  let ippatsuActive = false;
+  // 一発権（席ごとに管理。CPUもリーチするため2026-09-03からbottom専用ではなくなった）。
+  // その席がリーチ宣言牌を切った時にその席をtrueにし、鳴きが入ったら全席分をfalseに戻す
+  // （鳴きは誰の行動でも一発の権利がある全員の一発を消す）。自分自身の次の打牌が
+  // 和了無く終わった時は、その席の分だけfalseに戻す
+  let ippatsuActive = { bottom:false, top:false, left:false, right:false };
+  function clearAllIppatsu(){ ippatsuActive = { bottom:false, top:false, left:false, right:false }; }
   const scores = savedMatchState
     ? { ...savedMatchState.scores }
     : { bottom: 35000, top: 35000, left: 35000, right: 35000 };
@@ -2738,9 +2781,9 @@
     // リーチ：宣言した本人が和了した時のみ1翻。リーチは門前でしか宣言できないため、門前限定の条件は不要
     // （ダブルリーチは未実装）
     if(riichiDeclared[seat]) yaku.push({ name:"リーチ", han:1 });
-    // 一発：CPUはリーチしないため自分（bottom）専用。ippatsuActiveは
-    // リーチ宣言牌を切った時にtrue、鳴きが入るか自分の次の打牌が終わるとfalseになる
-    if(riichiDeclared[seat] && seat === "bottom" && ippatsuActive) yaku.push({ name:"一発", han:1 });
+    // 一発：席ごとに判定(CPUのリーチにも付く、2026-09-03〜)。ippatsuActive[seat]は
+    // その席がリーチ宣言牌を切った時にtrue、鳴きが入るかその席自身の次の打牌が終わるとfalseになる
+    if(riichiDeclared[seat] && ippatsuActive[seat]) yaku.push({ name:"一発", han:1 });
 
     if(isTsumo && closedHand) yaku.push({ name:"門前清自摸和", han:1 });
 
@@ -3293,7 +3336,7 @@
       else yaku = [{ name:"七対子", han:2 }];
       // computeYaku()を経由しない役なので、ここでも同様にリーチ・一発をカウントする
       if(riichiDeclared[seat]) yaku.push({ name:"リーチ", han:1 });
-      if(riichiDeclared[seat] && seat === "bottom" && ippatsuActive) yaku.push({ name:"一発", han:1 });
+      if(riichiDeclared[seat] && ippatsuActive[seat]) yaku.push({ name:"一発", han:1 });
       if(isTsumo) yaku.push({ name:"門前清自摸和", han:1 });
       if(hasAllFiveSuits(concealed)) yaku.push({ name:"五門斉", han:1 });
       if(concealed.every(isToibudaoTile)) yaku.push({ name:"推不倒", han:2 });
@@ -3422,8 +3465,257 @@
     return riichiValidDiscardTypes(seat).length > 0;
   }
 
+  // ==================== CPU AI（シャンテン数＋受け入れ枚数ベースの牌効率AI） ====================
+  // 2026-09-03 ユーザー要望「CPUも和了に向かう強いAIにしたい」への対応。
+  // 完全ランダム打牌だったCPUを、シャンテン数計算→受け入れ枚数(牌効率)最大化→ドラ温存、の順で
+  // 打牌を選ぶAIに置き換える。あわせてCPUのリーチ宣言・見え牌ベースの簡易守備(ベタオリ)も追加する。
+  // 国士無双・七対子・標準形(4面子+雀頭)のシャンテン数のみ対応（本アプリ独自役の組合龍・組合同順は
+  // 対象外＝それらを専門に狙うことはしないが、通常の和了形として結果的に成立することはある）
+
+  const TILE_INDEX_MAP = new Map(ALL_TILE_TYPES.map((t, i) => [tileKey(t), i]));
+
+  // 手牌配列(オブジェクトの配列)を、34種類ぶんの枚数配列に変換する
+  function countsArrayFromTiles(tiles){
+    const arr = new Array(34).fill(0);
+    tiles.forEach(t => {
+      const idx = TILE_INDEX_MAP.get(tileKey(t));
+      if(idx !== undefined) arr[idx]++;
+    });
+    return arr;
+  }
+
+  // idxが数牌(萬子・筒子・索子)なら、その色の中で何番目(0-8)かを返す。字牌ならnull
+  function numberSuitInfo(idx){
+    if(idx < 27) return { numInSuit: idx % 9 };
+    return null;
+  }
+
+  // 標準形（4面子+雀頭）のシャンテン数。counts=34種類の枚数配列、calledMeldsCount=鳴き等で確定済みの面子数(0-4)
+  // メモ化再帰で「刻子/順子/対子(雀頭 or 塔子)/両面・辺張・嵌張の塔子/浮き牌として諦める」の
+  // 全分岐を試し、(確定面子数*2＋塔子数＋雀頭ボーナス)を最大化する。シャンテン数=8-2*確定面子数-最大値
+  function calcStandardShanten(counts, calledMeldsCount){
+    const maxBlocks = Math.max(0, 4 - calledMeldsCount);
+    const memo = new Map();
+    function search(idx, cnt, blocksSoFar, hasHead){
+      if(idx >= 34) return 0;
+      const c = cnt[idx];
+      if(c <= 0) return search(idx + 1, cnt, blocksSoFar, hasHead);
+      const clampedBlocks = Math.min(blocksSoFar, maxBlocks);
+      const key = idx + "|" + cnt.slice(idx).join(",") + "|" + clampedBlocks + "|" + (hasHead ? 1 : 0);
+      const cached = memo.get(key);
+      if(cached !== undefined) return cached;
+      const capLeft = blocksSoFar < maxBlocks;
+      const info = numberSuitInfo(idx);
+      let best = 0;
+      if(capLeft){
+        if(c >= 3){
+          const next = cnt.slice(); next[idx] -= 3;
+          best = Math.max(best, 2 + search(idx, next, blocksSoFar + 1, hasHead));
+        }
+        if(info && info.numInSuit <= 6){
+          const i2 = idx + 1, i3 = idx + 2;
+          if(cnt[i2] > 0 && cnt[i3] > 0){
+            const next = cnt.slice(); next[idx]--; next[i2]--; next[i3]--;
+            best = Math.max(best, 2 + search(idx, next, blocksSoFar + 1, hasHead));
+          }
+        }
+        if(c >= 2){
+          const next = cnt.slice(); next[idx] -= 2;
+          best = Math.max(best, 1 + search(idx, next, blocksSoFar + 1, hasHead));
+        }
+        if(info && info.numInSuit <= 7){
+          const i2 = idx + 1;
+          if(cnt[i2] > 0){
+            const next = cnt.slice(); next[idx]--; next[i2]--;
+            best = Math.max(best, 1 + search(idx, next, blocksSoFar + 1, hasHead));
+          }
+        }
+        if(info && info.numInSuit <= 6){
+          const i3 = idx + 2;
+          if(cnt[i3] > 0){
+            const next = cnt.slice(); next[idx]--; next[i3]--;
+            best = Math.max(best, 1 + search(idx, next, blocksSoFar + 1, hasHead));
+          }
+        }
+      }
+      if(c >= 2 && !hasHead){
+        const next = cnt.slice(); next[idx] -= 2;
+        best = Math.max(best, 1 + search(idx, next, blocksSoFar, true));
+      }
+      best = Math.max(best, search(idx + 1, cnt, blocksSoFar, hasHead));
+      memo.set(key, best);
+      return best;
+    }
+    const bestScore = search(0, counts, 0, false);
+    return 8 - 2 * calledMeldsCount - bestScore;
+  }
+
+  // 七対子のシャンテン数（門前限定）
+  function calcChiitoiShanten(counts){
+    let pairs = 0, kinds = 0;
+    for(let i = 0; i < 34; i++){
+      if(counts[i] > 0) kinds++;
+      if(counts[i] >= 2) pairs++;
+    }
+    return 6 - pairs + Math.max(0, 7 - kinds);
+  }
+
+  // 国士無双のシャンテン数（門前限定）
+  const KOKUSHI_TILE_IDX = [0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33];
+  function calcKokushiShanten(counts){
+    let kinds = 0, hasPair = false;
+    KOKUSHI_TILE_IDX.forEach(i => {
+      if(counts[i] > 0) kinds++;
+      if(counts[i] >= 2) hasPair = true;
+    });
+    return 13 - kinds - (hasPair ? 1 : 0);
+  }
+
+  // 手牌(オブジェクト配列)から総合シャンテン数(標準形・七対子・国士無双の最小値)を求める
+  function calcShanten(tiles, calledMeldsCount){
+    const counts = countsArrayFromTiles(tiles);
+    let best = calcStandardShanten(counts, calledMeldsCount);
+    if(calledMeldsCount === 0){
+      best = Math.min(best, calcChiitoiShanten(counts));
+      best = Math.min(best, calcKokushiShanten(counts));
+    }
+    return best;
+  }
+
+  // 手牌(14枚)から、切れる牌の種類ごとに「その牌を切った後の13枚のシャンテン数」を求める。
+  // 同じ種類が複数枚ある場合はノーマル牌を優先して抜く対象にする（赤ドラは手元に残す）
+  function calcCandidateShantens(hand, calledMeldsCount){
+    const seenKinds = new Set();
+    const results = [];
+    hand.forEach(t => {
+      const kind = tileKey(t);
+      if(seenKinds.has(kind)) return;
+      seenKinds.add(kind);
+      const sameKind = hand.filter(x => x.suit === t.suit && x.num === t.num);
+      const toRemove = sameKind.find(x => !x.red) || sameKind[0];
+      const remaining = hand.slice();
+      remaining.splice(remaining.indexOf(toRemove), 1);
+      results.push({ tile: toRemove, kind, remaining, shanten: calcShanten(remaining, calledMeldsCount) });
+    });
+    return results;
+  }
+
+  // 場に見えている牌(自分の手牌＋全員の捨て牌＋全員の鳴き＋表ドラ・リーチドラ表示牌)の枚数を
+  // 34種類ぶん数える。受け入れ枚数(まだ山や他家に残っていそうな枚数)の見積もりに使う
+  function buildVisibleCounts(seat){
+    const visible = new Array(34).fill(0);
+    const add = t => { const idx = TILE_INDEX_MAP.get(tileKey(t)); if(idx !== undefined) visible[idx]++; };
+    hands[seat].forEach(add);
+    ["bottom", "top", "left", "right"].forEach(s => {
+      discards[s].forEach(add);
+      melds[s].forEach(m => {
+        m.handTiles.forEach(add);
+        if(m.calledTile) add(m.calledTile);
+        if(m.addedTile) add(m.addedTile);
+      });
+    });
+    add(doraIndicator);
+    add(riichiDoraIndicator);
+    return visible;
+  }
+
+  // remaining(13枚)に対して、シャンテン数を1つでも進める(=より完成に近づける)牌の
+  // 残り枚数の合計(受け入れ枚数)を求める
+  function calcUkeire(remaining, calledMeldsCount, baseShanten, visible){
+    let total = 0;
+    for(const t of ALL_TILE_TYPES){
+      const idx = TILE_INDEX_MAP.get(tileKey(t));
+      const remainCount = 4 - (visible[idx] || 0);
+      if(remainCount <= 0) continue;
+      const testShanten = calcShanten([...remaining, t], calledMeldsCount);
+      if(testShanten < baseShanten) total += remainCount;
+    }
+    return total;
+  }
+
+  // 表ドラ・リーチドラの実際のドラ牌の種類(suit_num)一覧
+  function getDoraKindSet(){
+    const set = new Set();
+    set.add(tileKey(nextTileForDora(doraIndicator)));
+    set.add(tileKey(nextTileForDora(riichiDoraIndicator)));
+    return set;
+  }
+
+  // tileがseatに対して現物(=seatの捨て牌に同じ種類がある)かどうか。フリテンにより、
+  // 現物は絶対にロンされない安全牌
+  function isGenbutsu(tile, seat){
+    return discards[seat].some(d => d.suit === tile.suit && d.num === tile.num);
+  }
+
+  // 実際にtileを切った後、本物の和了判定エンジン(isTenpai)でも聴牌になるかを最終確認する
+  // （calcShantenは本アプリ独自役(組合龍・組合同順)を考慮していないため、リーチ宣言の可否だけは
+  // 必ずこちらで裏取りする）
+  function confirmTenpaiAfterDiscard(seat, tile){
+    const hand = hands[seat];
+    const idx = hand.indexOf(tile);
+    if(idx < 0) return false;
+    const removed = hand.splice(idx, 1)[0];
+    const tenpai = isTenpai(seat);
+    hand.splice(idx, 0, removed);
+    return tenpai;
+  }
+
+  // CPU(seat)が今まさに切る牌を選ぶ。{ tile, declareRiichi } を返す
+  // 1. 誰かがリーチ中で、自分がまだ2シャンテン以上遠い時は、現物があれば守備優先でベタオリする
+  // 2. それ以外は、シャンテン数最小→受け入れ枚数最大→ドラは残す、の順で選ぶ
+  // 3. 選んだ結果が聴牌かつ門前かつ未リーチかつ1000点以上あれば、そのままリーチ宣言する
+  function pickCpuDiscard(seat){
+    const hand = hands[seat];
+    const calledMeldsCount = melds[seat].length;
+    const candidates = calcCandidateShantens(hand, calledMeldsCount);
+    const bestShanten = Math.min(...candidates.map(c => c.shanten));
+
+    const dangerousSeats = ["top", "left", "right"].filter(s => s !== seat && riichiDeclared[s]);
+    if(dangerousSeats.length > 0 && bestShanten >= 2){
+      const safe = candidates.filter(c => dangerousSeats.every(s => isGenbutsu(c.tile, s)));
+      if(safe.length > 0){
+        safe.sort((a, b) => a.shanten - b.shanten);
+        return { tile: safe[0].tile, declareRiichi: false };
+      }
+      // 現物が無ければ仕方なく通常通り効率重視で押す(フォールバック)
+    }
+
+    const bestCandidates = candidates.filter(c => c.shanten === bestShanten);
+    const visible = buildVisibleCounts(seat);
+    bestCandidates.forEach(c => { c.ukeire = calcUkeire(c.remaining, calledMeldsCount, c.shanten, visible); });
+    const doraKinds = getDoraKindSet();
+    bestCandidates.sort((a, b) => {
+      if(b.ukeire !== a.ukeire) return b.ukeire - a.ukeire;
+      const aDora = doraKinds.has(a.kind) ? 1 : 0;
+      const bDora = doraKinds.has(b.kind) ? 1 : 0;
+      return aDora - bDora; // ドラでない方(0)を先に＝ドラは温存する
+    });
+    const chosen = bestCandidates[0];
+    const willRiichi = bestShanten === 0 && !riichiDeclared[seat] && isClosedHand(seat)
+      && scores[seat] >= 1000 && confirmTenpaiAfterDiscard(seat, chosen.tile);
+    return { tile: chosen.tile, declareRiichi: willRiichi };
+  }
+
+  // CPUが他家の捨て牌にポン/カンを掛けるべきか。掛けた場合のシャンテン数が今より
+  // 良くなる(または変わらない)場合だけ検討し、確率で実際に鳴くかを決める
+  // （ポン/カンは手を進める代わりに門前を失うため、シャンテンが変わらない時は控えめにする）
+  function shouldCpuCall(seat, tile, type){
+    const beforeShanten = calcShanten(hands[seat], melds[seat].length);
+    const needed = type === "kan" ? 3 : 2;
+    const matching = hands[seat].filter(t => t.suit === tile.suit && t.num === tile.num);
+    if(matching.length < needed) return false;
+    const used = matching.slice(0, needed);
+    const remaining = hands[seat].slice();
+    used.forEach(t => remaining.splice(remaining.indexOf(t), 1));
+    const afterShanten = calcShanten(remaining, melds[seat].length + 1);
+    if(afterShanten > beforeShanten) return false;
+    const prob = afterShanten < beforeShanten ? 0.85 : 0.25;
+    return Math.random() < prob;
+  }
+
   // --- 自分のリーチ宣言 ---
   function declareRiichi(seat){
+    playSfx(SFX.callRiichi); // リーチが成立した瞬間に鳴らす（自分・CPU問わず）
     // riichiValidDiscardTypes()はriichiDeclared[seat]がfalseである前提で判定するので、
     // 必ずriichiDeclaredをtrueにする前に計算する
     riichiValidDiscards[seat] = riichiValidDiscardTypes(seat); // 聴牌を保てる牌だけに手牌のクリックを絞り込むための一覧
@@ -3434,9 +3726,13 @@
     updateKyotakuDisplay();
     awaitingRiichiDiscard[seat] = true;
     nameplateElByName[seat].classList.add("riichi");
-    setTurnIndicator("リーチ！捨てる牌を選んでください");
-    updateActionButtons();
-    renderMyHand(true); // 打牌可能な牌をリーチ宣言直後の一覧に絞り込んで再描画する
+    // ここから下は「自分(bottom)の手牌クリックUI」専用の後処理。CPUのリーチ宣言時に
+    // 誤って自分の手牌を打牌可能状態にしてしまわないよう、bottomの時だけ行う
+    if(seat === "bottom"){
+      setTurnIndicator("リーチ！捨てる牌を選んでください");
+      updateActionButtons();
+      renderMyHand(true); // 打牌可能な牌をリーチ宣言直後の一覧に絞り込んで再描画する
+    }
   }
 
   function settleTsumo(winnerSeat, base){
@@ -3509,22 +3805,21 @@
   // 赤牌だけは親子・ツモロン問わず1枚につき1,000点を、支払う側1人あたりの額として加算する
   function settleYakunashi(winnerSeat, loserSeat, indicatorDoraCount, akaCount, isTsumo){
     const isDealer = winnerSeat === DEALER_SEAT;
-    const unitRate = isDealer ? 1500 : 1000;
-    const baseAndDora = unitRate * (1 + indicatorDoraCount); // 基礎点+ドラの合計額
     if(isTsumo){
+      // 役なし自摸和了は親・子を問わず「500点(+ドラ1につき500点)オールを3人から」で統一する
+      // （子の自摸だけ親が倍払いになる通常の按分はしない。ユーザー要望2026-09-03）
+      const share = 500 * (1 + indicatorDoraCount) + akaCount * 1000;
       const others = ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat);
       let total = 0;
       others.forEach(s => {
-        const share = isDealer
-          ? baseAndDora / 3
-          : (s === DEALER_SEAT ? baseAndDora / 2 : baseAndDora / 4);
-        const pay = share + akaCount * 1000;
-        scores[s] -= pay;
-        total += pay;
+        scores[s] -= share;
+        total += share;
       });
       scores[winnerSeat] += total;
       return total;
     } else {
+      const unitRate = isDealer ? 1500 : 1000;
+      const baseAndDora = unitRate * (1 + indicatorDoraCount); // 基礎点+ドラの合計額
       const perShare = baseAndDora + akaCount * 1000;
       scores[loserSeat] -= perShare;
       scores[winnerSeat] += perShare;
@@ -3623,7 +3918,7 @@
   // 意味するので、これで判定すれば同じ局に連荘で何度いても1回しか鳴らない
   function announceKyokuMilestone(){
     if(honba !== 0) return;
-    if(kyokuNumber === 5) speakZundamon("裏入なのだ");
+    if(kyokuNumber === 5) speakZundamon("うらにゅうなのだ"); // 漢字「裏入」だとVOICEVOXが「うらいり」と読んでしまうため、ひらがな指定で「うらにゅう」に固定
     else if(kyokuNumber === 7) speakZundamon("ラス前なのだ");
     else if(kyokuNumber === 8) speakZundamon("オーラスなのだ");
   }
@@ -3646,6 +3941,36 @@
     speakZundamon(rankText + "なのだ");
     const elapsed = formatElapsedForSpeech(Date.now() - matchStartTime);
     speakZundamon(handsPlayedCount + "局" + elapsed + "で終了なのだ");
+  }
+
+  // ==================== 効果音・鳴きボイス(ユーザー提供の音声ファイル) ====================
+  // sounds/フォルダに置いたローカル音声ファイルを鳴らす。VOICEVOXと違いネットワーク越しでは
+  // ないため待ち行列は不要で、複数同時に鳴っても構わない（例：CPUの捨て牌音と自分のツモ音が重なる等）。
+  // ファイルが無い・再生がブロックされた場合もゲーム進行を止めないよう、必ずcatchで握りつぶす
+  const SFX = {
+    discard: "sounds/sfx-discard.ogg",     // 牌を捨てる音（自分・CPU問わず、打牌のたび毎回）。中身は「牌を置く・その２」。本当は「その３」希望とのことだが未提供のため暫定でこちらを使用
+    draw: "sounds/sfx-draw.ogg",           // 牌をツモる音（山からの通常ツモのみ。嶺上ツモは対象外）。中身は「牌を置く・その１」（旧・捨て牌音から差し替え）。捨て牌音と別素材＋再生音量を絞って重なった時に聞き分けやすくしている
+    callPon: "sounds/call-pon.ogg",        // 「ポン」ボイス
+    callChi: "sounds/call-chi.ogg",        // 「チー」ボイス
+    callKan: "sounds/call-kan.ogg",        // 「カン」ボイス
+    callRiichi: "sounds/call-riichi.ogg",  // 「リーチ」ボイス
+    callRon: "sounds/call-ron.ogg",        // 「ロン」ボイス
+    callTsumo: "sounds/call-tsumo.ogg",    // 「ツモ」ボイス
+    shuffle: "sounds/sfx-shuffle.ogg",     // 牌をまぜる音（新しい局の開始＝ページ読込のたび、配牌後に1回）
+    points: ["sounds/sfx-points-1.ogg", "sounds/sfx-points-2.ogg", "sounds/sfx-points-3.ogg"] // 点棒を置く音（3種からランダム）
+  };
+  function playSfx(url, volume){
+    if(!url) return;
+    try {
+      const audio = new Audio(url);
+      if(typeof volume === "number") audio.volume = Math.min(1, Math.max(0, volume));
+      audio.play().catch(() => {}); // ファイル未配置・自動再生ブロック等は無音フォールバック
+    } catch(e){}
+  }
+  const DRAW_SFX_VOLUME = 0.55; // ツモ音は捨て牌音より控えめにして、上家の捨て牌音と重なった時に聞き分けやすくする
+  function playRandomPoints(){
+    const list = SFX.points;
+    playSfx(list[Math.floor(Math.random() * list.length)]);
   }
 
   // 次局の状態（局数・本場・親）を決める純粋関数。
@@ -3693,13 +4018,18 @@
     const ranked = seats.slice().sort((a, b) => finalScores[b] - finalScores[a]);
     const ukiCount = seats.filter(s => finalScores[s] > 40000).length;
     const table = ukiCount === 0 ? OKA_ONLY_TABLE : UMA_TABLE_BY_UKI_COUNT[ukiCount];
+    // UMA_TABLE_BY_UKI_COUNT は純粋なウマ（合計0）のみを表しており、オカ20,000点分は
+    // 含まれていない。浮き0人の場合はOKA_ONLY_TABLEに20,000点が既に含まれているため、
+    // それ以外（浮きが1人以上）の場合のみ、トップのグループにオカ20,000点を追加する
+    const oka = ukiCount === 0 ? 0 : 20000;
     const umaBySeat = {};
     let i = 0;
     while(i < ranked.length){
       let j = i;
       while(j + 1 < ranked.length && finalScores[ranked[j + 1]] === finalScores[ranked[i]]) j++;
       const groupSeats = ranked.slice(i, j + 1);
-      const groupSum = table.slice(i, j + 1).reduce((a, b) => a + b, 0);
+      let groupSum = table.slice(i, j + 1).reduce((a, b) => a + b, 0);
+      if(i === 0) groupSum += oka; // トップ（同点ならトップの同順位グループ）にオカを加算
       const split = Math.round(groupSum / groupSeats.length / 100) * 100;
       groupSeats.forEach(s => { umaBySeat[s] = split; });
       i = j + 1;
@@ -3743,9 +4073,12 @@
   // 結果パネルに「次局へ」ボタンを追加する（押すと次局の状態をsessionStorageへ保存してリロードする）。
   // winnerSeat：この局の和了者（流局時はundefined）。トビ終了時、飛んだ人は飛ばした人＝winnerSeatに
   // 10,000点を支払ってから順位を確定する（流局によるトビは「誰が飛ばしたか」が一意に定まらないため対象外）
-  function proceedOrEndMatch(renchan, winnerSeat){
+  // bustSeat：和了によるトビの場合、finalizeWin側で「支払い切れず0点止めした席」を明示的に渡す
+  // （持ち点の上限で精算する以上、この時点でscoresはもう負数を持たないため、負数チェックでは
+  // トビを検出できない。ryuukyoku（流局）由来のトビはこれまで通りcheckMatchEndの負数チェックに任せる）
+  function proceedOrEndMatch(renchan, winnerSeat, bustSeat){
     const finishedKyoku = kyokuNumber;
-    const reason = checkMatchEnd(scores, finishedKyoku);
+    const reason = bustSeat ? { type: "bust", seat: bustSeat } : checkMatchEnd(scores, finishedKyoku);
     if(reason){
       if(reason.type === "bust" && winnerSeat){
         scores[reason.seat] -= 10000;
@@ -3800,6 +4133,8 @@
     const notenSeats = seats.filter(s => !tenpaiSeats.includes(s));
     settleRyuukyoku(tenpaiSeats, notenSeats);
     renderScores();
+    // テンパイ料が実際に動いた時だけ点棒の音を鳴らす（全員テンパイ・全員ノーテンは移動なし）
+    if(tenpaiSeats.length > 0 && notenSeats.length > 0) playRandomPoints();
     showRyuukyokuResult(tenpaiSeats, notenSeats);
     setTurnIndicator("");
     hideCallPrompt();
@@ -3905,6 +4240,8 @@
 
   function finalizeWin(winnerSeat, loserSeat, result){
     gameEnded = true;
+    if(result.isTsumo) playSfx(SFX.callTsumo); // ツモの瞬間（誰の和了でも）に鳴らす
+    else playSfx(SFX.callRon); // ロンの瞬間（誰の和了でも）に鳴らす
     // settle系を呼ぶ前に4人全員のscoresを控えておく（供託加算より前の、和了精算のみの差分を後で取るため）
     const seats = ["bottom", "top", "left", "right"];
     const scoresBefore = {};
@@ -3933,6 +4270,23 @@
     // honbaBonusTotalは「◯本場」の内訳行に、paymentsBySeat（下）は「◯◯ALL」・ロンの合計行に、
     // それぞれ本場ボーナス込みの金額として使う（内訳行と合計欄の両方に出す＝合算はしても内訳は消さない）
     const honbaBonusTotal = applyHonbaBonus(honba, result.isTsumo, winnerSeat, loserSeat);
+    // 支払う側の持ち点を超える精算はしない（ハウスルール）：名目上の合計点数がその人の
+    // 持ち点を上回っていた場合でも、実際に支払えるのは0点になるまでの分だけとし、
+    // 0点未満（マイナス）にはしない。和了者が名目上の全額を受け取ってしまっている分（＝
+    // 相手の持ち点を超えた超過分）は、和了者の得点からその場で差し引いて実際の受取額に補正する。
+    // ちょうど0点で止まった場合はまだ継続（トビではない）。0点を超えて払えなかった場合だけ
+    // その席をこの局のトビの原因として記録し、あとのproceedOrEndMatchで飛び賞(10,000点)の
+    // 対象にする（この時点でscoresはもう負数を持たないため、負数チェックではトビを検出できない）
+    let bustSeatThisHand = null;
+    seats.forEach(s => {
+      if(s === winnerSeat) return;
+      if(scores[s] < 0){
+        const shortfall = -scores[s];
+        scores[s] = 0;
+        scores[winnerSeat] -= shortfall;
+        bustSeatThisHand = s;
+      }
+    });
     // 各家の実際の支払額（控えておいた値－現在値）を集計する。供託を除く（供託は場からの受け取りで
     // 特定の支払者がいないため）本場ボーナス適用後の値を使うことで、結果パネルの合計欄
     // （ツモの「◯◯ALL」・ロンの合計）に本場ボーナス込みの実額をそのまま表示できる。
@@ -3942,13 +4296,14 @@
     seats.forEach(s => { paymentsBySeat[s] = scoresBefore[s] - scores[s]; });
     const totalGain = scores[winnerSeat] - scoresBefore[winnerSeat];
     renderScores();
+    playRandomPoints(); // 点棒を払う音（和了は必ず点数が動くので無条件に鳴らす）
     showResult(winnerSeat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat, collectedKyotaku, honba, honbaBonusTotal);
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
     revealAllHands(); // 和了時も4人全員の手牌を公開する
     fitTileSize(); // 公開した牌の実寸に合わせて再計算し、自分の手牌がボタン行と被らないようにする
-    proceedOrEndMatch(winnerSeat === DEALER_SEAT, winnerSeat); // 親の和了＝連荘、それ以外＝親交代
+    proceedOrEndMatch(winnerSeat === DEALER_SEAT, winnerSeat, bustSeatThisHand); // 親の和了＝連荘、それ以外＝親交代
   }
 
   // 下段の「和了」ボタンはツモとロンを兼ねる。
@@ -4117,6 +4472,7 @@
   renderScores();
   updateKyotakuDisplay();
   renderMatchHeader();
+  playSfx(SFX.shuffle); // 新しい局の開始（ページ読込）ごとに牌をまぜる音を1回鳴らす
   announceKyokuMilestone(); // 裏入・ラス前・オーラスのセリフ（honba===0で該当局の最初の1回だけ）
 
   // 最初の手番を開始する（親が「あなた」ならplayerDraw()、CPUならcpuDrawAndDiscard()から連鎖する）
