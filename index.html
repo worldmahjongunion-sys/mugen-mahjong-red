@@ -531,7 +531,12 @@
   #discardBottom, #discardTop{
     flex-direction:column;
     flex-shrink:0;
-    justify-content:center;
+    /* justify-content:centerだと段数が4段に満たない間、既定の枠の中で縦方向に
+       中央寄せされてしまい、1段目(最初の捨て牌)が「各自から見て左上」ではなく
+       枠の途中に来てしまうバグになっていた。flex-startにして常に先頭(bottomは
+       画面上端、topはcolumn-reverseなので画面下端＝どちらも各自から見て手前側)
+       から積むようにする */
+    justify-content:flex-start;
     width:calc(var(--tile-w) * 6 + 10px); /* 牌6枚＋gap2px×5 */
     height:calc(var(--tile-h) * 4 + 6px); /* 牌4枚＋gap2px×3 */
   }
