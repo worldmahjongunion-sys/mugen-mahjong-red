@@ -485,8 +485,20 @@
   .discard-grid{
     display:grid;
     gap:2px;
-    outline:1px solid var(--discard-frame); /* 捨て牌エリアの外周を示す正式な枠線 */
+    /* 四方を完全に囲むoutlineではなく、各自から見て「右側」（捨て牌が増えていく方向。
+       リーチ宣言牌がここにはみ出すことがある）だけ枠を外し、残り3辺だけborderで固定する。
+       outlineは4辺一括でしか制御できないためborderに変更した */
+    border-style:solid;
+    border-width:1px;
+    border-color:var(--discard-frame);
   }
+  /* 各自から見た「右側」は回転方向によって画面上の辺が変わる：
+     自分(bottom)=画面右／対面(top)=画面左（180度回転で左右反転）／
+     上家(left)=画面下／下家(right)=画面上（90度・-90度回転） */
+  #discardBottom{ border-right-width:0; }
+  #discardTop{ border-left-width:0; }
+  #discardLeft{ border-bottom-width:0; }
+  #discardRight{ border-top-width:0; }
   /* 牌自体の幅・高さはCSSでは決めない。回転あり(top/left/right)はJS側の
      applyMeldRotation()が回転後の見た目に合わせて実寸をインラインで設定するため、
      ここでwidth/heightを指定すると回転前の箱のままグリッドに置かれて枠からあふれる
