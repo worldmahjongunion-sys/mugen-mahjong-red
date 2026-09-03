@@ -1866,12 +1866,16 @@
     }
 
     // CPUのロン判定（可能なら必ずロンする簡易AI）
+    // 放銃者の捨て牌はそのまま河に残す（自分がCPUの捨て牌にロンする経路＝updateWinButton内の
+    // finalizeWin("bottom", ron.discarderSeat, ...)でも捨て牌をpopしていないため、それと合わせる。
+    // 以前はここでdiscards[discarderSeat].pop()していたため、CPUに振り込んだ瞬間だけ自分（や
+    // 他家）の最後の捨て牌が河から消えてしまい、「捨てていないのに放銃したことになっている」ように
+    // 見えるバグになっていた（鳴き＝pon/kan/chiで牌が面子として移動する時のpop処理を、
+    // 移動が発生しないロンにもそのまま流用してしまっていたのが原因）
     const ronCandidates = ["top", "left", "right"].filter(s => s !== discarderSeat);
     for(const s of ronCandidates){
       const result = canRon(s, tile);
       if(result){
-        discards[discarderSeat].pop();
-        renderDiscard(discarderSeat);
         finalizeWin(s, discarderSeat, result);
         return;
       }
@@ -3724,9 +3728,21 @@
     return tenpai;
   }
 
+  // 自分より持ち点が多い人が2人以上いる＝3着以下（沈み）かどうか。沈んでいる時は
+  // 多少受け入れ枚数を犠牲にしてでもドラ・赤牌を残し、一発逆転の火力を残す判断に使う
+  function isBehind(seat){
+    const better = ["bottom", "top", "left", "right"].filter(s => s !== seat && scores[s] > scores[seat]).length;
+    return better >= 2;
+  }
+
+  // 沈んでいる時、最大受け入れ枚数からどれだけ目減りしてもドラ・赤牌の温存を優先するかの許容幅
+  const BEHIND_UKEIRE_TOLERANCE = 4;
+
   // CPU(seat)が今まさに切る牌を選ぶ。{ tile, declareRiichi } を返す
   // 1. 誰かがリーチ中で、自分がまだ2シャンテン以上遠い時は、現物があれば守備優先でベタオリする
-  // 2. それ以外は、シャンテン数最小→受け入れ枚数最大→ドラは残す、の順で選ぶ
+  // 2. それ以外は、シャンテン数最小→受け入れ枚数最大→表ドラ・赤牌は残す、の順で選ぶ。
+  //    ただし3着以下で沈んでいる時は、受け入れ枚数がBEHIND_UKEIRE_TOLERANCE枚以内の差なら
+  //    受け入れよりドラ・赤牌の温存を優先する（安定重視をやめて一発逆転を狙いにいく）
   // 3. 選んだ結果が聴牌かつ門前かつ未リーチかつ1000点以上あれば、そのままリーチ宣言する
   function pickCpuDiscard(seat){
     const hand = hands[seat];
@@ -3746,15 +3762,36 @@
 
     const bestCandidates = candidates.filter(c => c.shanten === bestShanten);
     const visible = buildVisibleCounts(seat);
-    bestCandidates.forEach(c => { c.ukeire = calcUkeire(c.remaining, calledMeldsCount, c.shanten, visible); });
     const doraKinds = getDoraKindSet();
-    bestCandidates.sort((a, b) => {
-      if(b.ukeire !== a.ukeire) return b.ukeire - a.ukeire;
-      const aDora = doraKinds.has(a.kind) ? 1 : 0;
-      const bDora = doraKinds.has(b.kind) ? 1 : 0;
-      return aDora - bDora; // ドラでない方(0)を先に＝ドラは温存する
+    bestCandidates.forEach(c => {
+      c.ukeire = calcUkeire(c.remaining, calledMeldsCount, c.shanten, visible);
+      // このcの牌(=切ろうとしている牌)自体の価値。表ドラの種類なら+1、赤牌自身なら+1（両方あり得るので0〜2）
+      c.value = (doraKinds.has(c.kind) ? 1 : 0) + (c.tile.red ? 1 : 0);
     });
-    const chosen = bestCandidates[0];
+
+    const behind = isBehind(seat);
+    const maxUkeire = Math.max(...bestCandidates.map(c => c.ukeire));
+    // 沈んでいる時だけ、受け入れ枚数が最大からBEHIND_UKEIRE_TOLERANCE枚以内に収まる候補に絞り、
+    // その中で最も価値の低い(＝温存する価値が無い)牌から切る。沈んでいなければ従来通り全候補が対象
+    const pool = behind
+      ? bestCandidates.filter(c => c.ukeire >= maxUkeire - BEHIND_UKEIRE_TOLERANCE)
+      : bestCandidates;
+
+    pool.sort((a, b) => {
+      if(behind){
+        if(a.value !== b.value) return a.value - b.value; // 価値の低い方(温存しない方)を先に＝それを切る
+        return b.ukeire - a.ukeire;
+      }
+      if(b.ukeire !== a.ukeire) return b.ukeire - a.ukeire;
+      return a.value - b.value; // 受け入れ枚数が同じなら、価値の低い方(ドラ・赤でない方)を先に＝それを切る
+    });
+    const chosen = pool[0];
+    // デバッグ用ログ：CPUがどの牌を・なぜ切ったか（シャンテン/受け入れ枚数/価値の内訳）を
+    // ブラウザのDevToolsコンソールに残す。プレイには影響しない。おかしな打牌を見つけた時に
+    // コンソールを開いて該当箇所をコピーしてもらえれば、この関数のどの分岐が選ばれたか特定できる
+    console.debug("[CPU打牌AI]", seat, "沈み=" + behind, "最小シャンテン=" + bestShanten,
+      "候補=" + bestCandidates.map(c => c.kind + (c.tile.red ? "(赤)" : "") + ":sh" + c.shanten + "/uk" + c.ukeire + "/val" + c.value).join(", "),
+      "→選択=" + chosen.kind + (chosen.tile.red ? "(赤)" : ""));
     const willRiichi = bestShanten === 0 && !riichiDeclared[seat] && isClosedHand(seat)
       && scores[seat] >= 1000 && confirmTenpaiAfterDiscard(seat, chosen.tile);
     return { tile: chosen.tile, declareRiichi: willRiichi };
