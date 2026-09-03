@@ -366,6 +366,15 @@
     mix-blend-mode:multiply;
     pointer-events:none;
   }
+  /* リーチ宣言牌は箱の実寸(width/height)自体を鳴き牌と同じapplyMeldRotation()でswapして
+     正しく横向きにしており（.discard-rowがflexboxなので、増えた幅ぶん段の中の後続の牌が
+     自動的に押し出され重ならない）、通常はもうoverflow:hiddenで欠けることはないが、
+     端数px程度のズレで縁が欠けて見えないよう保険としてoverflow:visibleのままにしておく。
+     z-indexも上げて、万一隣と少し重なって見える時に隠れてしまわないようにする */
+  .tile.discard-riichi-tile{
+    overflow:visible;
+    z-index:5;
+  }
 
   :root{
     --tileback-svg:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 140"><rect width="100" height="140" fill="%235BC7E8"/><g fill="none" stroke="%231C5F91" stroke-width="2.6" stroke-linecap="round"><path d="M14 32 Q10 22 18 16 Q26 12 32 18 Q36 24 30 30 Q24 36 14 32 Z"/><path d="M30 24 Q40 26 44 18 Q46 12 42 8"/><path d="M86 32 Q90 22 82 16 Q74 12 68 18 Q64 24 70 30 Q76 36 86 32 Z"/><path d="M70 24 Q60 26 56 18 Q54 12 58 8"/><path d="M14 108 Q10 118 18 124 Q26 128 32 122 Q36 116 30 110 Q24 104 14 108 Z"/><path d="M30 116 Q40 114 44 122 Q46 128 42 132"/><path d="M86 108 Q90 118 82 124 Q74 128 68 122 Q64 116 70 110 Q76 104 86 108 Z"/><path d="M70 116 Q60 114 56 122 Q54 128 58 132"/></g><circle cx="50" cy="70" r="30" fill="none" stroke="%231C5F91" stroke-width="2.8"/><g fill="none" stroke="%231C5F91" stroke-width="6.5" stroke-linecap="square"><path d="M50 44 L50 61 L67 61"/><path d="M76 70 L59 70 L59 87"/><path d="M50 96 L50 79 L33 79"/><path d="M24 70 L41 70 L41 53"/></g><circle cx="50" cy="70" r="6" fill="%231C5F91"/></svg>');
