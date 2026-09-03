@@ -172,6 +172,16 @@
     text-align:center;
   }
 
+  /* 他家のネームプレート・残り牌をクリックすると持ち点の表示が点差表示に切り替わることを示すカーソル */
+  .nameplate.diff-clickable, #wallCount.diff-clickable{
+    cursor:pointer;
+  }
+  /* 点差表示に切り替わっている間の.score本体の色分け（プラスは緑、マイナスは赤。
+     ±0の時は色を付けない）。ポップアップは廃止し、持ち点が表示されている
+     .score要素自体のテキストを直接書き換える方式にした */
+  .score.diff-plus{ color:#7CD98A; }
+  .score.diff-minus{ color:#FF8A8A; }
+
   /* --- 卓：手牌／山／捨牌／中央情報ボックスの4層を、同じ「リング」グリッドを
      3重に入れ子にして表現する。各ringは中身の大きさぶんだけのサイズにし（画面いっぱいに
      伸ばさない）、余った空間はtable-area側でring全体を中央寄せする形で外側に逃がす。
@@ -2544,10 +2554,54 @@
   }
   const SEAT_WIND = computeSeatWind(DEALER_SEAT);
 
+  // 他家(top/left/right)の持ち点表示を「通常の持ち点」⇔「自分との点差」でトグルする状態。
+  // trueの間はscoreElByName[seat]のテキスト自体を点差表示に書き換える(ポップアップは使わない)
+  const scoreDiffShown = { top: false, left: false, right: false };
+
   function renderScores(){
-    Object.keys(scores).forEach(s => { scoreElByName[s].textContent = scores[s]; });
+    Object.keys(scores).forEach(s => { renderOneScore(s); });
     stabilizeCenterInfoCells();
   }
+
+  // 1人分の.score要素の表示を、通常の持ち点表示 or 点差表示のどちらか現在の状態に合わせて更新する
+  function renderOneScore(seat){
+    const el = scoreElByName[seat];
+    el.classList.remove("diff-plus", "diff-minus");
+    if(seat !== "bottom" && scoreDiffShown[seat]){
+      const delta = scores.bottom - scores[seat];
+      const sign = delta > 0 ? "+" : (delta < 0 ? "" : "±");
+      el.textContent = sign + delta.toLocaleString();
+      if(delta > 0) el.classList.add("diff-plus");
+      else if(delta < 0) el.classList.add("diff-minus");
+    } else {
+      el.textContent = scores[seat];
+    }
+  }
+
+  // 他家のネームプレートをクリック→そのネームプレートの持ち点表示だけを自分との点差表示に切り替える(再クリックで元に戻す)。
+  // 中央の「残り牌」をクリック→他家3人分まとめて切り替える(3人とも点差表示中なら3人とも通常表示に戻す、それ以外は3人とも点差表示にする)
+  function setupScoreDiffToggle(){
+    ["top", "left", "right"].forEach(seat => {
+      const plate = nameplateElByName[seat];
+      plate.classList.add("diff-clickable");
+      plate.addEventListener("click", (e) => {
+        e.stopPropagation();
+        scoreDiffShown[seat] = !scoreDiffShown[seat];
+        renderOneScore(seat);
+      });
+    });
+    const wallEl = document.getElementById("wallCount");
+    wallEl.classList.add("diff-clickable");
+    wallEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const allShown = ["top", "left", "right"].every(seat => scoreDiffShown[seat]);
+      ["top", "left", "right"].forEach(seat => {
+        scoreDiffShown[seat] = !allShown;
+        renderOneScore(seat);
+      });
+    });
+  }
+  setupScoreDiffToggle();
 
   // 上家・下家・対面のネームプレートはtransform:rotate()で向きを変えているだけなので、
   // セル自体のoffsetWidth/Heightは回転前（横書き）のままになる。90度回転する上家・下家は
