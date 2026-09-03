@@ -481,10 +481,18 @@
     min-height:calc(var(--tile-w) * 14 + 3px * 13 + 3px);
   }
 
-  /* --- 捨て牌エリア（全員同じ大きさ。各自から見て左から6枚→奥の段へ、を再現するためJSで行列を明示指定） --- */
+  /* --- 捨て牌エリア（全員同じ大きさ。各自から見て左から6枚→奥の段へ、を再現するため
+     JSで「1段(最大6枚)ごとのflexの行」を組み立てる。以前はCSS Gridで各牌を絶対的な
+     行・列番号に固定していたが、それだとリーチ宣言牌だけ横向き(実寸が牌1個ぶんより
+     大きい)になった時に、はみ出した分が隣の固定マスの牌とそのまま重なってしまっていた。
+     Flexboxなら「その段の中で、前の牌の実際の幅ぶんだけ後ろの牌を押し出す」ができるので、
+     段の中で牌同士が重ならない。段全体が既定の枠幅より少しはみ出すことになるが、
+     はみ出す側＝各自から見て「右側」は下でborderを外してあり、見た目上も卓の外側の
+     空きスペースなのでレイアウト崩れにはならない） */
   .discard-grid{
-    display:grid;
+    display:flex;
     gap:2px;
+    overflow:visible;
     /* 四方を完全に囲むoutlineではなく、各自から見て「右側」（捨て牌が増えていく方向。
        リーチ宣言牌がここにはみ出すことがある）だけ枠を外し、残り3辺だけborderで固定する。
        outlineは4辺一括でしか制御できないためborderに変更した */
@@ -499,12 +507,21 @@
   #discardTop{ border-left-width:0; }
   #discardLeft{ border-bottom-width:0; }
   #discardRight{ border-top-width:0; }
-  /* 牌自体の幅・高さはCSSでは決めない。回転あり(top/left/right)はJS側の
-     applyMeldRotation()が回転後の見た目に合わせて実寸をインラインで設定するため、
-     ここでwidth/heightを指定すると回転前の箱のままグリッドに置かれて枠からあふれる
-     （中央BOXと重なっていた不具合の原因）。border-radiusだけ共通で当てておく */
+  /* 牌自体の幅・高さはCSSでは決めない。JS側のapplyMeldRotation()が向きに応じた実寸を
+     インラインで設定する。border-radiusだけ共通で当てておく。flex-shrink:0で、段が
+     既定幅よりはみ出しても牌自体が縮められないようにする */
   .discard-grid .tile{
     border-radius:4px;
+    flex-shrink:0;
+  }
+  /* 1段(最大6枚)ぶんのflexコンテナ。overflow:visibleで、段の中身が既定幅を超えても
+     （＝リーチ宣言牌が横向きで場所を取る時）隣の段や卓の他の要素を押しのけず、
+     見た目だけ「右側」の空きスペースにはみ出す */
+  .discard-row{
+    display:flex;
+    gap:2px;
+    overflow:visible;
+    flex-shrink:0;
   }
 
   /* 自分・対面：6列×4行（横向きの手牌用、最大24枚まで対応）。
@@ -512,23 +529,42 @@
      やめた：二分探索中は値が古いまま残り、探索後に確定したサイズと食い違って中央BOXや捨て牌の
      行があふれることがあったため。gapは.discard-gridのgap:2pxに合わせている） */
   #discardBottom, #discardTop{
-    grid-template-columns:repeat(6, var(--tile-w));
-    grid-template-rows:repeat(4, var(--tile-h));
+    flex-direction:column;
     flex-shrink:0;
     justify-content:center;
     width:calc(var(--tile-w) * 6 + 10px); /* 牌6枚＋gap2px×5 */
     height:calc(var(--tile-h) * 4 + 6px); /* 牌4枚＋gap2px×3 */
   }
+  /* 対面(180度)は自分と上下が逆なので、1段目(最初の6枚)が一番下の段に来るよう
+     段の積み順を反転する（中身の左右方向の反転はdiscard-row側で別途行う） */
+  #discardTop{ flex-direction:column-reverse; }
+  #discardBottom .discard-row, #discardTop .discard-row{
+    width:calc(var(--tile-w) * 6 + 10px);
+    height:var(--tile-h);
+  }
+  /* 自分：段の中は画面左→右の順（各自から見た左→右と一致） */
+  #discardBottom .discard-row{ flex-direction:row; }
+  /* 対面：180度回転のため、段の中は画面右→左の順（各自から見ると左→右になる） */
+  #discardTop .discard-row{ flex-direction:row-reverse; }
 
   /* 上家・下家：4列×6行（縦向きの手牌用、回転後の見た目寸法に合わせる。最大24枚まで対応） */
   #discardLeft, #discardRight{
-    grid-template-columns:repeat(4, var(--tile-h));
-    grid-template-rows:repeat(6, var(--tile-w));
+    flex-direction:row;
     flex-shrink:0;
-    align-content:center;
+    align-items:center;
     width:calc(var(--tile-h) * 4 + 6px); /* 牌4枚＋gap2px×3 */
     height:calc(var(--tile-w) * 6 + 10px); /* 牌6枚＋gap2px×5 */
   }
+  /* 上家(90度)は1段目が卓中央側(画面右寄り)の列に来るよう、列の積み順を反転する */
+  #discardLeft{ flex-direction:row-reverse; }
+  #discardLeft .discard-row, #discardRight .discard-row{
+    width:var(--tile-h);
+    height:calc(var(--tile-w) * 6 + 10px);
+  }
+  /* 上家：段(列)の中は画面上→下の順（各自から見た左→右と一致） */
+  #discardLeft .discard-row{ flex-direction:column; }
+  /* 下家：-90度回転のため、段(列)の中は画面下→上の順（各自から見ると左→右になる） */
+  #discardRight .discard-row{ flex-direction:column-reverse; }
 
   #center{
     display:flex;
@@ -1549,39 +1585,44 @@
     }
   }
 
-  // 捨て牌の並び順：各自から見て左から6枚→奥の段へ（第1捨て牌が一番手前=自分から遠い側）
-  function discardGridPosition(seat, index){
-    const groupIdx = Math.floor(index / 6); // 0=1段目(一番遠い)…3=4段目（4行×6列グリッドなので0〜3の4値、最大24枚まで対応）
-    const posIdx = index % 6; // 0-5（その段の中で何番目か）
-    switch(seat){
-      case "bottom": return { row: groupIdx + 1, col: posIdx + 1 };
-      case "top":    return { row: 4 - groupIdx, col: 6 - posIdx };
-      case "left":   return { row: posIdx + 1,   col: 4 - groupIdx };
-      case "right":  return { row: 6 - posIdx,   col: groupIdx + 1 };
-    }
-  }
-
   // 各自から見た捨て牌の向き。CSSのtransform:rotate()だけだと回転前のレイアウト箱の
   // ままグリッドに配置されてしまい（--tile-wと--tile-hの縦横比ぶんだけ枠からあふれて
   // 中央BOXと重なる不具合の原因だった）、鳴き牌と同じapplyMeldRotation()で
   // 箱の実寸自体を回転後の見た目に合わせて確定させる
   const DISCARD_ROTATION = { bottom:0, top:180, left:90, right:-90 };
 
+  // 捨て牌の並び順：各自から見て左から6枚→奥の段へ（第1捨て牌が一番手前=自分から遠い側）。
+  // 1段(最大6枚)ごとにflexコンテナ(.discard-row)を作り、その中に牌をDOM順に並べる。
+  // 段内・段同士の見た目の向き（画面上どちらから積むか）はCSS側(#discardXxx / .discard-row)の
+  // flex-direction指定で決まるので、ここではJSは「何枚目がどの段か」だけを見ればよい
   function renderDiscard(name){
     const el = discardElByName[name];
     el.innerHTML = "";
     const { doraKey, riichiDoraKey } = currentDoraKeys();
+    const rows = []; // groupIdxごとの.discard-row要素
     discards[name].forEach((t, idx) => {
+      const groupIdx = Math.floor(idx / 6); // 0=1段目…3=4段目（最大24枚まで対応）
+      if(!rows[groupIdx]){
+        const rowDiv = document.createElement("div");
+        rowDiv.className = "discard-row";
+        rows[groupIdx] = rowDiv;
+        el.appendChild(rowDiv);
+      }
       const tileElx = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
       applyHandDoraHighlight(tileElx, t, doraKey, riichiDoraKey); // 捨て牌もドラ・リーチドラを色分けする
       if(t.tsumogiri) tileElx.classList.add("discard-tsumogiri"); // ツモ切りは薄いグレーで手出しと区別
-      // リーチ宣言牌はさらに90度回して横向きにする（applyMeldRotation自体はいじらない）
-      const extraDeg = (t === riichiDeclareTile[name]) ? 90 : 0;
-      applyMeldRotation(tileElx, DISCARD_ROTATION[name] + extraDeg);
-      const pos = discardGridPosition(name, idx);
-      tileElx.style.gridRow = pos.row;
-      tileElx.style.gridColumn = pos.col;
-      el.appendChild(tileElx);
+      const baseRot = DISCARD_ROTATION[name];
+      const isRiichiTile = (t === riichiDeclareTile[name]);
+      // リーチ宣言牌は他の捨て牌からさらに90度回して横向きに見せる。以前は箱の寸法は
+      // 変えずimgだけ回してoverflow:visibleで見た目のはみ出しを許可していたが、それだと
+      // 段の中の次の牌（固定位置のまま）とそのまま重なって見えることがあった。
+      // .discard-rowがflexboxになったことで、箱自体の実寸(width/height)を鳴き牌と同じ
+      // applyMeldRotation()で正しくswapしても、同じ段の後続の牌がその増えた幅ぶんだけ
+      // 自動的に押し出されるので重ならない（段の右端（各自から見て右側）は
+      // .discard-grid側のborderを外してあるフリースペースなので、はみ出しても不自然にならない）
+      applyMeldRotation(tileElx, isRiichiTile ? baseRot + 90 : baseRot);
+      if(isRiichiTile) tileElx.classList.add("discard-riichi-tile");
+      rows[groupIdx].appendChild(tileElx);
     });
   }
 
@@ -2221,9 +2262,11 @@
     ippatsuActive[seat] = false;
 
     // CPUの暗槓（簡易AI：4枚揃っていれば必ず暗槓する。rinshanAvailable()が通算カン4回の上限を管理する）。
-    // リーチ後は待ちを変えない暗槓しか許されないが、その判定(canAnkanAfterRiichi)が自分専用実装のため
-    // CPUには未対応。安全側に倒して、リーチ後のCPUは暗槓自体を行わない
-    const ankanTile = !riichiDeclared[seat] ? findAnkanTile(hands[seat]) : null;
+    // リーチ後は待ちを変えない暗槓（＝完全に独立した暗刻）しか許されない。canAnkanAfterRiichiは
+    // 自分/CPU共通のseat引数対応版になっているので、リーチ後はそれでフィルタした候補の先頭を使う
+    const ankanTile = !riichiDeclared[seat]
+      ? findAnkanTile(hands[seat])
+      : (findAllAnkanTiles(hands[seat]).filter(t => canAnkanAfterRiichi(seat, t))[0] || null);
     if(ankanTile && rinshanAvailable()){
       executeCpuAnkan(seat, ankanTile);
       return;
@@ -2351,7 +2394,7 @@
     // リーチ後は「牌姿（面子の解釈）が変わらない暗槓のみ」に絞る（canAnkanAfterRiichi参照）。
     // リーチしていない時は従来通り、4枚揃っている種類を無条件に候補にする
     const ankanTiles = riichiDeclared.bottom
-      ? findAllAnkanTiles(myHandTiles).filter(canAnkanAfterRiichi)
+      ? findAllAnkanTiles(myHandTiles).filter(t => canAnkanAfterRiichi("bottom", t))
       : findAllAnkanTiles(myHandTiles);
     ankanTiles.forEach(tile => list.push({ kind:"ankan", tile }));
     return list;
@@ -2670,12 +2713,13 @@
   // 待ち牌それぞれを加えた和了形すべてを調べ、どの分解でもtileの3枚が独立した暗刻
   // （他の面子や雀頭に使われない）として現れる場合だけtrueにする。
   // リーチ後は必ず門前（鳴きは無いか暗槓のみ）なので、鳴き面子は考慮しない
-  function canAnkanAfterRiichi(tile){
-    const idx = myHandTiles.findIndex(t => t.suit === tile.suit && t.num === tile.num);
+  function canAnkanAfterRiichi(seat, tile){
+    const handTiles = hands[seat];
+    const idx = handTiles.findIndex(t => t.suit === tile.suit && t.num === tile.num);
     if(idx < 0) return false; // 手牌に無い（呼び出し側の前提が崩れている異常系）
-    const removed = myHandTiles.splice(idx, 1)[0]; // 1枚だけ除いて13枚にする（riichiValidDiscardTypesと同じやり方）
+    const removed = handTiles.splice(idx, 1)[0]; // 1枚だけ除いて13枚にする（riichiValidDiscardTypesと同じやり方）
 
-    const waits = getWaits("bottom"); // 13枚に対する待ち（getWaitsはhands[seat]＝myHandTilesを直接見る）
+    const waits = getWaits(seat); // 13枚に対する待ち（getWaitsはhands[seat]を直接見る）
 
     let ok;
     if(waits.length === 0){
@@ -2683,7 +2727,7 @@
     } else {
       const tKey = tileKey(tile);
       ok = waits.every(w => {
-        const hand14 = [...myHandTiles, w]; // 13枚＋待ち牌＝14枚の和了形
+        const hand14 = [...handTiles, w]; // 13枚＋待ち牌＝14枚の和了形
         const decomps = findAllDecompositions(hand14);
         // 標準形（4面子+雀頭）の分解が1つも無い場合はfalse。実在するケース：本ルールは
         // 七対子の「同じ牌4枚を2対子として使う」を認めているため、tileが4枚とも
@@ -2700,7 +2744,7 @@
       });
     }
 
-    myHandTiles.splice(idx, 0, removed); // 必ず元の14枚に戻す
+    handTiles.splice(idx, 0, removed); // 必ず元の14枚に戻す
     return ok;
   }
 
