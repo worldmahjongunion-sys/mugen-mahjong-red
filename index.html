@@ -329,6 +329,22 @@
   .tile.dragon-red{ color:var(--honor-red); }
   .tile.dragon-green{ color:var(--honor-green); }
   .tile.dragon-white{ color:#999; }
+  /* 自分の手牌の中で、表ドラに該当する牌は牌全体を薄いピンク色に、リーチドラに該当する
+     牌は赤い線で囲む（.center-mid内の左上パネル用.dora-tile/.riichi-dora-tileとは別物な
+     ので、手牌用に別クラス名にしている）。両方に該当する場合は両方の見た目を重ねて表示する */
+  /* 牌の表は画像(img, width/height:100%)で全面を覆っているため、.tileのbackgroundを
+     直接変えても隠れて見えない。ピンク色は半透明のオーバーレイ(::after、mix-blend-mode:multiply)を
+     imgの上に重ねる方式にして、絵柄を透かしつつ色だけ乗せる */
+  .tile.hand-dora{ background:linear-gradient(180deg, #FFE1EC 0%, #FFCBDD 55%, #FFB9D0 100%); }
+  .tile.hand-dora::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:rgba(255,105,170,0.22);
+    mix-blend-mode:multiply;
+    pointer-events:none;
+  }
+  .tile.hand-riichi-dora{ box-shadow:0 0 0 2px var(--honor-red), 0 2px 0 rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.8); }
 
   :root{
     --tileback-svg:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 140"><rect width="100" height="140" fill="%235BC7E8"/><g fill="none" stroke="%231C5F91" stroke-width="2.6" stroke-linecap="round"><path d="M14 32 Q10 22 18 16 Q26 12 32 18 Q36 24 30 30 Q24 36 14 32 Z"/><path d="M30 24 Q40 26 44 18 Q46 12 42 8"/><path d="M86 32 Q90 22 82 16 Q74 12 68 18 Q64 24 70 30 Q76 36 86 32 Z"/><path d="M70 24 Q60 26 56 18 Q54 12 58 8"/><path d="M14 108 Q10 118 18 124 Q26 128 32 122 Q36 116 30 110 Q24 104 14 108 Z"/><path d="M30 116 Q40 114 44 122 Q46 128 42 132"/><path d="M86 108 Q90 118 82 124 Q74 128 68 122 Q64 116 70 110 Q76 104 86 108 Z"/><path d="M70 116 Q60 114 56 122 Q54 128 58 132"/></g><circle cx="50" cy="70" r="30" fill="none" stroke="%231C5F91" stroke-width="2.8"/><g fill="none" stroke="%231C5F91" stroke-width="6.5" stroke-linecap="square"><path d="M50 44 L50 61 L67 61"/><path d="M76 70 L59 70 L59 87"/><path d="M50 96 L50 79 L33 79"/><path d="M24 70 L41 70 L41 53"/></g><circle cx="50" cy="70" r="6" fill="%231C5F91"/></svg>');
@@ -1230,6 +1246,11 @@
   // 内訳：嶺上牌4枚（末尾側からpopして使う）＋ドラ表示牌1枚＋リーチドラ表示牌1枚＋予備2枚（先頭側4枚は触らない）
   // 補充しないため、山からの生きたツモは常に136-8-52=76回、海底牌は開局時から確定する
   const deadWall = wall.splice(0, 8);
+  // ドラ表示牌・リーチドラ表示牌はここで確定させる（実際に卓へ表向きで見せる処理・演出は
+  // 従来通り下の方(paintTile呼び出し)で行うが、値そのものはrenderMyHand等の初回描画より前に
+  // 必要になる(手牌のドラ色分け表示用)ため、constの宣言だけこの時点まで前倒しする）
+  const doraIndicator = deadWall[0];
+  const riichiDoraIndicator = deadWall[1];
 
   // 自分・CPU3人へ配牌（13枚ずつ。山は既にシャッフル済みのため、誰が親でも配る順序自体は無関係）
   const myTiles13 = wall.splice(0, 13);
@@ -1384,6 +1405,18 @@
     return false;
   }
 
+  // 表ドラ・リーチドラの実際の牌種(suit_num)。手牌の色分け表示で使う
+  function currentDoraKeys(){
+    return { doraKey: tileKey(nextTileForDora(doraIndicator)), riichiDoraKey: tileKey(nextTileForDora(riichiDoraIndicator)) };
+  }
+  // 手牌用の牌要素に、表ドラ(薄いピンク背景)・リーチドラ(赤い線で囲む)の見た目を付ける。
+  // 両方に該当する牌は両方のクラスを重ねて付ける
+  function applyHandDoraHighlight(el, t, doraKey, riichiDoraKey){
+    const key = tileKey(t);
+    if(key === doraKey) el.classList.add("hand-dora");
+    if(key === riichiDoraKey) el.classList.add("hand-riichi-dora");
+  }
+
   function renderMyHand(clickable){
     const priorityMap = suitPriorityMap();
     // ツモ牌は並び替えの対象に含めず、常に手牌全体の一番右に別枠で表示する
@@ -1393,6 +1426,7 @@
       const kb = priorityMap[b.suit] * 100 + b.num;
       return ka - kb;
     });
+    const { doraKey, riichiDoraKey } = currentDoraKeys();
 
     handMineEl.innerHTML = "";
 
@@ -1400,6 +1434,7 @@
     // ここでは実際の牌だけを並べる（枠の中央寄せはCSSのjustify-content:centerが行う）
     sorted.forEach(t => {
       const el = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+      applyHandDoraHighlight(el, t, doraKey, riichiDoraKey);
       if(activeCallSelection){
         // チー/ポン/カンの選択中は、打牌ではなく「使う牌を選ぶ」クリックにする
         if(isCallSelectable(t)){
@@ -1422,6 +1457,7 @@
     // ツモ枠は常に同じ幅を確保する（自摸っていない間は透明なプレースホルダーを置き、手牌全体の幅が変わってズレないようにする）
     if(lastDrawnTile){
       const el = tileEl(lastDrawnTile.suit, lastDrawnTile.num, tileClass(lastDrawnTile.suit, lastDrawnTile.num), lastDrawnTile.red);
+      applyHandDoraHighlight(el, lastDrawnTile, doraKey, riichiDoraKey);
       el.classList.add("drawn");
       if(selfKanSelecting && isSelfKanSelectable(lastDrawnTile)){
         el.classList.add("callable");
@@ -1569,8 +1605,10 @@
       (HAND_FACE_SUIT_ORDER[a.suit] - HAND_FACE_SUIT_ORDER[b.suit]) || (a.num - b.num)
     );
 
+    const { doraKey, riichiDoraKey } = currentDoraKeys();
     function makeFace(t){
       const d = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+      applyHandDoraHighlight(d, t, doraKey, riichiDoraKey); // 流局・和了で手牌を公開する時も色分けする
       applyMeldRotation(d, rotationDeg);
       return d;
     }
@@ -4485,9 +4523,8 @@
     el.innerHTML = temp.innerHTML;
   }
 
-  // 王牌のうち2枚を表向きにして、実際のドラ表示牌・リーチドラ表示牌として見せる（以降は一切めくらない）
-  const doraIndicator = deadWall[0];
-  const riichiDoraIndicator = deadWall[1];
+  // 王牌のうち2枚を表向きにして、実際のドラ表示牌・リーチドラ表示牌として見せる（以降は一切めくらない）。
+  // doraIndicator/riichiDoraIndicator自体はdeadWall確定時点で既に宣言済み（上部を参照）
   paintTile("doraIndicatorTile", doraIndicator, "wall-indicator");
   paintTile("riichiDoraIndicatorTile", riichiDoraIndicator, "wall-indicator riichi-dora-tile");
   // 局表示の横には、表示牌そのものではなく実際のドラ（次の牌）を出す
