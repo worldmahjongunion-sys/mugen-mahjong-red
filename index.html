@@ -345,6 +345,27 @@
     pointer-events:none;
   }
   .tile.hand-riichi-dora{ box-shadow:0 0 0 2px var(--honor-red), 0 2px 0 rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.8); }
+  /* 捨て牌のうち、ツモ切り（引いた牌をそのまま切った）は薄いグレーにして、手出しと見分けられるようにする。
+     hand-dora/hand-riichi-doraと同じ仕組みで、画像の上に半透明のグレーを重ねる */
+  .tile.discard-tsumogiri::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:rgba(120,120,120,0.38);
+    mix-blend-mode:multiply;
+    pointer-events:none;
+  }
+  /* ::afterは1牌につき1つしか使えないため、ドラ色分け(hand-dora)とツモ切り色分け(discard-tsumogiri)が
+     同時に付く牌だけは、両方の色を混ぜたオーバーレイに差し替える（セレクタが4クラスぶんでより詳細な
+     ため、上の2つより優先される） */
+  .tile.hand-dora.discard-tsumogiri::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:linear-gradient(180deg, rgba(255,105,170,0.32) 0%, rgba(120,120,120,0.32) 100%);
+    mix-blend-mode:multiply;
+    pointer-events:none;
+  }
 
   :root{
     --tileback-svg:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 140"><rect width="100" height="140" fill="%235BC7E8"/><g fill="none" stroke="%231C5F91" stroke-width="2.6" stroke-linecap="round"><path d="M14 32 Q10 22 18 16 Q26 12 32 18 Q36 24 30 30 Q24 36 14 32 Z"/><path d="M30 24 Q40 26 44 18 Q46 12 42 8"/><path d="M86 32 Q90 22 82 16 Q74 12 68 18 Q64 24 70 30 Q76 36 86 32 Z"/><path d="M70 24 Q60 26 56 18 Q54 12 58 8"/><path d="M14 108 Q10 118 18 124 Q26 128 32 122 Q36 116 30 110 Q24 104 14 108 Z"/><path d="M30 116 Q40 114 44 122 Q46 128 42 132"/><path d="M86 108 Q90 118 82 124 Q74 128 68 122 Q64 116 70 110 Q76 104 86 108 Z"/><path d="M70 116 Q60 114 56 122 Q54 128 58 132"/></g><circle cx="50" cy="70" r="30" fill="none" stroke="%231C5F91" stroke-width="2.8"/><g fill="none" stroke="%231C5F91" stroke-width="6.5" stroke-linecap="square"><path d="M50 44 L50 61 L67 61"/><path d="M76 70 L59 70 L59 87"/><path d="M50 96 L50 79 L33 79"/><path d="M24 70 L41 70 L41 53"/></g><circle cx="50" cy="70" r="6" fill="%231C5F91"/></svg>');
@@ -1528,8 +1549,11 @@
   function renderDiscard(name){
     const el = discardElByName[name];
     el.innerHTML = "";
+    const { doraKey, riichiDoraKey } = currentDoraKeys();
     discards[name].forEach((t, idx) => {
       const tileElx = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+      applyHandDoraHighlight(tileElx, t, doraKey, riichiDoraKey); // 捨て牌もドラ・リーチドラを色分けする
+      if(t.tsumogiri) tileElx.classList.add("discard-tsumogiri"); // ツモ切りは薄いグレーで手出しと区別
       // リーチ宣言牌はさらに90度回して横向きにする（applyMeldRotation自体はいじらない）
       const extraDeg = (t === riichiDeclareTile[name]) ? 90 : 0;
       applyMeldRotation(tileElx, DISCARD_ROTATION[name] + extraDeg);
@@ -1601,9 +1625,13 @@
     el.innerHTML = "";
     const rotationDeg = MELD_BASE_ROTATION[name];
     const drawn = lastDrawnCpu[name];
-    const others = hands[name].filter(t => t !== drawn).slice().sort((a, b) =>
+    const sortedOthers = hands[name].filter(t => t !== drawn).slice().sort((a, b) =>
       (HAND_FACE_SUIT_ORDER[a.suit] - HAND_FACE_SUIT_ORDER[b.suit]) || (a.num - b.num)
     );
+    // 下家(right)は上家(left)と回転方向が逆（-90度）なので、上家と同じ「昇順のまま画面の
+    // 上から下へ並べる」順序だと、下家自身から見ると右から左（逆向き）に並んで見えてしまっていた。
+    // 下家だけ並び順を反転し、画面上は「ツモ牌(自分の右端)→大きい牌→小さい牌(自分の左端)」の順にする
+    const others = (name === "right") ? sortedOthers.slice().reverse() : sortedOthers;
 
     const { doraKey, riichiDoraKey } = currentDoraKeys();
     function makeFace(t){
@@ -1829,6 +1857,9 @@
   // --- 自分の打牌 ---
   function onDiscardMyTile(idx){
     const discarded = myHandTiles.splice(idx, 1)[0];
+    // ツモ切り（ツモった牌をそのまま切った）かどうかを、捨て牌の見た目（薄いグレー）に使うため
+    // ここで確定させておく（lastDrawnTileはこの後すぐnullにするので、ここで比較する必要がある）
+    discarded.tsumogiri = (discarded === lastDrawnTile);
     discards.bottom.push(discarded);
     discardHistory.bottom.push(tileKey(discarded));
     if(awaitingRiichiDiscard.bottom){
@@ -2124,6 +2155,7 @@
     const chosen = pickCpuDiscard(seat);
     const idx = hand.indexOf(chosen.tile);
     const discarded = hand.splice(idx >= 0 ? idx : Math.floor(Math.random() * hand.length), 1)[0];
+    discarded.tsumogiri = false; // 鳴いた直後の打牌はツモっていないので必ず手出し扱い
     discards[seat].push(discarded);
     discardHistory[seat].push(tileKey(discarded));
     lastDrawnCpu[seat] = null;
@@ -2196,6 +2228,9 @@
       const idx = hand.indexOf(chosen.tile);
       discarded = hand.splice(idx >= 0 ? idx : Math.floor(Math.random() * hand.length), 1)[0];
     }
+    // ツモ切り（今ツモった牌をそのまま切った）かどうかを、捨て牌の見た目（薄いグレー）に使うため確定させる。
+    // リーチ後の自動ツモ切り分岐は必ずdrawn===discardedになるので自然にtrueになる
+    discarded.tsumogiri = (discarded === lastDrawnCpu[seat]);
     discards[seat].push(discarded);
     discardHistory[seat].push(tileKey(discarded));
     if(awaitingRiichiDiscard[seat]){
