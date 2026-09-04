@@ -355,24 +355,35 @@
     pointer-events:none;
   }
   .tile.hand-riichi-dora{ box-shadow:0 0 0 2px var(--honor-red), 0 2px 0 rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.8); }
-  /* 捨て牌のうち、ツモ切り（引いた牌をそのまま切った）は薄いグレーにして、手出しと見分けられるようにする。
-     hand-dora/hand-riichi-doraと同じ仕組みで、画像の上に半透明のグレーを重ねる */
+  /* 捨て牌のうち、ツモ切り（引いた牌をそのまま切った）は薄い水色にして、手出しと見分けられるようにする。
+     hand-dora/hand-riichi-doraと同じ仕組みで、画像の上に半透明の水色を重ねる */
   .tile.discard-tsumogiri::after{
     content:"";
     position:absolute;
     inset:0;
-    background:rgba(120,120,120,0.38);
+    background:rgba(90,180,230,0.4);
     mix-blend-mode:multiply;
     pointer-events:none;
   }
   /* ::afterは1牌につき1つしか使えないため、ドラ色分け(hand-dora)とツモ切り色分け(discard-tsumogiri)が
-     同時に付く牌だけは、両方の色を混ぜたオーバーレイに差し替える（セレクタが4クラスぶんでより詳細な
-     ため、上の2つより優先される） */
+     同時に付く牌だけは、ドラの薄いピンクと上のツモ切りの薄い水色を混ぜた薄い紫のオーバーレイに
+     差し替える（セレクタが4クラスぶんでより詳細なため、上の2つより優先される） */
   .tile.hand-dora.discard-tsumogiri::after{
     content:"";
     position:absolute;
     inset:0;
-    background:linear-gradient(180deg, rgba(255,105,170,0.32) 0%, rgba(120,120,120,0.32) 100%);
+    background:rgba(172,142,200,0.34);
+    mix-blend-mode:multiply;
+    pointer-events:none;
+  }
+  /* 鳴かれて消えた捨て牌の「影」：元の位置に、以前のツモ切り色と同じグレーで薄く残す。
+     discards配列には含めない見た目だけの表示なので、ドラ・ツモ切り色分けは付けない */
+  .tile.discard-called-shadow{ opacity:0.55; }
+  .tile.discard-called-shadow::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:rgba(120,120,120,0.38);
     mix-blend-mode:multiply;
     pointer-events:none;
   }
@@ -1378,6 +1389,11 @@
   let selfKanSelecting = false;
   const hands = { bottom: myHandTiles, top: cpuTopTiles, left: cpuLeftTiles, right: cpuRightTiles };
   const discards = { top: [], left: [], right: [], bottom: [] };
+  // 鳴かれて消えた捨て牌の「影」表示専用。discards（実配列）には含めない見た目だけの記録
+  // （視認牌カウントやフリテン判定などのゲームロジックに影響させないため）。
+  // 各要素は { posIndex, tile }：posIndexは「その影の直前に何枚の実捨て牌があったか」＝
+  // 影を差し込む位置（鳴きは常に最新の捨て牌にしか起きないため、pop直後のdiscards[name].lengthと一致する）
+  const discardShadows = { top: [], left: [], right: [], bottom: [] };
   // フリテン判定専用：discardsと違い鳴かれても消さない、捨て牌の「種類キー」（tileKey）だけの履歴
   const discardHistory = { top: [], left: [], right: [], bottom: [] };
   // 同巡内フリテン（見逃した巡の間だけ）／リーチ後の見逃しによる永続フリテン。
@@ -1610,13 +1626,34 @@
   // 1段(最大6枚)ごとにflexコンテナ(.discard-row)を作り、その中に牌をDOM順に並べる。
   // 段内・段同士の見た目の向き（画面上どちらから積むか）はCSS側(#discardXxx / .discard-row)の
   // flex-direction指定で決まるので、ここではJSは「何枚目がどの段か」だけを見ればよい
+  // 鳴かれて消えた捨て牌の「影」を、まだ残っている実際の捨て牌の間の元あった位置に挟み込んだ
+  // 表示用の並びを作る（discards自体は変更しない＝ゲームロジックに影響させないため）。
+  // 戻り値の各要素は { tile, shadow } で、shadow:trueが影（実配列にはカウントされない）
+  function mergedDiscardSequence(name){
+    const real = discards[name];
+    const shadows = discardShadows[name];
+    if(shadows.length === 0) return real.map(t => ({ tile: t, shadow: false }));
+    const byPos = new Map();
+    shadows.forEach(s => {
+      if(!byPos.has(s.posIndex)) byPos.set(s.posIndex, []);
+      byPos.get(s.posIndex).push(s.tile);
+    });
+    const merged = [];
+    for(let i = 0; i <= real.length; i++){
+      if(byPos.has(i)) byPos.get(i).forEach(t => merged.push({ tile: t, shadow: true }));
+      if(i < real.length) merged.push({ tile: real[i], shadow: false });
+    }
+    return merged;
+  }
+
   function renderDiscard(name){
     const el = discardElByName[name];
     el.innerHTML = "";
     const { doraKey, riichiDoraKey } = currentDoraKeys();
     const rows = []; // groupIdxごとの.discard-row要素
-    discards[name].forEach((t, idx) => {
-      const groupIdx = Math.floor(idx / 6); // 0=1段目…3=4段目（最大24枚まで対応）
+    mergedDiscardSequence(name).forEach((entry, idx) => {
+      const t = entry.tile;
+      const groupIdx = Math.floor(idx / 6); // 0=1段目…3=4段目（最大24枚まで対応。影も1枚として数える）
       if(!rows[groupIdx]){
         const rowDiv = document.createElement("div");
         rowDiv.className = "discard-row";
@@ -1624,9 +1661,15 @@
         el.appendChild(rowDiv);
       }
       const tileElx = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
-      applyHandDoraHighlight(tileElx, t, doraKey, riichiDoraKey); // 捨て牌もドラ・リーチドラを色分けする
-      if(t.tsumogiri) tileElx.classList.add("discard-tsumogiri"); // ツモ切りは薄いグレーで手出しと区別
       const baseRot = DISCARD_ROTATION[name];
+      if(entry.shadow){
+        tileElx.classList.add("discard-called-shadow"); // 鳴かれて消えた捨て牌の影（ドラ・ツモ切り色分けは付けない）
+        applyMeldRotation(tileElx, baseRot);
+        rows[groupIdx].appendChild(tileElx);
+        return;
+      }
+      applyHandDoraHighlight(tileElx, t, doraKey, riichiDoraKey); // 捨て牌もドラ・リーチドラを色分けする
+      if(t.tsumogiri) tileElx.classList.add("discard-tsumogiri"); // ツモ切りは薄い水色で手出しと区別
       const isRiichiTile = (t === riichiDeclareTile[name]);
       // リーチ宣言牌は他の捨て牌からさらに90度回して横向きに見せる。以前は箱の寸法は
       // 変えずimgだけ回してoverflow:visibleで見た目のはみ出しを許可していたが、それだと
@@ -2157,6 +2200,8 @@
     if(type === "pon") playSfx(SFX.callPon); // 自分・CPU問わず、ポンが成立した瞬間に鳴らす
     else if(type === "kan") playSfx(SFX.callKan); // 大明槓が成立した瞬間に鳴らす（自分・CPU問わず）
     discards[discarderSeat].pop();
+    // 鳴かれて消えた捨て牌は、実配列(discards)からは消しつつ、見た目だけその位置に影として残す
+    discardShadows[discarderSeat].push({ posIndex: discards[discarderSeat].length, tile });
     renderDiscard(discarderSeat);
 
     const hand = hands[callerSeat];
@@ -2207,6 +2252,8 @@
     clearAllIppatsu(); // チーが成立した時点で一発は消える（誰の一発権であっても）
     playSfx(SFX.callChi); // チーが成立した瞬間に鳴らす
     discards.left.pop();
+    // 鳴かれて消えた捨て牌は、実配列(discards)からは消しつつ、見た目だけその位置に影として残す
+    discardShadows.left.push({ posIndex: discards.left.length, tile });
     renderDiscard("left");
     const handTiles = [];
     comboTiles.forEach(t => {
