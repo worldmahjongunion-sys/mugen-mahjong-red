@@ -387,6 +387,47 @@
     mix-blend-mode:multiply;
     pointer-events:none;
   }
+  /* 放銃牌（ロンされた捨て牌）は濃いピンクで示す。ツモ切り・ドラと同時に付く場合も
+     必ずこちらが勝つよう、組み合わせぶんのセレクタを全て用意する（クラス数が多いほど詳細） */
+  .tile.discard-houjuu::after,
+  .tile.discard-houjuu.discard-tsumogiri::after,
+  .tile.hand-dora.discard-houjuu::after,
+  .tile.hand-dora.discard-tsumogiri.discard-houjuu::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:rgba(214,20,90,0.55);
+    mix-blend-mode:multiply;
+    pointer-events:none;
+  }
+  /* 終局時の手牌・副露公開で、他家の待ち牌と一致する牌を薄い黄色で光らせる（放銃牌の濃いピンクとは別色） */
+  .tile.hand-atari::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:rgba(255,210,60,0.4);
+    mix-blend-mode:multiply;
+    pointer-events:none;
+  }
+  /* あたり牌×ドラ：黄色とドラの薄いピンクを混ぜた薄いオレンジ */
+  .tile.hand-dora.hand-atari::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:rgba(255,165,60,0.36);
+    mix-blend-mode:multiply;
+    pointer-events:none;
+  }
+  /* あたり牌×ツモ切りの水色：黄色と水色を混ぜた薄いグリーン。鳴かれたツモ切り牌を
+     副露面子側に映すdiscard-tsumogiriクラス（後述）と組み合わさる場合が主な想定 */
+  .tile.hand-atari.discard-tsumogiri::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    background:rgba(140,200,120,0.36);
+    mix-blend-mode:multiply;
+    pointer-events:none;
+  }
   /* リーチ宣言牌は箱の実寸(width/height)自体を鳴き牌と同じapplyMeldRotation()でswapして
      正しく横向きにしており（.discard-rowがflexboxなので、増えた幅ぶん段の中の後続の牌が
      自動的に押し出され重ならない）、通常はもうoverflow:hiddenで欠けることはないが、
@@ -1536,6 +1577,8 @@
       return ka - kb;
     });
     const { doraKey, riichiDoraKey } = currentDoraKeys();
+    // 終局（流局・和了）後の手牌公開画面でだけ、他家の待ち牌と一致する牌を光らせる
+    const atariKeys = gameEnded ? otherSeatsWaitKeys("bottom") : null;
 
     handMineEl.innerHTML = "";
 
@@ -1544,6 +1587,7 @@
     sorted.forEach(t => {
       const el = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
       applyHandDoraHighlight(el, t, doraKey, riichiDoraKey);
+      if(atariKeys) applyAtariHighlight(el, t, atariKeys);
       if(activeCallSelection){
         // チー/ポン/カンの選択中は、打牌ではなく「使う牌を選ぶ」クリックにする
         if(isCallSelectable(t)){
@@ -1567,6 +1611,7 @@
     if(lastDrawnTile){
       const el = tileEl(lastDrawnTile.suit, lastDrawnTile.num, tileClass(lastDrawnTile.suit, lastDrawnTile.num), lastDrawnTile.red);
       applyHandDoraHighlight(el, lastDrawnTile, doraKey, riichiDoraKey);
+      if(atariKeys) applyAtariHighlight(el, lastDrawnTile, atariKeys);
       el.classList.add("drawn");
       if(selfKanSelecting && isSelfKanSelectable(lastDrawnTile)){
         el.classList.add("callable");
@@ -1670,6 +1715,7 @@
       }
       applyHandDoraHighlight(tileElx, t, doraKey, riichiDoraKey); // 捨て牌もドラ・リーチドラを色分けする
       if(t.tsumogiri) tileElx.classList.add("discard-tsumogiri"); // ツモ切りは薄い水色で手出しと区別
+      if(t.houjuu) tileElx.classList.add("discard-houjuu"); // 放銃牌（ロンされた捨て牌）は濃いピンク
       const isRiichiTile = (t === riichiDeclareTile[name]);
       // リーチ宣言牌は他の捨て牌からさらに90度回して横向きに見せる。以前は箱の寸法は
       // 変えずimgだけ回してoverflow:visibleで見た目のはみ出しを許可していたが、それだと
@@ -1754,9 +1800,11 @@
     const others = (name === "right") ? sortedOthers.slice().reverse() : sortedOthers;
 
     const { doraKey, riichiDoraKey } = currentDoraKeys();
+    const atariKeys = otherSeatsWaitKeys(name); // このseat以外の待ち牌一覧（renderCpuHandFacesは終局時にしか呼ばれない）
     function makeFace(t){
       const d = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
       applyHandDoraHighlight(d, t, doraKey, riichiDoraKey); // 流局・和了で手牌を公開する時も色分けする
+      applyAtariHighlight(d, t, atariKeys); // 他家の待ち牌と一致する牌を光らせる
       applyMeldRotation(d, rotationDeg);
       return d;
     }
@@ -1820,6 +1868,9 @@
     // .meld-rowの厚みを牌の横幅ぶん増やす（CSSの.has-kan参照）。無ければ従来どおり
     const hasKan = melds[name].some(m => m.type === "ankan" || m.type === "kan");
     el.classList.toggle("has-kan", hasKan);
+    // 終局時のみ、副露面子の牌にもあたり牌ハイライトを適用する（見えている牌全部が対象のため）
+    const atariKeys = gameEnded ? otherSeatsWaitKeys(name) : null;
+    function markAtari(t, tEl){ if(atariKeys) applyAtariHighlight(tEl, t, atariKeys); }
     // 古く鳴いた組ほど手牌に近く、新しく鳴いた組ほど手牌から遠い側になるよう並べる
     melds[name].slice().reverse().forEach(m => {
       const group = document.createElement("div");
@@ -1839,6 +1890,7 @@
         const rowEls = m.handTiles.slice(0, 3).map(t => {
           if(revealAll){
             const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+            markAtari(t, tEl);
             applyMeldRotation(tEl, baseRot, scaleVar);
             return tEl;
           }
@@ -1851,6 +1903,7 @@
         if(name === "bottom" || revealAll){
           const stackedTile = m.handTiles.find(t => t.red) || m.handTiles[3];
           stackedEl = tileEl(stackedTile.suit, stackedTile.num, tileClass(stackedTile.suit, stackedTile.num), stackedTile.red);
+          markAtari(stackedTile, stackedEl);
         } else {
           // 伏せ牌の柄はCSSクラス側で向きが固定(imgの回転を使わない)されているため、
           // 通常の並び(rowBackCls)と同じクラスのまま積むと、積む向き(baseRot-90)と
@@ -1869,11 +1922,14 @@
         // 積む位置で誰から鳴いたかを示す（上家=左端／対面=中央／下家=右端、既存のpon/chiと同じ判定）
         const rowEls = m.handTiles.map(t => {
           const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+          markAtari(t, tEl);
           applyMeldRotation(tEl, baseRot, scaleVar);
           return tEl;
         });
         const stackedEl = tileEl(m.calledTile.suit, m.calledTile.num, tileClass(m.calledTile.suit, m.calledTile.num), m.calledTile.red);
         stackedEl.classList.add("meld-called");
+        if(m.calledTile.tsumogiri) stackedEl.classList.add("discard-tsumogiri"); // 鳴かれる前がツモ切りだった牌は、この面子側に薄い水色を残す
+        markAtari(m.calledTile, stackedEl);
         applyMeldRotation(stackedEl, baseRot - 90, scaleVar);
         const kanPosition = meldCalledPosition(name, m.calledFrom);
         const stackedIndex = kanPosition === "left" ? 0 : (kanPosition === "right" ? 2 : 1);
@@ -1884,12 +1940,15 @@
 
       const calledEl = tileEl(m.calledTile.suit, m.calledTile.num, tileClass(m.calledTile.suit, m.calledTile.num), m.calledTile.red);
       calledEl.classList.add("meld-called"); // 誰から鳴いたか分かるよう、その席の向きからさらに横向きにする
+      if(m.calledTile.tsumogiri) calledEl.classList.add("discard-tsumogiri"); // 鳴かれる前がツモ切りだった牌は、この面子側に薄い水色を残す
+      markAtari(m.calledTile, calledEl);
       // baseRot+90だと絵柄が上下逆になっていたため-90(=270度)にした（90と270はどちらも
       // 箱のswap判定(width/height入れ替え)は同じだが、中のSVGの見た目は180度違う）
       applyMeldRotation(calledEl, baseRot - 90, scaleVar);
 
       const handEls = m.handTiles.map(t => {
         const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+        markAtari(t, tEl);
         applyMeldRotation(tEl, baseRot, scaleVar);
         return tEl;
       });
@@ -1913,6 +1972,7 @@
       if(m.addedTile){
         const addedEl = tileEl(m.addedTile.suit, m.addedTile.num, tileClass(m.addedTile.suit, m.addedTile.num), m.addedTile.red);
         addedEl.classList.add("meld-called");
+        markAtari(m.addedTile, addedEl);
         applyMeldRotation(addedEl, baseRot - 90, scaleVar);
         ordered = buildKanGroup(name, flexDir, ordered, addedEl, calledIndex);
       }
@@ -3694,6 +3754,21 @@
     return getWaits(seat).length > 0;
   }
 
+  // 終局時の手牌公開用：seat以外の全員（テンパイしていれば）の待ち牌を1つのSetにまとめる
+  function otherSeatsWaitKeys(seat){
+    const keys = new Set();
+    ["bottom", "top", "left", "right"].forEach(s => {
+      if(s === seat) return;
+      getWaits(s).forEach(w => keys.add(tileKey(w)));
+    });
+    return keys;
+  }
+  // 手牌の中に「他家の待ち牌」と一致する牌があれば、放銃牌と同じ濃いピンクで光らせる
+  // （終局時の4人手牌公開画面が対象。gameEnded中にしか呼ばない想定）
+  function applyAtariHighlight(el, t, waitKeySet){
+    if(waitKeySet.has(tileKey(t))) el.classList.add("hand-atari");
+  }
+
   // フリテン判定：今の待ちのどれか1つでも、過去に自分で捨てていれば（鳴かれて消えていても）フリテン。
   // 同巡内フリテン・リーチ後の永続フリテンも合わせて見る
   function isFuriten(seat){
@@ -4549,6 +4624,16 @@
     gameEnded = true;
     if(result.isTsumo) playSfx(SFX.callTsumo); // ツモの瞬間（誰の和了でも）に鳴らす
     else playSfx(SFX.callRon); // ロンの瞬間（誰の和了でも）に鳴らす
+    if(!result.isTsumo){
+      // 放銃牌（ロンされた捨て牌）に印を付ける。ロン時は放銃者の捨て牌をpopしていないため、
+      // 河の最後の1枚が常にその牌（コメント参照：discards[discarderSeat].popは行わない設計）
+      const kawa = discards[loserSeat];
+      const houjuuTile = kawa[kawa.length - 1];
+      if(houjuuTile){
+        houjuuTile.houjuu = true;
+        renderDiscard(loserSeat); // 色分けを反映させるため、この河だけ再描画する
+      }
+    }
     // settle系を呼ぶ前に4人全員のscoresを控えておく（供託加算より前の、和了精算のみの差分を後で取るため）
     const seats = ["bottom", "top", "left", "right"];
     const scoresBefore = {};
