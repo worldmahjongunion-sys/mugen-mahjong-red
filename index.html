@@ -3754,12 +3754,33 @@
     return getWaits(seat).length > 0;
   }
 
-  // 終局時の手牌公開用：seat以外の全員（テンパイしていれば）の待ち牌を1つのSetにまとめる
+  // その席がまだ捨てていないツモ牌（あれば）。ツモ和了した本人は、和了牌が手牌に残ったまま
+  // 終局を迎えるため、getWaits()の「hands[seat]は13枚」という前提が崩れる
+  function pendingDrawnTile(seat){
+    return seat === "bottom" ? lastDrawnTile : lastDrawnCpu[seat];
+  }
+
+  // 終局時の待ち牌計算用：ツモ和了した本人だけは手牌に和了牌が残ったまま(14枚)のため、
+  // 一時的にそれを外して13枚の状態でgetWaits()を呼ぶ（流局時にテンパイのまま迎えた人や
+  // ロン和了した人は元々13枚なので、この処理は何もしないのと同じ）。呼び終えたら必ず戻す
+  function getWaitsForReveal(seat){
+    const hand = hands[seat];
+    const drawn = pendingDrawnTile(seat);
+    const idx = drawn ? hand.indexOf(drawn) : -1;
+    if(idx === -1) return getWaits(seat);
+    const removed = hand.splice(idx, 1)[0];
+    const waits = getWaits(seat);
+    hand.splice(idx, 0, removed);
+    return waits;
+  }
+
+  // 終局時の手牌公開用：seat以外の全員の待ち牌を1つのSetにまとめる。テンパイのまま流局した人と
+  // 同様に、和了者本人（ツモ・ロンいずれでも）の待ちも必ず含める
   function otherSeatsWaitKeys(seat){
     const keys = new Set();
     ["bottom", "top", "left", "right"].forEach(s => {
       if(s === seat) return;
-      getWaits(s).forEach(w => keys.add(tileKey(w)));
+      getWaitsForReveal(s).forEach(w => keys.add(tileKey(w)));
     });
     return keys;
   }
