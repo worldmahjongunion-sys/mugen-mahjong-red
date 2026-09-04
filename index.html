@@ -361,7 +361,7 @@
     content:"";
     position:absolute;
     inset:0;
-    background:rgba(90,180,230,0.4);
+    background:rgba(90,180,230,0.25);
     mix-blend-mode:multiply;
     pointer-events:none;
   }
@@ -372,18 +372,19 @@
     content:"";
     position:absolute;
     inset:0;
-    background:rgba(172,142,200,0.34);
+    background:rgba(172,142,200,0.24);
     mix-blend-mode:multiply;
     pointer-events:none;
   }
-  /* 鳴かれて消えた捨て牌の「影」：元の位置に、以前のツモ切り色と同じグレーで薄く残す。
-     discards配列には含めない見た目だけの表示なので、ドラ・ツモ切り色分けは付けない */
-  .tile.discard-called-shadow{ opacity:0.55; }
+  /* 鳴かれて消えた捨て牌の「影」：元の位置に、ツモ切りの水色より濃いグレーで沈ませて残す
+   （ツモ切りの薄い水色と見分けやすくするため）。discards配列には含めない見た目だけの
+     表示なので、ドラ・ツモ切り色分けは付けない */
+  .tile.discard-called-shadow{ opacity:0.45; }
   .tile.discard-called-shadow::after{
     content:"";
     position:absolute;
     inset:0;
-    background:rgba(120,120,120,0.38);
+    background:rgba(70,70,70,0.55);
     mix-blend-mode:multiply;
     pointer-events:none;
   }
@@ -707,7 +708,7 @@
     overflow-x:auto; /* 極端に狭い画面向けの保険。通常は1行に収まる想定 */
   }
   .row-btn{
-    background:var(--gold);
+    background:#F2C089;
     color:#3B2C08;
     border:none;
     border-radius:6px;
