@@ -4646,13 +4646,19 @@
     if(result.isTsumo) playSfx(SFX.callTsumo); // ツモの瞬間（誰の和了でも）に鳴らす
     else playSfx(SFX.callRon); // ロンの瞬間（誰の和了でも）に鳴らす
     if(!result.isTsumo){
-      // 放銃牌（ロンされた捨て牌）に印を付ける。ロン時は放銃者の捨て牌をpopしていないため、
-      // 河の最後の1枚が常にその牌（コメント参照：discards[discarderSeat].popは行わない設計）
+      // ロン牌は「鳴き」の延長として扱う：放銃者の河（実配列）からは取り除き、元の位置には
+      // チー・ポン・カンと同じdiscardShadows仕組みでグレーの影を残す（ロンだけ特別な色には
+      // しない。将来的に区別したくなった場合は別途検討する）。
+      // 取り除いた牌そのものは和了者の手牌に移し、ツモ和了時にlastDrawnTile/lastDrawnCpuが
+      // 指す「ツモ枠」と同じ位置に表示する（相手の捨て牌を持ってくる＝鳴きの一種という体裁）
       const kawa = discards[loserSeat];
-      const houjuuTile = kawa[kawa.length - 1];
-      if(houjuuTile){
-        houjuuTile.houjuu = true;
-        renderDiscard(loserSeat); // 色分けを反映させるため、この河だけ再描画する
+      const ronTile = kawa.pop();
+      if(ronTile){
+        discardShadows[loserSeat].push({ posIndex: kawa.length, tile: ronTile });
+        renderDiscard(loserSeat); // 影を反映させるため、この河だけ再描画する
+        hands[winnerSeat].push(ronTile);
+        if(winnerSeat === "bottom") lastDrawnTile = ronTile;
+        else lastDrawnCpu[winnerSeat] = ronTile;
       }
     }
     // settle系を呼ぶ前に4人全員のscoresを控えておく（供託加算より前の、和了精算のみの差分を後で取るため）
