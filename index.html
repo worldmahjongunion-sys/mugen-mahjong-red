@@ -1724,7 +1724,9 @@
       // applyMeldRotation()で正しくswapしても、同じ段の後続の牌がその増えた幅ぶんだけ
       // 自動的に押し出されるので重ならない（段の右端（各自から見て右側）は
       // .discard-grid側のborderを外してあるフリースペースなので、はみ出しても不自然にならない）
-      applyMeldRotation(tileElx, isRiichiTile ? baseRot + 90 : baseRot);
+      // 回転方向は鳴き牌(calledEl等)と揃えてbaseRot-90にする。+90だと絵柄が上下逆になる
+      // （90と270は箱のswap判定は同じだが中のSVGの見た目は180度違う。鳴き牌側の対応コメント参照）
+      applyMeldRotation(tileElx, isRiichiTile ? baseRot - 90 : baseRot);
       if(isRiichiTile) tileElx.classList.add("discard-riichi-tile");
       rows[groupIdx].appendChild(tileElx);
     });
