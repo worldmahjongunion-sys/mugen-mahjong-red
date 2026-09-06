@@ -1429,6 +1429,10 @@
   let pendingSelfKan = null; // { candidates: [{kind:"kakan"|"ankan", tile, meldIdx?}] } | null
   // pendingSelfKanの候補が2つ以上あり、カンボタンを押した後、手牌クリックでどちらか選んでいる最中かどうか
   let selfKanSelecting = false;
+  // リーチ後の自動ツモ切りタイマー（暗槓候補がある間だけ猶予を延ばす。無い時は従来通り550ms）と、
+  // その残り秒数をカンボタンに表示するためのインターバルID。カンが成立したら両方止める
+  let riichiAutoDiscardTimer = null;
+  let riichiAutoDiscardCountdownId = null;
   const hands = { bottom: myHandTiles, top: cpuTopTiles, left: cpuLeftTiles, right: cpuRightTiles };
   const discards = { top: [], left: [], right: [], bottom: [] };
   // 鳴かれて消えた捨て牌の「影」表示専用。discards（実配列）には含めない見た目だけの記録
@@ -2485,16 +2489,28 @@
         setTurnIndicator("あなたの番です（ツモ！）");
         return;
       }
-      setTurnIndicator("あなたの番です（リーチ中のため自動でツモ切りします）");
-      // CPUの打牌と同じ間（500〜600ms）を置いてから、引いた牌をそのまま捨てる
-      setTimeout(() => {
-        if(gameEnded) return;
-        // 折る②：ツモ和了できなかった＝この一巡での一発の権利は使い切ったので、
-        // 打牌の結果を待たずこの打牌をもって先に失効させる（ツモ和了した場合はここに来ない）。
-        // 自分の分だけ消す（他家がリーチしていればその一発権はまだ生きている）
-        ippatsuActive.bottom = false;
-        onDiscardMyTile(myHandTiles.indexOf(drawn));
-      }, 550);
+      // ツモ和了できなかった場合、リーチ後でも「牌姿が変わらない暗槓」が無いか確認する。
+      // 以前はここでcomputeSelfKanCandidatesが一度も呼ばれず、リーチ後に暗槓可能な牌を
+      // ツモってもカンボタンが出ないまま自動でツモ切りされてしまっていた（2026-09-06修正）。
+      updateSelfKanOpportunity(drawn);
+      updateActionButtons(); // 暗槓候補があればここでカンボタンが有効になる
+      if(pendingSelfKan && pendingSelfKan.candidates.length > 0){
+        // 暗槓できる牌がある間は猶予を10秒に延ばし、残り秒数をカンボタンに表示する。
+        // 押さずに経過したら、従来同様そのままツモ切りする
+        startRiichiKanWindow(drawn);
+      } else {
+        setTurnIndicator("あなたの番です（リーチ中のため自動でツモ切りします）");
+        // CPUの打牌と同じ間（500〜600ms）を置いてから、引いた牌をそのまま捨てる
+        riichiAutoDiscardTimer = setTimeout(() => {
+          riichiAutoDiscardTimer = null;
+          if(gameEnded) return;
+          // 折る②：ツモ和了できなかった＝この一巡での一発の権利は使い切ったので、
+          // 打牌の結果を待たずこの打牌をもって先に失効させる（ツモ和了した場合はここに来ない）。
+          // 自分の分だけ消す（他家がリーチしていればその一発権はまだ生きている）
+          ippatsuActive.bottom = false;
+          onDiscardMyTile(myHandTiles.indexOf(drawn));
+        }, 550);
+      }
       return;
     }
 
@@ -2502,6 +2518,48 @@
     updateSelfKanOpportunity(drawn);
     renderMyHand(true);
     updateActionButtons();
+  }
+
+  // リーチ後、自摸で暗槓可能な牌を引いた時の猶予（durationMs、既定10秒）。
+  // カンボタンに残り秒数を表示し、押さずに経過したら自動でそのままツモ切りする。
+  // カンが成立した場合はexecuteSelfKanCandidate側でclearRiichiKanWindow()を呼んで止める
+  function startRiichiKanWindow(drawn, durationMs){
+    durationMs = durationMs || 10000;
+    const kanBtn = document.getElementById("kanBtn");
+    let remainingMs = durationMs;
+    const showRemaining = () => {
+      if(kanBtn) kanBtn.textContent = "カン（" + Math.ceil(remainingMs / 1000) + "）";
+    };
+    showRemaining();
+    riichiAutoDiscardCountdownId = setInterval(() => {
+      remainingMs -= 1000;
+      if(remainingMs <= 0){
+        clearInterval(riichiAutoDiscardCountdownId);
+        riichiAutoDiscardCountdownId = null;
+        return;
+      }
+      showRemaining();
+    }, 1000);
+    riichiAutoDiscardTimer = setTimeout(() => {
+      riichiAutoDiscardTimer = null;
+      clearRiichiKanWindow();
+      if(gameEnded) return;
+      // 猶予内にカンが選ばれなかった＝暗槓の機会もこの一巡の一発権も使い切ったので、そのままツモ切り
+      ippatsuActive.bottom = false;
+      pendingSelfKan = null;
+      selfKanSelecting = false;
+      updateActionButtons();
+      onDiscardMyTile(myHandTiles.indexOf(drawn));
+    }, durationMs);
+  }
+
+  // startRiichiKanWindow()のタイマー・カウントダウン表示・カンボタンの文言を止めて元に戻す。
+  // カンが成立した時（executeSelfKanCandidate）に呼ぶ。何も動いていない時に呼んでも無害
+  function clearRiichiKanWindow(){
+    if(riichiAutoDiscardTimer){ clearTimeout(riichiAutoDiscardTimer); riichiAutoDiscardTimer = null; }
+    if(riichiAutoDiscardCountdownId){ clearInterval(riichiAutoDiscardCountdownId); riichiAutoDiscardCountdownId = null; }
+    const kanBtn = document.getElementById("kanBtn");
+    if(kanBtn) kanBtn.textContent = "カン";
   }
 
   // --- 自摸カン（加槓・暗槓）の候補判定 ---
@@ -2561,6 +2619,7 @@
   }
 
   function executeSelfKanCandidate(candidate){
+    clearRiichiKanWindow(); // リーチ中の猶予タイマー・カウントダウン表示中であれば止める
     pendingSelfKan = null;
     selfKanSelecting = false;
     if(candidate.kind === "kakan") executeKakan(candidate.meldIdx, candidate.tile);
@@ -4784,11 +4843,23 @@
       return;
     }
     if(pendingSelfKan && pendingSelfKan.candidates.length > 0){
-      // 加槓・暗槓をせず手牌に保留する＝通常の打牌に戻るだけなので、ターンを進める処理は不要
+      // 加槓・暗槓をせず手牌に保留する＝通常の打牌に戻るだけなので、ターンを進める処理は不要。
+      // ただし、リーチ後の自動ツモ切り猶予（startRiichiKanWindow）の最中にスルーした場合は
+      // 「カンしない」と決めた時点で残り秒数を待つ意味が無いので、即座にツモ切りする
       btn.disabled = false;
       btn.onclick = () => {
+        const inRiichiKanWindow = !!riichiAutoDiscardTimer; // クリック時点の状態を見る（クロージャで固定しない）
+        const tileToDiscard = lastDrawnTile;
         pendingSelfKan = null;
         selfKanSelecting = false;
+        if(inRiichiKanWindow){
+          clearRiichiKanWindow();
+          ippatsuActive.bottom = false;
+          updateActionButtons();
+          renderMyHand(true);
+          onDiscardMyTile(myHandTiles.indexOf(tileToDiscard));
+          return;
+        }
         updateActionButtons();
         renderMyHand(true);
       };
