@@ -2066,13 +2066,53 @@
     handleDiscard("bottom", discarded);
   }
 
+  // 頭ハネ：放銃者の下家（NEXT_SEAT）から時計回りに、放銃者以外の3席をこの順で並べる。
+  // 「自分が優先される」ような特別扱いはせず、自分もCPUもこの同じ順番で判定する
+  function headBumpOrder(discarderSeat){
+    const order = [];
+    let seat = NEXT_SEAT[discarderSeat];
+    for(let i = 0; i < 3; i++){ order.push(seat); seat = NEXT_SEAT[seat]; }
+    return order;
+  }
+
+  // order（headBumpOrder()の返り値、または自分がスルーした後の残り分＝Array.slice）を先頭から見て、
+  // ロン可能な最初の1人とその和了結果を返す。canRon自体がisFuriten()を見ているため、
+  // フリテン中の席は自動的に読み飛ばされ、次の順番の人が対象になる
+  function findHeadBumpRonWinner(order, tile){
+    for(const seat of order){
+      const result = canRon(seat, tile);
+      if(result) return { seat, result };
+    }
+    return null;
+  }
+
   // --- 打牌のあと：鳴きが入るか判定してから次に進む ---
   function handleDiscard(discarderSeat, tile){
     if(gameEnded) return;
     playSfx(SFX.discard); // 自分・CPU問わず、打牌のたび毎回鳴らす
 
+    // 頭ハネ：ロンできる人が複数いても、放銃者の下家から時計回りに見て最初の1人だけを和了とする。
+    // 自分(bottom)もCPUも同じ順番で判定するため、自分より先に和了できるCPUがいれば
+    // 自分にロンの選択肢自体を出さない（以前は自分の選択肢を無条件に優先していたため、
+    // 対面など他のCPUが同時にロン可能でも判定すらされないバグになっていた）
+    const ronOrder = headBumpOrder(discarderSeat);
+    const headBump = findHeadBumpRonWinner(ronOrder, tile);
+
+    if(headBump && headBump.seat !== "bottom"){
+      // 放銃者の捨て牌はそのまま河に残す（自分がCPUの捨て牌にロンする経路＝updateWinButton内の
+      // finalizeWin("bottom", ron.discarderSeat, ...)でも捨て牌をpopしていないため、それと合わせる。
+      // 以前はここでdiscards[discarderSeat].pop()していたため、CPUに振り込んだ瞬間だけ自分（や
+      // 他家）の最後の捨て牌が河から消えてしまい、「捨てていないのに放銃したことになっている」ように
+      // 見えるバグになっていた（鳴き＝pon/kan/chiで牌が面子として移動する時のpop処理を、
+      // 移動が発生しないロンにもそのまま流用してしまっていたのが原因）
+      finalizeWin(headBump.seat, discarderSeat, headBump.result);
+      return;
+    }
+
     if(discarderSeat !== "bottom"){
-      const ronResult = canRon("bottom", tile);
+      // headBump.seat==="bottom"の場合のみ自分のロン結果が入る（＝自分が頭ハネの1人目の時だけ）。
+      // 自分より先に和了できるCPUがいた場合はheadBumpの時点でreturn済みなのでここには来ない
+      const ronResult = headBump ? headBump.result : null;
       // リーチ後は一切鳴けない（ロンだけは可）。呼び鳴きの選択肢自体を作らないので、プロンプトも出ない
       const pon = !riichiDeclared.bottom && canPon(myHandTiles, tile);
       const kan = !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
@@ -2083,22 +2123,6 @@
         pendingCallContext = { discarderSeat };
         setTurnIndicator("和了・鳴きますか？（" + seatLabel[discarderSeat] + "の捨て牌）");
         updateActionButtons(); // 和了・チー・ポン・カン・スルーの各ボタンをまとめて更新する
-        return;
-      }
-    }
-
-    // CPUのロン判定（可能なら必ずロンする簡易AI）
-    // 放銃者の捨て牌はそのまま河に残す（自分がCPUの捨て牌にロンする経路＝updateWinButton内の
-    // finalizeWin("bottom", ron.discarderSeat, ...)でも捨て牌をpopしていないため、それと合わせる。
-    // 以前はここでdiscards[discarderSeat].pop()していたため、CPUに振り込んだ瞬間だけ自分（や
-    // 他家）の最後の捨て牌が河から消えてしまい、「捨てていないのに放銃したことになっている」ように
-    // 見えるバグになっていた（鳴き＝pon/kan/chiで牌が面子として移動する時のpop処理を、
-    // 移動が発生しないロンにもそのまま流用してしまっていたのが原因）
-    const ronCandidates = ["top", "left", "right"].filter(s => s !== discarderSeat);
-    for(const s of ronCandidates){
-      const result = canRon(s, tile);
-      if(result){
-        finalizeWin(s, discarderSeat, result);
         return;
       }
     }
@@ -4866,12 +4890,24 @@
     if(pendingCallContext){
       const ctx = pendingCallContext; // hideCallPrompt()がクリアする前にクロージャで確保しておく
       const hadRon = !!pendingRon; // ロン可能だった場面でスルーした＝フリテン。同じくクリア前に確保する
+      const tile = pendingCallOptions ? pendingCallOptions.tile : null; // 同じくクリア前に確保
       btn.disabled = false;
       btn.onclick = () => {
         hideCallPrompt();
         if(hadRon){
           furitenTemp.bottom = true;
           if(riichiDeclared.bottom) furitenRiichi.bottom = true;
+          // 頭ハネ：自分が権利を放棄した（ロンできたのにスルーした）以上、自分より後ろの席に
+          // ロン可能な人がいないか続けて見る。フリテンは席ごとに独立した状態
+          // （furitenTemp/furitenRiichiはseat別）なので、自分がフリテンになったこと自体は
+          // 後続の席のcanRon判定には影響しない
+          const order = headBumpOrder(ctx.discarderSeat);
+          const afterSelf = order.slice(order.indexOf("bottom") + 1);
+          const next = findHeadBumpRonWinner(afterSelf, tile);
+          if(next){
+            finalizeWin(next.seat, ctx.discarderSeat, next.result);
+            return;
+          }
         }
         advanceTurnAfterDiscard(ctx.discarderSeat);
       };
