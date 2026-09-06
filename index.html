@@ -1423,6 +1423,9 @@
   let pendingCallContext = null; // { discarderSeat } | null
   // 他家の捨て牌に対してチー・ポン・カンが可能な間だけ保持する状態（下段のチー/ポン/カンボタンに使う）
   let pendingCallOptions = null; // { discarderSeat, tile, pon, kan, chiShapes } | null
+  // 三家和（ロン可能な席が3つ揃った）が確定している間の状態。自分向けの鳴き・ロンプロンプトは
+  // 従来通り表示するが、存在する間はどのボタンを押しても選択を無視して強制的に流局へ進む
+  let pendingSankahou = null; // { discarderSeat, tile } | null
   // チー/ポン/カンボタンを押した後、実際に使う手牌を自分でクリックして選んでいる間の状態
   let activeCallSelection = null; // { type, discarderSeat, tile, shapes, selected:[] } | null
   // 自分のツモに対する加槓・暗槓の候補（ポップアップは出さず、下段のカン/スルーボタンで扱う）
@@ -2075,15 +2078,23 @@
     return order;
   }
 
-  // order（headBumpOrder()の返り値、または自分がスルーした後の残り分＝Array.slice）を先頭から見て、
-  // ロン可能な最初の1人とその和了結果を返す。canRon自体がisFuriten()を見ているため、
-  // フリテン中の席は自動的に読み飛ばされ、次の順番の人が対象になる
-  function findHeadBumpRonWinner(order, tile){
-    for(const seat of order){
+  // ダブロン対応：order（headBumpOrder()の返り値）の中でロン可能な「全員」を集めて返す。
+  // canRon自体がisFuriten()を見ているため、フリテン中の席は自動的に除外される
+  function findAllRonWinners(order, tile){
+    return order.map(seat => {
       const result = canRon(seat, tile);
-      if(result) return { seat, result };
-    }
-    return null;
+      return result ? { seat, result } : null;
+    }).filter(Boolean);
+  }
+
+  // pendingSankahou（三家和確定）が立っている間、和了・チー・ポン・カン・スルーのどのボタンが
+  // 押されても選択を無視して強制的に流局へ進める。呼び出し側は戻り値がtrueなら即returnする
+  function maybeForceSankahou(){
+    if(!pendingSankahou) return false;
+    const ctx = pendingSankahou;
+    pendingSankahou = null;
+    handleSankahou(ctx.discarderSeat); // 内部でhideCallPrompt()を呼ぶ（handleRyuukyokuと同じ構成）
+    return true;
   }
 
   // --- 打牌のあと：鳴きが入るか判定してから次に進む ---
@@ -2091,38 +2102,68 @@
     if(gameEnded) return;
     playSfx(SFX.discard); // 自分・CPU問わず、打牌のたび毎回鳴らす
 
-    // 頭ハネ：ロンできる人が複数いても、放銃者の下家から時計回りに見て最初の1人だけを和了とする。
-    // 自分(bottom)もCPUも同じ順番で判定するため、自分より先に和了できるCPUがいれば
-    // 自分にロンの選択肢自体を出さない（以前は自分の選択肢を無条件に優先していたため、
-    // 対面など他のCPUが同時にロン可能でも判定すらされないバグになっていた）
+    // ダブロン対応：放銃者の下家から時計回りに見て、ロン可能な全員を集める。
+    // 3人（＝放銃者以外の全席）がロン可能なら三家和として強制流局、1〜2人ならその全員が和了する
     const ronOrder = headBumpOrder(discarderSeat);
-    const headBump = findHeadBumpRonWinner(ronOrder, tile);
+    const winners = findAllRonWinners(ronOrder, tile);
 
-    if(headBump && headBump.seat !== "bottom"){
-      // 放銃者の捨て牌はそのまま河に残す（自分がCPUの捨て牌にロンする経路＝updateWinButton内の
-      // finalizeWin("bottom", ron.discarderSeat, ...)でも捨て牌をpopしていないため、それと合わせる。
-      // 以前はここでdiscards[discarderSeat].pop()していたため、CPUに振り込んだ瞬間だけ自分（や
-      // 他家）の最後の捨て牌が河から消えてしまい、「捨てていないのに放銃したことになっている」ように
-      // 見えるバグになっていた（鳴き＝pon/kan/chiで牌が面子として移動する時のpop処理を、
-      // 移動が発生しないロンにもそのまま流用してしまっていたのが原因）
-      finalizeWin(headBump.seat, discarderSeat, headBump.result);
-      return;
-    }
-
-    if(discarderSeat !== "bottom"){
-      // headBump.seat==="bottom"の場合のみ自分のロン結果が入る（＝自分が頭ハネの1人目の時だけ）。
-      // 自分より先に和了できるCPUがいた場合はheadBumpの時点でreturn済みなのでここには来ない
-      const ronResult = headBump ? headBump.result : null;
-      // リーチ後は一切鳴けない（ロンだけは可）。呼び鳴きの選択肢自体を作らないので、プロンプトも出ない
+    if(winners.length === 3){
+      // 3人（自分含む）が全員ロン可能＝三家和。discarderSeatが"bottom"以外なら自分も含まれるため、
+      // 従来通り自分向けの鳴き・ロンプロンプトは見せる（選択の結果は無視して強制的に流局にする＝
+      // maybeForceSankahouが各ボタンの先頭で処理する）。discarderSeat==="bottom"（自分の打牌にCPU
+      // 3人全員がロン可能）の場合は自分の選択肢が無いのでそのまま流局にする
+      if(discarderSeat === "bottom"){
+        handleSankahou(discarderSeat);
+        return;
+      }
+      pendingSankahou = { discarderSeat, tile };
       const pon = !riichiDeclared.bottom && canPon(myHandTiles, tile);
       const kan = !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
       const chi = (!riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
-      pendingRon = ronResult ? { discarderSeat, result: ronResult } : null;
-      if(ronResult || pon || kan || chi.length > 0){
+      const selfWin = winners.find(w => w.seat === "bottom");
+      pendingRon = selfWin ? { discarderSeat, result: selfWin.result } : null;
+      pendingCallOptions = { discarderSeat, tile, pon, kan, chiShapes: chi };
+      pendingCallContext = { discarderSeat };
+      setTurnIndicator("三家和（流局）となります");
+      updateActionButtons();
+      return;
+    }
+
+    if(winners.length > 0){
+      const selfWin = winners.find(w => w.seat === "bottom");
+      if(!selfWin){
+        // 自分は含まれない（CPU1〜2人が対象）：選択の余地が無いため即座に全員分を確定する
+        finalizeRon(winners, discarderSeat);
+        return;
+      }
+      if(winners.length === 1){
+        // 自分だけがロン可能：従来通り、和了・鳴き・スルーを選ばせる
+        const pon = !riichiDeclared.bottom && canPon(myHandTiles, tile);
+        const kan = !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
+        const chi = (!riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
+        pendingRon = { discarderSeat, result: selfWin.result };
         pendingCallOptions = { discarderSeat, tile, pon, kan, chiShapes: chi };
         pendingCallContext = { discarderSeat };
         setTurnIndicator("和了・鳴きますか？（" + seatLabel[discarderSeat] + "の捨て牌）");
         updateActionButtons(); // 和了・チー・ポン・カン・スルーの各ボタンをまとめて更新する
+        return;
+      }
+      // 自分＋CPU1人（2人ダブロン）：ロン可能な全員が和了するというルール上、選択の余地が無いため
+      // 自分の和了ボタン操作を待たず即座に全員分を確定する
+      finalizeRon(winners, discarderSeat);
+      return;
+    }
+
+    if(discarderSeat !== "bottom"){
+      // ロンは誰も出来ない。チー・ポン・カンの選択肢だけ確認する
+      const pon = !riichiDeclared.bottom && canPon(myHandTiles, tile);
+      const kan = !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
+      const chi = (!riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
+      if(pon || kan || chi.length > 0){
+        pendingCallOptions = { discarderSeat, tile, pon, kan, chiShapes: chi };
+        pendingCallContext = { discarderSeat };
+        setTurnIndicator("鳴きますか？（" + seatLabel[discarderSeat] + "の捨て牌）");
+        updateActionButtons();
         return;
       }
     }
@@ -2199,6 +2240,7 @@
   // --- チー・ポン・カンは下段ボタンで即成立、組み合わせが複数ある時だけ手牌クリックで選ぶ ---
   // （赤5が絡んでポン/チーの結果が変わる場合など。カンは常に1通りなので必ず即成立する）
   function startCallSelection(type){
+    if(maybeForceSankahou()) return; // 三家和確定中は選択を無視して強制流局にする
     if(!pendingCallOptions) return;
     const opts = pendingCallOptions;
     const combos = callComboOptions(type, opts.tile, opts.chiShapes);
@@ -4259,115 +4301,81 @@
     }
   }
 
-  function settleTsumo(winnerSeat, base){
+  // ==================== 精算：点数計算（副作用なし） ====================
+  // ダブロン対応（2026-09-06詳細設計）で、旧settleTsumo/settleRon/settleYakumanTsumo/
+  // settleYakumanRon/settleYakunashi/settleAkaBonus/applyHonbaBonusの7関数（scores[]を直接
+  // 書き換えていた）を、計算だけ行いscores[]には一切触れない2関数に統合した。
+  // 「全員分の名目額を先に出し切ってから実際の支払い総額を確定し、最後にまとめてscores[]を
+  // 動かす」ことで、複数人ロンの精算中に名目上受け取りすぎている状態を経由しないようにするため。
+  // 計算式そのものは旧7関数から変更していない
+
+  // ロン1人分の名目上の受取額を計算する。result.yakunashi/result.han>=13/通常役の3分岐は
+  // 従来のfinalizeWinと同じ。honbaCountはこの局開始時点の本場数
+  function computeRonAmount(winnerSeat, loserSeat, result, honbaCount){
+    const isDealer = winnerSeat === DEALER_SEAT;
+    const honbaBonus = honbaCount > 0 ? honbaCount * 1500 : 0; // 旧applyHonbaBonusのロン分岐
+    if(result.yakunashi){
+      // 旧settleYakunashiのロン分岐：子1,000点・親1,500点を基準に、ドラは同単位で加算。
+      // 赤牌は親子・ツモロン問わず1枚につき1,000点
+      const unitRate = isDealer ? 1500 : 1000;
+      const baseAndDora = unitRate * (1 + result.indicatorDoraCount);
+      const akaBonus = result.akaCount * 1000;
+      return { seat: winnerSeat, nominalGain: baseAndDora + akaBonus + honbaBonus, akaBonus, honbaBonus };
+    }
+    if(result.han >= 13){
+      // 旧settleYakumanRon：役満は固定点数（親48,000点・子32,000点）
+      const base = isDealer ? 48000 : 32000;
+      const akaBonus = result.akaCount * 2000; // 旧settleAkaBonusのロン分岐
+      return { seat: winnerSeat, nominalGain: base + akaBonus + honbaBonus, akaBonus, honbaBonus };
+    }
+    // 旧settleRon
+    const base = Math.ceil(result.base * (isDealer ? 6 : 4) / 100) * 100;
+    const akaBonus = result.akaCount * 2000;
+    return { seat: winnerSeat, nominalGain: base + akaBonus + honbaBonus, akaBonus, honbaBonus };
+  }
+
+  // ツモの他家3人分の支払額を計算する。戻り値：{ payments:[{seat,amount}], nominalGain, akaBonus, honbaBonus }
+  // akaBonus/honbaBonusは3人合計（表示用の内訳行にそのまま使える単位）
+  function computeTsumoAmounts(winnerSeat, result, honbaCount){
     const isDealer = winnerSeat === DEALER_SEAT;
     const others = ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat);
-    let total = 0;
-    others.forEach(s => {
-      const pay = isDealer
+    const honbaPerSeat = honbaCount > 0 ? honbaCount * 500 : 0; // 旧applyHonbaBonusのツモ分岐
+    let baseBySeat;
+    if(result.yakunashi){
+      // 旧settleYakunashiのツモ分岐：親子を問わず500点(+ドラ1につき500点)オールを3人から。
+      // 赤牌（1枚1,000点）もこのshareに含む
+      const share = 500 * (1 + result.indicatorDoraCount) + result.akaCount * 1000;
+      baseBySeat = () => share;
+    } else if(result.han >= 13){
+      baseBySeat = s => isDealer ? 16000 : (s === DEALER_SEAT ? 16000 : 8000); // 旧settleYakumanTsumo
+    } else {
+      const base = result.base;
+      baseBySeat = s => isDealer // 旧settleTsumo
         ? Math.ceil(base * 2 / 100) * 100
         : (s === DEALER_SEAT ? Math.ceil(base * 2 / 100) * 100 : Math.ceil(base / 100) * 100);
-      scores[s] -= pay;
-      total += pay;
-    });
-    scores[winnerSeat] += total;
-  }
-
-  function settleRon(winnerSeat, loserSeat, base){
-    const isDealer = winnerSeat === DEALER_SEAT;
-    const pay = Math.ceil(base * (isDealer ? 6 : 4) / 100) * 100;
-    scores[loserSeat] -= pay;
-    scores[winnerSeat] += pay;
-  }
-
-  // 役満（13翻以上）は通常の計算式ではなく、親48,000点・子32,000点の固定点数にする
-  function settleYakumanTsumo(winnerSeat){
-    const isDealer = winnerSeat === DEALER_SEAT;
-    const others = ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat);
-    let total = 0;
-    others.forEach(s => {
-      const pay = isDealer ? 16000 : (s === DEALER_SEAT ? 16000 : 8000);
-      scores[s] -= pay;
-      total += pay;
-    });
-    scores[winnerSeat] += total;
-  }
-
-  function settleYakumanRon(winnerSeat, loserSeat){
-    const isDealer = winnerSeat === DEALER_SEAT;
-    const pay = isDealer ? 48000 : 32000;
-    scores[loserSeat] -= pay;
-    scores[winnerSeat] += pay;
-  }
-
-  // 赤牌ボーナス：ドラ扱いにせず、1枚につき2,000点の直接ボーナス（親でも子でも同額）
-  // ツモなら3人からそれぞれ2,000点（合計6,000点）、ロンなら相手から2,000点
-  function settleAkaBonus(winnerSeat, loserSeat, akaCount, isTsumo){
-    if(!akaCount) return 0;
-    if(isTsumo){
-      const perOpponent = akaCount * 2000;
-      const others = ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat);
-      others.forEach(s => { scores[s] -= perOpponent; });
-      const total = perOpponent * others.length;
-      scores[winnerSeat] += total;
-      return total;
-    } else {
-      const amount = akaCount * 2000;
-      scores[loserSeat] -= amount;
-      scores[winnerSeat] += amount;
-      return amount;
     }
+    // 役なしはbaseBySeatに赤牌ぶんを既に含むため、ここでの追加加算は0にする（二重計上防止）
+    const akaPerSeat = result.yakunashi ? 0 : result.akaCount * 2000; // 旧settleAkaBonusのツモ分岐
+    const payments = others.map(s => ({ seat: s, amount: baseBySeat(s) + akaPerSeat + honbaPerSeat }));
+    const nominalGain = payments.reduce((sum, p) => sum + p.amount, 0);
+    const akaBonus = result.yakunashi ? result.akaCount * 1000 * others.length : akaPerSeat * others.length;
+    const honbaBonus = honbaPerSeat * others.length;
+    return { payments, nominalGain, akaBonus, honbaBonus };
   }
 
-  // 役なし和了の精算（簡易ルール）：子1,000点・親1,500点を基準に、
-  // ドラは基準と同じ単位（子1,000点/親1,500点）で1枚ごとに加算。この基礎点+ドラ分は
-  // 「合計額」なので、ロンなら1人がそのまま払う。ツモは3人均等ではなく「子1・親2」の比で払う：
-  //   子の和了→子payer=合計/4・親payer=合計/2（2人×1/4 + 1人×1/2 = 合計）
-  //   親の和了→支払う3人は全員子なので合計/3の均等
-  // 単位が子1,000点/親1,500点なのでこの比で割り切れる（子payerは250の倍数、親payerは500の倍数）。
-  // 100点単位に揃うとは限らないが端数は出ないため、切り上げ処理は不要。
-  // 赤牌だけは親子・ツモロン問わず1枚につき1,000点を、支払う側1人あたりの額として加算する
-  function settleYakunashi(winnerSeat, loserSeat, indicatorDoraCount, akaCount, isTsumo){
-    const isDealer = winnerSeat === DEALER_SEAT;
-    if(isTsumo){
-      // 役なし自摸和了は親・子を問わず「500点(+ドラ1につき500点)オールを3人から」で統一する
-      // （子の自摸だけ親が倍払いになる通常の按分はしない。ユーザー要望2026-09-03）
-      const share = 500 * (1 + indicatorDoraCount) + akaCount * 1000;
-      const others = ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat);
-      let total = 0;
-      others.forEach(s => {
-        scores[s] -= share;
-        total += share;
-      });
-      scores[winnerSeat] += total;
-      return total;
-    } else {
-      const unitRate = isDealer ? 1500 : 1000;
-      const baseAndDora = unitRate * (1 + indicatorDoraCount); // 基礎点+ドラの合計額
-      const perShare = baseAndDora + akaCount * 1000;
-      scores[loserSeat] -= perShare;
-      scores[winnerSeat] += perShare;
-      return perShare;
-    }
+  // total（100点単位とは限らない）をseats（seat名の配列）で均等割りし、100点未満切り捨てた
+  // 基礎額を全員に配り、割り切れずに残った端数（500点未満になるはず）はloserSeatに最も近い席
+  // （headBumpOrder順）に渡す。供託の端数配分・トビ精算の不足時均等割りの両方で使う共通ヘルパー
+  function splitEvenlyWithRemainderToClosestSeat(total, seats, loserSeat){
+    const n = seats.length;
+    const base = Math.floor(total / n / 100) * 100;
+    const remainder = total - base * n;
+    const order = headBumpOrder(loserSeat);
+    const sorted = seats.slice().sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    return sorted.map((seat, i) => ({ seat, amount: base + (i === 0 ? remainder : 0) }));
   }
 
   // ==================== 半荘進行ロジック（局・本場・親交代・終了判定） ====================
-
-  // 本場ボーナス：ロンなら放銃者から、ツモなら他家3人からそれぞれ、本場1につき合計1,500点を
-  // 和了者へ加算する（ロン+1,500点/本場、ツモ+500点/本場×3人）。honbaCountはこの局開始時点の本場数
-  function applyHonbaBonus(honbaCount, isTsumo, winnerSeat, loserSeat){
-    if(honbaCount <= 0) return 0;
-    const total = honbaCount * 1500;
-    if(isTsumo){
-      ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat).forEach(s => {
-        scores[s] -= honbaCount * 500;
-      });
-    } else {
-      scores[loserSeat] -= total;
-    }
-    scores[winnerSeat] += total;
-    return total;
-  }
 
   // 流局時のテンパイ料精算：ノーテンの人がテンパイの人それぞれに1,000点ずつ払う
 
@@ -4600,13 +4608,17 @@
   // bustSeat：和了によるトビの場合、finalizeWin側で「支払い切れず0点止めした席」を明示的に渡す
   // （持ち点の上限で精算する以上、この時点でscoresはもう負数を持たないため、負数チェックでは
   // トビを検出できない。ryuukyoku（流局）由来のトビはこれまで通りcheckMatchEndの負数チェックに任せる）
-  function proceedOrEndMatch(renchan, winnerSeat, bustSeat){
+  // winnerSeats：この局の和了者（複数可、無ければ[]）。トビ賞10,000点は和了者の人数で
+  // 均等分配する（ダブロン対応、設計④）。単独なら従来通り全額1人が受け取る
+  function proceedOrEndMatch(renchan, winnerSeats, bustSeat){
+    const seatsWon = winnerSeats || [];
     const finishedKyoku = kyokuNumber;
     const reason = bustSeat ? { type: "bust", seat: bustSeat } : checkMatchEnd(scores, finishedKyoku);
     if(reason){
-      if(reason.type === "bust" && winnerSeat){
+      if(reason.type === "bust" && seatsWon.length > 0){
+        const shares = splitEvenlyWithRemainderToClosestSeat(10000, seatsWon, reason.seat);
         scores[reason.seat] -= 10000;
-        scores[winnerSeat] += 10000;
+        shares.forEach(sh => { scores[sh.seat] += sh.amount; });
         renderScores();
       }
       clearMatchState();
@@ -4630,7 +4642,7 @@
     notenSeats.forEach(s => { scores[s] -= lossEach; });
   }
 
-  function showRyuukyokuResult(tenpaiSeats, notenSeats){
+  function showRyuukyokuResult(tenpaiSeats, notenSeats, titleText){
     const box = document.getElementById("resultBox");
     box.style.display = "block";
     // 全員テンパイ／全員ノーテンは点数移動が発生しない（settleRyuukyoku側で0扱い）ので、
@@ -4644,7 +4656,7 @@
       const deltaText = delta > 0 ? "＋" + delta + "点" : (delta < 0 ? "－" + (-delta) + "点" : "±0点");
       return `<div class="result-yaku">${seatLabel[s]}　${deltaText}</div>`;
     }).join("");
-    box.innerHTML = `<div class="result-title">流局</div>` + rows;
+    box.innerHTML = `<div class="result-title">${titleText || "流局"}</div>` + rows;
   }
 
   // 山が尽きた（誰もツモれなくなった）ときの流局処理。
@@ -4665,35 +4677,49 @@
     renderMyHand(false);
     revealAllHands(); // 流局時も4人全員の手牌を公開する
     fitTileSize(); // 公開した牌の実寸に合わせて再計算し、自分の手牌がボタン行と被らないようにする
-    proceedOrEndMatch(false); // 上がり連荘：流局は常に親交代
+    proceedOrEndMatch(false, []); // 上がり連荘：流局は常に親交代
   }
 
-  // totalGain: 精算後に和了者の持ち点が実際に何点増えたか（供託の総取り分も含む）。
-  // 「持ち点がいきなり変わるだけで分からない」を解消するため、常にこの実数を表示する
-  // paymentsBySeat: finalizeWinで本場ボーナス適用後に控えた、各家の実際の支払額（seat -> 点数）。
-  // 本場ボーナスは合算済み。供託は勝者のscoresにしか加算しないため、他家のpaymentsBySeatには影響しない
-  // collectedKyotaku: この和了で供託から受け取った額（0なら「リーチ供託」の行を出さない）
-  // honbaCount/honbaBonusTotal: 「◯本場」の内訳行を出すための値（0なら行を出さない）。
-  // paymentsBySeat/totalGainには既に合算済みなので、この行は内訳の補足表示という位置づけ
-  function showResult(seat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat, collectedKyotaku, honbaCount, honbaBonusTotal){
-    const box = document.getElementById("resultBox");
-    box.style.display = "block";
-    const title = result.isTsumo ? (seatLabel[seat] + "のツモ") : (seatLabel[seat] + "のロン（" + seatLabel[loserSeat] + "から）");
-    const isTsumo = result.isTsumo;
-    const isDealer = seat === DEALER_SEAT;
+  // 三家和（ロン可能な席が3つ揃った時点）による強制流局。ユーザー確定事項：自分がスルーできる／
+  // できないに関係なく資格ベースで確定する。ノーテン料の精算・親交代の扱いは通常の荒牌平局と同じ
+  // （テンパイ／ノーテン判定に和了の資格自体は影響しないため、そのままisTenpaiに委ねてよい）
+  function handleSankahou(discarderSeat){
+    gameEnded = true;
+    const seats = ["bottom", "right", "top", "left"];
+    const tenpaiSeats = seats.filter(isTenpai);
+    const notenSeats = seats.filter(s => !tenpaiSeats.includes(s));
+    settleRyuukyoku(tenpaiSeats, notenSeats);
+    renderScores();
+    if(tenpaiSeats.length > 0 && notenSeats.length > 0) playRandomPoints();
+    showRyuukyokuResult(tenpaiSeats, notenSeats, "三家和により流局");
+    setTurnIndicator("");
+    hideCallPrompt();
+    renderMyHand(false);
+    revealAllHands();
+    fitTileSize();
+    proceedOrEndMatch(false, []);
+  }
 
-    // 役名の括弧書き（例:「役牌（三元牌）」の（三元牌）部分）は表示しない
-    const stripParen = name => name.replace(/（[^）]*）/g, "");
-    // 表示だけの短縮名（役判定側のnameキーは変更しない）
-    const DISPLAY_NAME_ALIAS = { "門前清自摸和": "門前清", "リーチドラ": "Rドラ" };
-    const displayNameOf = name => DISPLAY_NAME_ALIAS[name] || stripParen(name);
-
-    const row = (name, hanText, pts, cls) =>
-      `<div class="result-row${cls ? " " + cls : ""}">` +
+  // 役名の括弧書き（例:「役牌（三元牌）」の（三元牌）部分）は表示しない
+  function stripParen(name){ return name.replace(/（[^）]*）/g, ""); }
+  // 表示だけの短縮名（役判定側のnameキーは変更しない）
+  const DISPLAY_NAME_ALIAS = { "門前清自摸和": "門前清", "リーチドラ": "Rドラ" };
+  function displayNameOf(name){ return DISPLAY_NAME_ALIAS[name] || stripParen(name); }
+  function row(name, hanText, pts, cls){
+    return `<div class="result-row${cls ? " " + cls : ""}">` +
       `<span class="col-name">${name}</span>` +
       `<span class="col-han">${hanText}</span>` +
       `<span class="col-pts">${pts}</span>` +
       `</div>`;
+  }
+
+  // 和了者1人分の見出し＋役一覧（役・飜・点数の行）を組み立てる。単独用のshowResult・
+  // 複数用のshowMultiResultの両方から呼ぶ（ダブロン対応で切り出し）。供託・本場・合計行は
+  // ここに含めず、呼び出し側でまとめて付け足す
+  function buildYakuRows(seat, result, loserSeat, bonusTotal){
+    const title = result.isTsumo ? (seatLabel[seat] + "のツモ") : (seatLabel[seat] + "のロン（" + seatLabel[loserSeat] + "から）");
+    const isTsumo = result.isTsumo;
+    const isDealer = seat === DEALER_SEAT;
 
     let rowsHtml = "";
     if(result.yakunashi){
@@ -4706,7 +4732,7 @@
         rowsHtml += row("ドラ×" + doraCount, "", doraCount * unitRate);
       }
       if(result.akaCount > 0){
-        const payers = isTsumo ? 3 : 1; // settleYakunashiは赤1枚につき支払う側1人あたり1,000点
+        const payers = isTsumo ? 3 : 1; // 役なしは赤1枚につき支払う側1人あたり1,000点
         rowsHtml += row("<span class=\"bonus-red-text\">赤</span>×" + result.akaCount + (isTsumo ? "(自摸)" : ""), "", result.akaCount * 1000 * payers);
       }
     } else {
@@ -4735,16 +4761,29 @@
         rowsHtml += row("<span class=\"bonus-red-text\">赤</span>×" + result.akaCount + (isTsumo ? "(自摸)" : ""), "", bonusTotal);
       }
     }
+    return { title, rowsHtml };
+  }
 
+  // 単独の和了（ツモ・単独ロン）用の結果表示。
+  // totalGain: 精算後に和了者の持ち点が実際に何点増えたか（供託の総取り分も含む）
+  // paymentsBySeat: 各家の実際の支払額（seat -> 点数、本場ボーナス込み）
+  // collectedKyotaku: この和了で供託から受け取った額（0なら「リーチ供託」の行を出さない）
+  // honbaCount/honbaBonusTotal: 「◯本場」の内訳行を出すための値（0なら行を出さない）
+  function showResult(seat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat, collectedKyotaku, honbaCount, honbaBonusTotal){
+    const box = document.getElementById("resultBox");
+    box.style.display = "block";
+    const { title, rowsHtml } = buildYakuRows(seat, result, loserSeat, bonusTotal);
+
+    let extraHtml = "";
     if(collectedKyotaku > 0){
-      rowsHtml += row("リーチ供託", "", collectedKyotaku);
+      extraHtml += row("リーチ供託", "", collectedKyotaku);
     }
     if(honbaBonusTotal > 0){
-      rowsHtml += row(honbaCount + "本場", "", honbaBonusTotal);
+      extraHtml += row(honbaCount + "本場", "", honbaBonusTotal);
     }
 
     let totalHtml;
-    if(isTsumo){
+    if(result.isTsumo){
       const others = ["bottom", "top", "left", "right"].filter(s => s !== seat);
       const amounts = others.map(s => paymentsBySeat[s]);
       const allSame = amounts.every(a => a === amounts[0]);
@@ -4758,46 +4797,48 @@
 
     box.innerHTML =
       `<div class="result-title">${title}</div>` +
-      rowsHtml +
+      rowsHtml + extraHtml +
       totalHtml;
   }
 
+  // ダブロン用：和了者ごとにbuildYakuRowsで縦に積み、供託・本場・不足時の注記は
+  // 全ブロックの下に1回だけ表示する（設計⑤）
+  function showMultiResult(winners, claims, loserSeat, finalAmounts, collectedKyotakuTotal, honbaCount, honbaBonusTotal, isShort){
+    const box = document.getElementById("resultBox");
+    box.style.display = "block";
+    const blocksHtml = winners.map(w => {
+      const claim = claims.find(c => c.seat === w.seat);
+      const amount = finalAmounts.find(a => a.seat === w.seat).amount;
+      const { title, rowsHtml } = buildYakuRows(w.seat, w.result, loserSeat, claim.akaBonus);
+      return `<div class="result-title">${title}</div>` + rowsHtml + row("", "", amount, "total-row");
+    }).join("");
+
+    let extraHtml = "";
+    if(collectedKyotakuTotal > 0){
+      extraHtml += row("リーチ供託", "", collectedKyotakuTotal);
+    }
+    if(honbaBonusTotal > 0){
+      extraHtml += row(honbaCount + "本場", "", honbaBonusTotal);
+    }
+    if(isShort){
+      extraHtml += `<div class="result-yaku">放銃者の持ち点不足のため、受取額は均等精算されています</div>`;
+    }
+    box.innerHTML = blocksHtml + extraHtml;
+  }
+
+  // ツモの精算（単独のみ。同時多発ツモは存在しないため常に単一勝者）
   function finalizeWin(winnerSeat, loserSeat, result){
     gameEnded = true;
-    if(result.isTsumo) playSfx(SFX.callTsumo); // ツモの瞬間（誰の和了でも）に鳴らす
-    else playSfx(SFX.callRon); // ロンの瞬間（誰の和了でも）に鳴らす
-    if(!result.isTsumo){
-      // ロン牌は「鳴き」の延長として扱う：放銃者の河（実配列）からは取り除き、元の位置には
-      // チー・ポン・カンと同じdiscardShadows仕組みでグレーの影を残す（ロンだけ特別な色には
-      // しない。将来的に区別したくなった場合は別途検討する）。
-      // 取り除いた牌そのものは和了者の手牌に移し、ツモ和了時にlastDrawnTile/lastDrawnCpuが
-      // 指す「ツモ枠」と同じ位置に表示する（相手の捨て牌を持ってくる＝鳴きの一種という体裁）
-      const kawa = discards[loserSeat];
-      const ronTile = kawa.pop();
-      if(ronTile){
-        discardShadows[loserSeat].push({ posIndex: kawa.length, tile: ronTile });
-        renderDiscard(loserSeat); // 影を反映させるため、この河だけ再描画する
-        hands[winnerSeat].push(ronTile);
-        if(winnerSeat === "bottom") lastDrawnTile = ronTile;
-        else lastDrawnCpu[winnerSeat] = ronTile;
-      }
-    }
-    // settle系を呼ぶ前に4人全員のscoresを控えておく（供託加算より前の、和了精算のみの差分を後で取るため）
+    playSfx(SFX.callTsumo); // ツモの瞬間（誰の和了でも）に鳴らす
+
     const seats = ["bottom", "top", "left", "right"];
     const scoresBefore = {};
     seats.forEach(s => { scoresBefore[s] = scores[s]; });
-    let bonusTotal;
-    if(result.yakunashi){
-      bonusTotal = settleYakunashi(winnerSeat, loserSeat, result.indicatorDoraCount, result.akaCount, result.isTsumo);
-    } else if(result.han >= 13){
-      if(result.isTsumo) settleYakumanTsumo(winnerSeat);
-      else settleYakumanRon(winnerSeat, loserSeat);
-      bonusTotal = settleAkaBonus(winnerSeat, loserSeat, result.akaCount, result.isTsumo);
-    } else {
-      if(result.isTsumo) settleTsumo(winnerSeat, result.base);
-      else settleRon(winnerSeat, loserSeat, result.base);
-      bonusTotal = settleAkaBonus(winnerSeat, loserSeat, result.akaCount, result.isTsumo);
-    }
+
+    const tsumo = computeTsumoAmounts(winnerSeat, result, honba);
+    tsumo.payments.forEach(p => { scores[p.seat] -= p.amount; });
+    scores[winnerSeat] += tsumo.nominalGain;
+
     let collectedKyotaku = 0; // この和了で実際に受け取った供託額（表示用。riichiSticksをリセットする前に控えておく）
     if(riichiSticks > 0 && riichiDeclared[winnerSeat]){
       collectedKyotaku = riichiSticks * 1000;
@@ -4805,11 +4846,7 @@
       riichiSticks = 0;
       updateKyotakuDisplay();
     }
-    // 本場ボーナス：この局の開始時点の本場数（honba）を使う。ロンなら放銃者から、
-    // ツモなら他家3人からそれぞれ、本場1につき合計1,500点を和了者へ加算する。
-    // honbaBonusTotalは「◯本場」の内訳行に、paymentsBySeat（下）は「◯◯ALL」・ロンの合計行に、
-    // それぞれ本場ボーナス込みの金額として使う（内訳行と合計欄の両方に出す＝合算はしても内訳は消さない）
-    const honbaBonusTotal = applyHonbaBonus(honba, result.isTsumo, winnerSeat, loserSeat);
+
     // 支払う側の持ち点を超える精算はしない（ハウスルール）：名目上の合計点数がその人の
     // 持ち点を上回っていた場合でも、実際に支払えるのは0点になるまでの分だけとし、
     // 0点未満（マイナス）にはしない。和了者が名目上の全額を受け取ってしまっている分（＝
@@ -4827,23 +4864,104 @@
         bustSeatThisHand = s;
       }
     });
-    // 各家の実際の支払額（控えておいた値－現在値）を集計する。供託を除く（供託は場からの受け取りで
-    // 特定の支払者がいないため）本場ボーナス適用後の値を使うことで、結果パネルの合計欄
-    // （ツモの「◯◯ALL」・ロンの合計）に本場ボーナス込みの実額をそのまま表示できる。
-    // 比率からの逆算はしない：赤牌ボーナスは親子に関係なく1枚につき各家2,000点の均等払いのため、
-    // 通常役の飜による2:1の比が崩れる。実際の支払額を足し上げれば、親の和了は自然に3人同額になる。
+
     const paymentsBySeat = {};
     seats.forEach(s => { paymentsBySeat[s] = scoresBefore[s] - scores[s]; });
     const totalGain = scores[winnerSeat] - scoresBefore[winnerSeat];
     renderScores();
     playRandomPoints(); // 点棒を払う音（和了は必ず点数が動くので無条件に鳴らす）
-    showResult(winnerSeat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat, collectedKyotaku, honba, honbaBonusTotal);
+    showResult(winnerSeat, result, loserSeat, tsumo.akaBonus, totalGain, paymentsBySeat, collectedKyotaku, honba, tsumo.honbaBonus);
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
     revealAllHands(); // 和了時も4人全員の手牌を公開する
     fitTileSize(); // 公開した牌の実寸に合わせて再計算し、自分の手牌がボタン行と被らないようにする
-    proceedOrEndMatch(winnerSeat === DEALER_SEAT, winnerSeat, bustSeatThisHand); // 親の和了＝連荘、それ以外＝親交代
+    proceedOrEndMatch(winnerSeat === DEALER_SEAT, [winnerSeat], bustSeatThisHand); // 親の和了＝連荘、それ以外＝親交代
+  }
+
+  // ロンの精算（単独・複数どちらも）。winnersは[{seat, result}]（単独ロンなら要素1件）。
+  // 設計②のステップ通り、全員分の名目額を先に出し切ってから実際の支払い総額を確定し、
+  // 最後にまとめてscores[]を動かす（途中で名目上受け取りすぎている状態を経由しない）
+  function finalizeRon(winners, loserSeat){
+    gameEnded = true;
+    playSfx(SFX.callRon); // ロンの瞬間（誰の和了でも）に鳴らす
+
+    // ロン牌は「鳴き」の延長として扱う：放銃者の河（実配列）からは取り除き、元の位置には
+    // チー・ポン・カンと同じdiscardShadows仕組みでグレーの影を残す。取り除いた牌そのものは
+    // 代表者（先頭の和了者）の手牌に移し、単独ロンの見た目をそのまま踏襲する
+    const kawa = discards[loserSeat];
+    const ronTile = kawa.pop();
+    if(ronTile){
+      discardShadows[loserSeat].push({ posIndex: kawa.length, tile: ronTile });
+      renderDiscard(loserSeat); // 影を反映させるため、この河だけ再描画する
+      const primarySeat = winners[0].seat;
+      hands[primarySeat].push(ronTile);
+      if(primarySeat === "bottom") lastDrawnTile = ronTile;
+      else lastDrawnCpu[primarySeat] = ronTile;
+    }
+
+    const seats = ["bottom", "top", "left", "right"];
+    const scoresBefore = {};
+    seats.forEach(s => { scoresBefore[s] = scores[s]; });
+
+    // 1. 全員分の名目上の請求額を先に出し切る（この時点ではscores[]に触れない）
+    const claims = winners.map(w => computeRonAmount(w.seat, loserSeat, w.result, honba));
+    const totalNominal = claims.reduce((sum, c) => sum + c.nominalGain, 0);
+
+    // 2. 放銃者の持ち点と比較し、実際に支払う総額を確定する
+    const availableFromLoser = scores[loserSeat];
+    const actualTotal = Math.min(totalNominal, availableFromLoser);
+    const isShort = actualTotal < totalNominal;
+
+    // 3. 各和了者の最終受取額（不足が無ければ名目通り、不足があれば均等割り＋端数は放銃者に近い席）
+    const finalAmounts = isShort
+      ? splitEvenlyWithRemainderToClosestSeat(actualTotal, winners.map(w => w.seat), loserSeat)
+      : claims.map(c => ({ seat: c.seat, amount: c.nominalGain }));
+
+    // 4. 供託：単独ロンの既存挙動（自身がリーチを宣言している和了者だけが対象）を一般化する。
+    // 該当者が複数いれば折半（端数は放銃者に近い席）、1人なら全額、0人ならこの局は供託を動かさない
+    const kyotakuEligible = winners.filter(w => riichiDeclared[w.seat]).map(w => w.seat);
+    const collectedKyotakuBySeat = {};
+    let collectedKyotakuTotal = 0;
+    if(riichiSticks > 0 && kyotakuEligible.length > 0){
+      collectedKyotakuTotal = riichiSticks * 1000;
+      splitEvenlyWithRemainderToClosestSeat(collectedKyotakuTotal, kyotakuEligible, loserSeat)
+        .forEach(sh => { collectedKyotakuBySeat[sh.seat] = sh.amount; });
+      riichiSticks = 0;
+      updateKyotakuDisplay();
+    }
+
+    // 5. ここで初めて、まとめてscores[]を動かす（本場ボーナスは既にclaimsのnominalGainに合算済み）
+    finalAmounts.forEach(a => {
+      scores[a.seat] += a.amount + (collectedKyotakuBySeat[a.seat] || 0);
+    });
+    scores[loserSeat] -= actualTotal;
+    const bustSeatThisHand = isShort ? loserSeat : null; // ロンは放銃者が単一なので、不足時の飛びは常にこの席
+
+    const paymentsBySeat = {};
+    seats.forEach(s => { paymentsBySeat[s] = scoresBefore[s] - scores[s]; });
+
+    renderScores();
+    playRandomPoints(); // 点棒を払う音（和了は必ず点数が動くので無条件に鳴らす）
+
+    if(winners.length === 1){
+      const w = winners[0];
+      const claim = claims[0];
+      const totalGain = scores[w.seat] - scoresBefore[w.seat];
+      showResult(w.seat, w.result, loserSeat, claim.akaBonus, totalGain, paymentsBySeat,
+        collectedKyotakuBySeat[w.seat] || 0, honba, claim.honbaBonus);
+    } else {
+      const honbaBonusTotal = claims.reduce((sum, c) => sum + c.honbaBonus, 0);
+      showMultiResult(winners, claims, loserSeat, finalAmounts, collectedKyotakuTotal, honba, honbaBonusTotal, isShort);
+    }
+
+    setTurnIndicator("");
+    hideCallPrompt();
+    renderMyHand(false);
+    revealAllHands(); // 和了時も4人全員の手牌を公開する
+    fitTileSize(); // 公開した牌の実寸に合わせて再計算し、自分の手牌がボタン行と被らないようにする
+    const renchan = winners.some(w => w.seat === DEALER_SEAT); // 親が和了者に含まれれば連荘
+    proceedOrEndMatch(renchan, winners.map(w => w.seat), bustSeatThisHand);
   }
 
   // 下段の「和了」ボタンはツモとロンを兼ねる。
@@ -4860,7 +4978,11 @@
     if(pendingRon){
       const ron = pendingRon; // hideCallPrompt()がpendingRonをnullにする前にクロージャで確保しておく
       btn.disabled = false;
-      btn.onclick = () => { hideCallPrompt(); finalizeWin("bottom", ron.discarderSeat, ron.result); };
+      btn.onclick = () => {
+        if(maybeForceSankahou()) return; // 三家和確定中は選択を無視して強制流局にする
+        hideCallPrompt();
+        finalizeRon([{ seat: "bottom", result: ron.result }], ron.discarderSeat);
+      };
       return;
     }
     if(!lastDrawnTile){
@@ -4890,24 +5012,17 @@
     if(pendingCallContext){
       const ctx = pendingCallContext; // hideCallPrompt()がクリアする前にクロージャで確保しておく
       const hadRon = !!pendingRon; // ロン可能だった場面でスルーした＝フリテン。同じくクリア前に確保する
-      const tile = pendingCallOptions ? pendingCallOptions.tile : null; // 同じくクリア前に確保
       btn.disabled = false;
       btn.onclick = () => {
+        if(maybeForceSankahou()) return; // 三家和確定中は選択を無視して強制流局にする
         hideCallPrompt();
         if(hadRon){
           furitenTemp.bottom = true;
           if(riichiDeclared.bottom) furitenRiichi.bottom = true;
-          // 頭ハネ：自分が権利を放棄した（ロンできたのにスルーした）以上、自分より後ろの席に
-          // ロン可能な人がいないか続けて見る。フリテンは席ごとに独立した状態
-          // （furitenTemp/furitenRiichiはseat別）なので、自分がフリテンになったこと自体は
-          // 後続の席のcanRon判定には影響しない
-          const order = headBumpOrder(ctx.discarderSeat);
-          const afterSelf = order.slice(order.indexOf("bottom") + 1);
-          const next = findHeadBumpRonWinner(afterSelf, tile);
-          if(next){
-            finalizeWin(next.seat, ctx.discarderSeat, next.result);
-            return;
-          }
+          // ダブロン対応：findAllRonWinnersが打牌時点でロン可能な全員を既に洗い出し済みのため、
+          // 自分だけが対象だった（winners.length===1）からこそこの単独スルー分岐に来ている。
+          // 自分がスルーした後に改めて他の席を見る必要はない（見つかるとすれば最初から
+          // winnersに含まれているはず）
         }
         advanceTurnAfterDiscard(ctx.discarderSeat);
       };
