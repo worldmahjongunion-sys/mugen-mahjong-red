@@ -1,3 +1,8 @@
+<!--
+  一人麻雀 (mugen-mahjong-red)
+  Copyright (c) 2026 World Mahjong Union
+  テスト目的の個人利用に限る。再配布・改変・公開は禁止。詳細はREADME.txtを参照。
+-->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -938,10 +943,6 @@
 </head>
 <body>
 
-<!-- ズンダモン音声(VOICEVOX)の通信状況を画面上に小さく表示するデバッグ表示。
-     DevToolsを開かなくても状態が分かるようにするための常設パネル。
-     普段は「待機中」の薄い表示のみ、エラー時は赤字でメッセージを表示する。 -->
-<div id="voicevoxDebug" style="position:fixed; left:4px; bottom:4px; z-index:9999; font-size:11px; line-height:1.4; padding:3px 6px; border-radius:4px; background:rgba(0,0,0,0.55); color:#ccc; font-family:monospace; max-width:60vw; pointer-events:none;">ずんだもん音声: 待機中</div>
 
 <div class="board">
 
@@ -4383,84 +4384,39 @@
 
   // 流局時のテンパイ料精算：ノーテンの人がテンパイの人それぞれに1,000点ずつ払う
 
-  // ==================== ズンダモン音声アナウンス(VOICEVOX連携) ====================
-  // ローカルで起動しているVOICEVOX Engine(既定ポート50021)のREST APIを呼び出して、
-  // 局の節目・トビ/コールド終了・最終順位を実際にずんだもんの声で読み上げる。
-  // VOICEVOXが起動していない環境ではfetchが失敗するだけなので、必ずcatchで握りつぶし
-  // 無音フォールバックにする（音声関連の失敗でゲーム進行を止めないこと最優先）
-  const VOICEVOX_BASE = "http://127.0.0.1:50021";
-  // 話者(style) IDはVOICEVOXのバージョン・インストール環境で変わりうるため、決め打ちにせず
-  // /speakers から「ずんだもん」の「ノーマル」スタイルIDを毎回引く（取得できなければ3を使う。
-  // 3は多くのVOICEVOX配布版で「ずんだもん(ノーマル)」に割り当てられている既定値）
-  let zundamonStyleIdPromise = null;
-  function getZundamonStyleId(){
-    if(!zundamonStyleIdPromise){
-      zundamonStyleIdPromise = fetch(VOICEVOX_BASE + "/speakers")
-        .then(res => res.json())
-        .then(speakers => {
-          const zunda = speakers.find(s => s.name === "ずんだもん");
-          const normal = zunda && zunda.styles.find(st => st.name === "ノーマル");
-          return normal ? normal.id : 3;
-        })
-        .catch(() => 3);
-    }
-    return zundamonStyleIdPromise;
-  }
-
-  // DevToolsを開かなくても状態が分かるよう、通信の様子を画面左下の常設パネルに反映する
-  function setVoicevoxDebug(text, isError){
-    const el = document.getElementById("voicevoxDebug");
-    if(!el) return;
-    el.textContent = "ずんだもん音声: " + text;
-    el.style.color = isError ? "#ff6b6b" : "#ccc";
-  }
-
-  // 発声どうしが重ならないよう、1本の待ち行列に直列化して順番に再生する
-  let zundamonQueue = Promise.resolve();
-  function speakZundamon(text){
-    zundamonQueue = zundamonQueue.catch(() => {}).then(async () => {
-      setVoicevoxDebug("「" + text + "」再生準備中…", false);
-      const speaker = await getZundamonStyleId();
-      const queryRes = await fetch(
-        VOICEVOX_BASE + "/audio_query?speaker=" + speaker + "&text=" + encodeURIComponent(text),
-        { method: "POST" }
-      );
-      if(!queryRes.ok) throw new Error("audio_query失敗 status=" + queryRes.status);
-      const query = await queryRes.json();
-      const synthRes = await fetch(
-        VOICEVOX_BASE + "/synthesis?speaker=" + speaker,
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(query) }
-      );
-      if(!synthRes.ok) throw new Error("synthesis失敗 status=" + synthRes.status);
-      const blob = await synthRes.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      setVoicevoxDebug("「" + text + "」再生中", false);
-      await new Promise(resolve => {
-        audio.onended = resolve;
-        audio.onerror = resolve;
-        audio.play().catch(resolve);
-      });
-      URL.revokeObjectURL(url);
-      setVoicevoxDebug("待機中(直前:「" + text + "」再生完了)", false);
-    }).catch(err => {
-      // VOICEVOX未起動・CORS拒否などでの失敗はゲーム進行自体は止めず、
-      // 画面のパネルに赤字でエラー内容だけ残す（DevTools不要で原因が分かるように）
-      setVoicevoxDebug("エラー(" + (err && err.message ? err.message : String(err)) + ") ※VOICEVOXが起動していないか、CORS設定(cors_policy_mode)がallになっていない可能性があります", true);
-    });
+  // ==================== ズンダモン音声アナウンス(静的ファイル同梱・配布版) ====================
+  // 元はローカルのVOICEVOX Engine(127.0.0.1:50021)へその都度問い合わせて音声合成していたが、
+  // 配布先PCにVOICEVOXが入っている保証は無いため、固定セリフは開発環境でVOICEVOXを使い
+  // 一度だけ生成し、既存の効果音(sounds/)と同じ静的ファイルとして同梱・再生する方式に変更した。
+  // これにより配布版は127.0.0.1（VOICEVOX）への通信を一切行わない
+  const ZUNDAMON_VOICE = {
+    ura: "sounds/voice-ura.ogg",               // 「うらにゅうなのだ」（裏入り）
+    lastBefore: "sounds/voice-lastbefore.ogg", // 「ラス前なのだ」
+    owarasu: "sounds/voice-owarasu.ogg",       // 「オーラスなのだ」
+    bust: "sounds/voice-bust.ogg",             // 「飛び終了なのだ」
+    cold: "sounds/voice-cold.ogg",             // 「コールド終了なのだ」
+    rank1: "sounds/voice-rank1.ogg",           // 「トップなのだ」
+    rank2: "sounds/voice-rank2.ogg",           // 「2着なのだ」
+    rank3: "sounds/voice-rank3.ogg",           // 「3着なのだ」
+    rank4: "sounds/voice-rank4.ogg"            // 「ラスなのだ」
+  };
+  function speakZundamon(key){
+    playSfx(ZUNDAMON_VOICE[key]);
   }
 
   // 局の節目のセリフ。honba===0は「この局数に入った最初の手（連荘で戻ってきたのではない）」を
   // 意味するので、これで判定すれば同じ局に連荘で何度いても1回しか鳴らない
   function announceKyokuMilestone(){
     if(honba !== 0) return;
-    if(kyokuNumber === 5) speakZundamon("うらにゅうなのだ"); // 漢字「裏入」だとVOICEVOXが「うらいり」と読んでしまうため、ひらがな指定で「うらにゅう」に固定
-    else if(kyokuNumber === 7) speakZundamon("ラス前なのだ");
-    else if(kyokuNumber === 8) speakZundamon("オーラスなのだ");
+    if(kyokuNumber === 5) speakZundamon("ura");
+    else if(kyokuNumber === 7) speakZundamon("lastBefore");
+    else if(kyokuNumber === 8) speakZundamon("owarasu");
   }
 
-  // 「12局45分15秒」のように読み上げ用の文言を組み立てる（1時間以上かかった場合だけ時間も含める）
-  function formatElapsedForSpeech(ms){
+  // 「12局45分15秒」のように画面表示用の文言を組み立てる（1時間以上かかった場合だけ時間も含める）。
+  // 元は音声読み上げにも使っていたが、可変の数字を毎回音声合成するのは静的ファイル方式と
+  // 相性が悪い（音声を用意できない）ため読み上げはやめ、画面表示のみに残した
+  function formatElapsedText(ms){
     const totalSeconds = Math.max(0, Math.round(ms / 1000));
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -4468,15 +4424,13 @@
     return (hours > 0 ? hours + "時間" : "") + minutes + "分" + seconds + "秒";
   }
 
-  // 対局終了時のセリフ。終了理由(トビ／コールド)→自分(bottom)の最終順位→対局時間と局数、の順で鳴らす
+  // 対局終了時のセリフ。終了理由(トビ／コールド)→自分(bottom)の最終順位、の順で鳴らす。
+  // 対局時間・局数は可変で音声を用意できないため読み上げず、showFinalStandings側で画面表示のみ行う
   function announceMatchEnd(reason, ranked){
-    if(reason.type === "bust") speakZundamon("飛び終了なのだ");
-    else if(reason.type === "over70000") speakZundamon("コールド終了なのだ");
+    if(reason.type === "bust") speakZundamon("bust");
+    else if(reason.type === "over70000") speakZundamon("cold");
     const myRank = ranked.indexOf("bottom") + 1;
-    const rankText = myRank === 1 ? "トップ" : (myRank === 4 ? "ラス" : (myRank + "着"));
-    speakZundamon(rankText + "なのだ");
-    const elapsed = formatElapsedForSpeech(Date.now() - matchStartTime);
-    speakZundamon(handsPlayedCount + "局" + elapsed + "で終了なのだ");
+    speakZundamon("rank" + myRank);
   }
 
   // ==================== 効果音・鳴きボイス(ユーザー提供の音声ファイル) ====================
@@ -4586,6 +4540,7 @@
   function showFinalStandings(reason){
     const { ranked, umaBySeat } = computeUmaBySeat(scores);
     announceMatchEnd(reason, ranked);
+    const elapsedText = formatElapsedText(Date.now() - matchStartTime); // 音声化はしないが画面には残す
     const rows = ranked.map((s, i) => {
       const uma = umaBySeat[s];
       const rawDiff = scores[s] - 40000;
@@ -4598,7 +4553,7 @@
     }).join("");
     document.getElementById("finalStandings").innerHTML =
       `<div class="final-title">対局終了</div>` +
-      `<div class="final-reason">${finalReasonText(reason)}</div>` +
+      `<div class="final-reason">${finalReasonText(reason)}／${handsPlayedCount}局 ${elapsedText}</div>` +
       `<div class="final-rank-row final-rank-header">` +
       `<span></span><span></span><span>素点(40,000基準)</span><span>順位点</span><span>合計</span></div>` +
       rows;
