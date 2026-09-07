@@ -2121,7 +2121,7 @@
       const kan = !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
       const chi = (!riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
       const selfWin = winners.find(w => w.seat === "bottom");
-      pendingRon = selfWin ? { discarderSeat, result: selfWin.result } : null;
+      pendingRon = selfWin ? { discarderSeat, result: selfWin.result, allWinners: winners } : null;
       pendingCallOptions = { discarderSeat, tile, pon, kan, chiShapes: chi };
       pendingCallContext = { discarderSeat };
       setTurnIndicator("三家和（流局）となります");
@@ -2132,25 +2132,29 @@
     if(winners.length > 0){
       const selfWin = winners.find(w => w.seat === "bottom");
       if(!selfWin){
-        // 自分は含まれない（CPU1〜2人が対象）：選択の余地が無いため即座に全員分を確定する
+        // 自分は含まれない（CPUだけが対象）：選択の余地が無いため即座に全員分を確定する
         finalizeRon(winners, discarderSeat);
         return;
       }
-      if(winners.length === 1){
-        // 自分だけがロン可能：従来通り、和了・鳴き・スルーを選ばせる
-        const pon = !riichiDeclared.bottom && canPon(myHandTiles, tile);
-        const kan = !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
-        const chi = (!riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
-        pendingRon = { discarderSeat, result: selfWin.result };
-        pendingCallOptions = { discarderSeat, tile, pon, kan, chiShapes: chi };
-        pendingCallContext = { discarderSeat };
-        setTurnIndicator("和了・鳴きますか？（" + seatLabel[discarderSeat] + "の捨て牌）");
-        updateActionButtons(); // 和了・チー・ポン・カン・スルーの各ボタンをまとめて更新する
-        return;
-      }
-      // 自分＋CPU1人（2人ダブロン）：ロン可能な全員が和了するというルール上、選択の余地が無いため
-      // 自分の和了ボタン操作を待たず即座に全員分を確定する
-      finalizeRon(winners, discarderSeat);
+      // 自分がロン可能な当事者に含まれる場合は、他にもロン可能な席がいるダブロンでも
+      // 単独ロンと同様に和了・スルーの意思確認を挟む（以前はここでwinners.length>1の場合だけ
+      // 確認を飛ばして即finalizeRonしており、それが実戦で報告されたバグの原因だった）。
+      // 自分以外の当事者は自分の選択に関わらずロンが確定する：
+      // - 和了を選べばwinBtn側でallWinners全員分をfinalizeRonする
+      // - スルー/鳴きを選べばthroughBtn・鳴き確定側でallWinnersから自分を除いた分をfinalizeRonする
+      // ダブロン時は鳴きで割り込む余地が無い（他家のロンがこの牌に対して既に確定している以上、
+      // 同じ牌を鳴きに使うことはできない）ため、鳴き選択肢は単独ロンの時だけ提示する
+      const isMultiRon = winners.length > 1;
+      const pon = !isMultiRon && !riichiDeclared.bottom && canPon(myHandTiles, tile);
+      const kan = !isMultiRon && !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
+      const chi = (!isMultiRon && !riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
+      pendingRon = { discarderSeat, result: selfWin.result, allWinners: winners };
+      pendingCallOptions = { discarderSeat, tile, pon, kan, chiShapes: chi };
+      pendingCallContext = { discarderSeat };
+      setTurnIndicator(isMultiRon
+        ? "ダブロンです。和了しますか？（" + seatLabel[discarderSeat] + "の捨て牌）"
+        : "和了・鳴きますか？（" + seatLabel[discarderSeat] + "の捨て牌）");
+      updateActionButtons(); // 和了・チー・ポン・カン・スルーの各ボタンをまとめて更新する
       return;
     }
 
@@ -4981,7 +4985,9 @@
       btn.onclick = () => {
         if(maybeForceSankahou()) return; // 三家和確定中は選択を無視して強制流局にする
         hideCallPrompt();
-        finalizeRon([{ seat: "bottom", result: ron.result }], ron.discarderSeat);
+        // ダブロンでも自分が和了を選んだ場合は当事者全員（allWinners）分を確定する。
+        // 自分だけが対象だった単独ロンではallWinners=[{seat:"bottom",...}]なので従来と同じ結果になる
+        finalizeRon(ron.allWinners || [{ seat: "bottom", result: ron.result }], ron.discarderSeat);
       };
       return;
     }
@@ -5012,6 +5018,11 @@
     if(pendingCallContext){
       const ctx = pendingCallContext; // hideCallPrompt()がクリアする前にクロージャで確保しておく
       const hadRon = !!pendingRon; // ロン可能だった場面でスルーした＝フリテン。同じくクリア前に確保する
+      // ダブロン対応：findAllRonWinnersが打牌時点でロン可能な全員（自分含む）を洗い出し済み。
+      // 自分がスルーしても、自分以外の当事者のロンは自分の選択に関わらず確定させる必要がある
+      const otherRonWinners = (hadRon && pendingRon.allWinners)
+        ? pendingRon.allWinners.filter(w => w.seat !== "bottom")
+        : [];
       btn.disabled = false;
       btn.onclick = () => {
         if(maybeForceSankahou()) return; // 三家和確定中は選択を無視して強制流局にする
@@ -5019,10 +5030,11 @@
         if(hadRon){
           furitenTemp.bottom = true;
           if(riichiDeclared.bottom) furitenRiichi.bottom = true;
-          // ダブロン対応：findAllRonWinnersが打牌時点でロン可能な全員を既に洗い出し済みのため、
-          // 自分だけが対象だった（winners.length===1）からこそこの単独スルー分岐に来ている。
-          // 自分がスルーした後に改めて他の席を見る必要はない（見つかるとすれば最初から
-          // winnersに含まれているはず）
+        }
+        if(otherRonWinners.length > 0){
+          // 自分はスルーしたが、他にロン可能な席がいた（ダブロン）：そちらは確定して局を終える
+          finalizeRon(otherRonWinners, ctx.discarderSeat);
+          return;
         }
         advanceTurnAfterDiscard(ctx.discarderSeat);
       };
