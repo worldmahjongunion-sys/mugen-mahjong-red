@@ -726,6 +726,14 @@
   .row-btn:disabled{
     opacity:0.35;
   }
+  /* 邪魔ポン：3秒間、まだ行使できる割り込み（ポン・カン・ロン）のボタンを光らせ続ける */
+  @keyframes nadaponPulse{
+    0%,100%{ box-shadow:0 2px 0 rgba(0,0,0,0.3), 0 0 0 0 rgba(255,80,60,0.7); }
+    50%{ box-shadow:0 2px 0 rgba(0,0,0,0.3), 0 0 8px 3px rgba(255,80,60,0.9); }
+  }
+  .row-btn.nadapon-glow{
+    animation:nadaponPulse 0.8s ease-in-out infinite;
+  }
   .hand-row.mine .tile.clickable{
     cursor:pointer;
     transition:transform 0.12s ease;
@@ -1427,6 +1435,26 @@
   // 三家和（ロン可能な席が3つ揃った）が確定している間の状態。自分向けの鳴き・ロンプロンプトは
   // 従来通り表示するが、存在する間はどのボタンを押しても選択を無視して強制的に流局へ進む
   let pendingSankahou = null; // { discarderSeat, tile } | null
+
+  // ==================== 邪魔ポン（一度スルーしたポン・カンを、後から取り消して成立させ直す） ====================
+  // 自分がロンを見送った牌を覚えておく状態。ポン/カン/チーを選んだ、またはスルーした時点で記録し、
+  // その牌が誰かに邪魔ポンされて「ポン」が保留中の間だけ、和了ボタンでロンを取り戻せるようにする。
+  // CPUは「ロン可能なら必ずロンする」簡易AIのため見逃し自体が起きず、bottom専用の状態でよい
+  let passedRon = { bottom: null }; // bottom: { tile, discarderSeat } | null
+
+  // チーの発声(仮成立)から3秒間、ポン・カンでの上書き（邪魔ポン）を受け付けている間の状態。
+  // nullの間は邪魔ポンの対象になる保留チーが存在しないことを示す
+  let nadaponWindow = null;
+  /* {
+    discarderSeat, tile, chiSeat,
+    overrideCount,                 // 上書き回数（上限NADAPON_MAX_OVERRIDES）
+    current: { kind:"chi"|"pon"|"kan", seat, tiles },  // 現在有効な、まだ未公開・未確定の宣言
+    bottomPon, bottomKan,          // 自分がまだ行使していない邪魔ポンの選択肢
+    bottomRon,                     // 自分が一度スルーしたロンを、現在の宣言(ポン限定)に対して取り戻せるか
+    timerId
+  } */
+  const NADAPON_WINDOW_MS = 3000;
+  const NADAPON_MAX_OVERRIDES = 3;
   // チー/ポン/カンボタンを押した後、実際に使う手牌を自分でクリックして選んでいる間の状態
   let activeCallSelection = null; // { type, discarderSeat, tile, shapes, selected:[] } | null
   // 自分のツモに対する加槓・暗槓の候補（ポップアップは出さず、下段のカン/スルーボタンで扱う）
@@ -2159,13 +2187,14 @@
       return;
     }
 
-    // ロンは誰も出来ない。チー・ポン・カンの優先順位（ポン・カン > チー）に沿って判定する
+    // ロンは誰も出来ない。チー・ポン・カンの優先順位に沿った判定へ進む（邪魔ポン対応）
     resolveMeldCalls(discarderSeat, tile);
   }
 
-  // ==================== 鳴きの優先順位判定（ポン・カン > チー） ====================
+  // ==================== 鳴きの優先順位判定（ポン・カン > チー）＋ 邪魔ポン ====================
   // 実際の麻雀と同じ優先順位で鳴きを判定する：まずポン・カンの資格者（自分優先、次にCPU）を確認し、
-  // 誰も取らなければチーの番に進む。CPUのチーもここで判断する（従来はプレイヤーのみ対応だった）
+  // 誰も取らなければチーの番に進む。ポン・カンの資格者が「一度スルー」した後にチーが成立した場合は、
+  // resolveChiStage/voiceChiAndMaybeOpenWindowが、その資格者が後から邪魔ポンできる余地を追跡する
   function resolveMeldCalls(discarderSeat, tile){
     const bottomPon = discarderSeat !== "bottom" && !riichiDeclared.bottom && canPon(myHandTiles, tile);
     const bottomKan = discarderSeat !== "bottom" && !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
@@ -2179,7 +2208,7 @@
       updateActionButtons();
       return;
     }
-    resolveChiStage(discarderSeat, tile, bottomChiShapes);
+    resolveChiStage(discarderSeat, tile, bottomChiShapes, null);
   }
 
   // discarderSeatの捨て牌をチーできる可能性がある唯一の席（CPUのみ。bottomは呼び出し側で別途扱う）。
@@ -2189,16 +2218,31 @@
     return (seat && !riichiDeclared[seat]) ? seat : null;
   }
 
-  // ポン・カンでは誰も取らなかった段階の処理。自分にもポン・カンの資格が無い（または今しがた
-  // スルーした）状態で、チーの番へ進める
-  function resolveChiStage(discarderSeat, tile, bottomChiShapes){
-    const cpuCall = maybeCpuCalls(discarderSeat, tile);
+  // ポン・カンの資格自体はあったが、この巡でまだ邪魔ポンを行使していない席を1人だけ返す
+  // （discarderSeat・excludeSeat(チー予定の席)以外。同じ捨て牌に対してポン・カン両方の資格を
+  // 持つ他家が複数人同時に存在することは無い前提＝存在しなければnull）
+  function findDeclinedCpuResponder(discarderSeat, tile, excludeSeat){
+    const seats = ["right", "top", "left"].filter(s => s !== discarderSeat && s !== excludeSeat && !riichiDeclared[s]);
+    for(const s of seats){
+      const pon = canPon(hands[s], tile);
+      const kan = canKan(hands[s], tile) && rinshanAvailable();
+      if(pon || kan) return { seat: s, pon, kan };
+    }
+    return null;
+  }
+
+  // ポン・カンでは誰も取らなかった段階の処理。declinedBottomPonKanは、自分が今しがた
+  // ポン・カンをスルーした場合の{seat:"bottom",pon,kan}（邪魔ポン用に覚えておく）。
+  // 自分に元々ポン・カンの資格が無かった場合はnull
+  function resolveChiStage(discarderSeat, tile, bottomChiShapes, declinedBottomPonKan){
+    const cpuCall = declinedBottomPonKan ? null : maybeCpuCalls(discarderSeat, tile);
     if(cpuCall){
       executeCall(cpuCall.seat, discarderSeat, tile, cpuCall.type);
       return;
     }
     if(bottomChiShapes.length > 0){
-      pendingCallOptions = { discarderSeat, tile, pon: false, kan: false, chiShapes: bottomChiShapes };
+      const declinedResponder = findDeclinedCpuResponder(discarderSeat, tile, "bottom");
+      pendingCallOptions = { discarderSeat, tile, pon: false, kan: false, chiShapes: bottomChiShapes, declinedResponder };
       pendingCallContext = { discarderSeat };
       setTurnIndicator("鳴きますか？（" + seatLabel[discarderSeat] + "の捨て牌）");
       updateActionButtons();
@@ -2209,11 +2253,69 @@
       const shapes = findChiShapes(hands[chiSeat], tile);
       const combo = shapes.length > 0 ? shouldCpuChi(chiSeat, tile, shapes) : null;
       if(combo){
-        executeChi(chiSeat, discarderSeat, combo, tile);
+        const responder = declinedBottomPonKan || findDeclinedCpuResponder(discarderSeat, tile, chiSeat);
+        voiceChiAndMaybeOpenWindow(discarderSeat, tile, chiSeat, combo, responder);
         return;
       }
     }
     advanceTurnAfterDiscard(discarderSeat);
+  }
+
+  // チーが決まった瞬間の処理。ポン・カンの資格を一度スルーした人（declinedResponder）がいれば、
+  // その人に邪魔ポンの機会を与えてから確定する。いなければ即座に確定する（＝3秒待たない）
+  function voiceChiAndMaybeOpenWindow(discarderSeat, tile, chiSeat, combo, declinedResponder){
+    if(!declinedResponder){
+      executeChi(chiSeat, discarderSeat, combo, tile);
+      return;
+    }
+    if(declinedResponder.seat !== "bottom"){
+      // CPUの邪魔ポンは人を待たせる意味が無いため、その場で即座に判定する
+      let chosen = null, chosenType = null;
+      if(declinedResponder.kan){
+        const t = shouldCpuNadaPon(declinedResponder.seat, tile, "kan");
+        if(t){ chosen = t; chosenType = "kan"; }
+      }
+      if(!chosen && declinedResponder.pon){
+        const t = shouldCpuNadaPon(declinedResponder.seat, tile, "pon");
+        if(t){ chosen = t; chosenType = "pon"; }
+      }
+      if(chosen){
+        // CPU同士の邪魔ポンには自分は割り込めないが、自分がこの牌へのロンを一度スルーしていた場合は
+        // （相手がポンで割り込んだ時に限り）取り戻せる可能性が残る。カンには適用しない（仕様通り）
+        if(chosenType === "pon" && isSamePassedRonTile(discarderSeat, tile)){
+          openNadaponWindowRonOnly(discarderSeat, tile, declinedResponder.seat, chosenType, chosen);
+          return;
+        }
+        executeCall(declinedResponder.seat, discarderSeat, tile, chosenType, chosen);
+        return;
+      }
+      executeChi(chiSeat, discarderSeat, combo, tile);
+      return;
+    }
+    openNadaponWindow(discarderSeat, tile, chiSeat, combo, declinedResponder);
+  }
+
+  // 自分が一度スルーしたロンが、今まさに確定しようとしている宣言（discarderSeat・tile）と同じ牌かどうか
+  function isSamePassedRonTile(discarderSeat, tile){
+    return !!(passedRon.bottom && passedRon.bottom.discarderSeat === discarderSeat
+      && passedRon.bottom.tile.suit === tile.suit && passedRon.bottom.tile.num === tile.num);
+  }
+
+  // CPU同士の邪魔ポン（自分にポン・カンの選択肢は無い）で、自分が一度スルーしたロンだけを
+  // 取り戻せる猶予窓。ポン・カンの上書きは自分には無いため即座に締め切っておく
+  function openNadaponWindowRonOnly(discarderSeat, tile, seat, kind, tiles){
+    nadaponWindow = {
+      discarderSeat, tile, chiSeat: null,
+      overrideCount: NADAPON_MAX_OVERRIDES,
+      current: { kind, seat, tiles },
+      bottomPon: false,
+      bottomKan: false,
+      bottomRon: true,
+      timerId: null
+    };
+    passedRon.bottom = null;
+    updateActionButtons();
+    nadaponWindow.timerId = setTimeout(finalizeNadaponWindow, NADAPON_WINDOW_MS);
   }
 
   // CPUのチーAI（初回判断）。shouldCpuCall（ポン・カン用）と同じ基準：シャンテンが良くなる、
@@ -2234,8 +2336,94 @@
     return Math.random() < prob ? best.combo : null;
   }
 
-  // CPUのポン・カンAI（一次判断。チーのCPU判断はshouldCpuChiを参照）。リーチ後は一切鳴けない
-  // （本物のルール通り）。shouldCpuCall()でシャンテンが悪化しない場合だけ検討する
+  // 邪魔ポン専用のCPU判断（初回のshouldCpuCallとは別物）。既に聴牌していて、鳴くことで
+  // フリテンにならず、かつ聴牌を保てる場合だけ行う。一時的に手牌・鳴き面子を鳴いた後の状態に
+  // した上で判定し、判定が終わったら必ず元に戻す
+  function shouldCpuNadaPon(seat, tile, type){
+    if(!isTenpai(seat)) return null;
+    const needed = type === "kan" ? 3 : 2;
+    const hand = hands[seat];
+    const matching = hand.filter(t => t.suit === tile.suit && t.num === tile.num);
+    if(matching.length < needed) return null;
+    const used = matching.slice(0, needed);
+    used.forEach(t => hand.splice(hand.indexOf(t), 1));
+    melds[seat].push({ type, handTiles: used, calledTile: tile, calledFrom: null });
+    const waits = getWaits(seat);
+    const stillTenpai = waits.length > 0;
+    const wouldBeFuriten = stillTenpai && waits.map(tileKey).some(k => discardHistory[seat].includes(k));
+    melds[seat].pop();
+    used.forEach(t => hand.push(t));
+    if(!stillTenpai || wouldBeFuriten) return null;
+    return used;
+  }
+
+  // 邪魔ポンの3秒間の猶予窓を開く。ここではまだ何も公開・確定しない（手牌も鳴き面子も動かさない）
+  function openNadaponWindow(discarderSeat, tile, chiSeat, combo, declinedResponder){
+    nadaponWindow = {
+      discarderSeat, tile, chiSeat,
+      overrideCount: 0,
+      current: { kind: "chi", seat: chiSeat, tiles: combo },
+      bottomPon: declinedResponder.pon,
+      bottomKan: declinedResponder.kan,
+      bottomRon: isSamePassedRonTile(discarderSeat, tile),
+      timerId: null
+    };
+    passedRon.bottom = null; // 判定に使い終えたのでここでクリアする（他の巡へ持ち越さない）
+    setTurnIndicator(seatLabel[chiSeat] + "がチーしました。3秒以内ならポン・カンで割り込めます");
+    updateActionButtons();
+    nadaponWindow.timerId = setTimeout(finalizeNadaponWindow, NADAPON_WINDOW_MS);
+  }
+
+  // 猶予窓を閉じ、その時点で有効な宣言（チーのまま、またはポン・カンに上書きされたもの）を確定する
+  function finalizeNadaponWindow(){
+    const w = nadaponWindow;
+    if(!w) return;
+    if(w.timerId){ clearTimeout(w.timerId); w.timerId = null; }
+    nadaponWindow = null;
+    updateActionButtons();
+    const c = w.current;
+    if(c.kind === "chi") executeChi(c.seat, w.discarderSeat, c.tiles, w.tile);
+    else executeCall(c.seat, w.discarderSeat, w.tile, c.kind, c.tiles);
+  }
+
+  // 自分の邪魔ポン（ポン/カンボタン）：猶予窓が開いている間だけ有効。ポン⇄カンは互いに上書き不可
+  function nadaponOverridePonKan(type){
+    const w = nadaponWindow;
+    if(!w) return;
+    if(type === "pon" && !w.bottomPon) return;
+    if(type === "kan" && !w.bottomKan) return;
+    if(w.current.kind === "pon" || w.current.kind === "kan") return;
+    if(w.overrideCount >= NADAPON_MAX_OVERRIDES) return;
+    const combos = type === "kan" ? kanComboOptions(myHandTiles, w.tile) : ponComboOptions(myHandTiles, w.tile);
+    const chosen = combos[0] || defaultChosenTiles(myHandTiles, w.tile, type === "kan" ? 3 : 2);
+    w.current = { kind: type, seat: "bottom", tiles: chosen };
+    w.overrideCount++;
+    w.bottomPon = false;
+    w.bottomKan = false;
+    setTurnIndicator("あなたが" + (type === "pon" ? "ポン" : "カン") + "で割り込みました（邪魔ポン）");
+    if(w.overrideCount >= NADAPON_MAX_OVERRIDES){
+      finalizeNadaponWindow();
+      return;
+    }
+    updateActionButtons();
+  }
+
+  // 自分の邪魔ポン（和了ボタン＝ロンでの割り込み）：猶予窓の宣言が「ポン」の間だけ、
+  // 自分が一度スルーした同じ牌へのロンを取り戻せる。furitenTemp（今回の見逃しで自分で立てたもの）を
+  // あえて経由せず、attemptWinを直接呼んで判定する
+  function nadaponOverrideRon(){
+    const w = nadaponWindow;
+    if(!w || !w.bottomRon || w.current.kind !== "pon") return;
+    const result = attemptWin("bottom", w.tile, false);
+    if(!result) return;
+    if(w.timerId){ clearTimeout(w.timerId); w.timerId = null; }
+    nadaponWindow = null;
+    updateActionButtons();
+    finalizeRon([{ seat: "bottom", result }], w.discarderSeat);
+  }
+
+  // CPUのポン・カンAI（一次判断。チーのCPU判断はshouldCpuChi、邪魔ポンの再考はshouldCpuNadaPonを参照）。
+  // リーチ後は一切鳴けない（本物のルール通り）。shouldCpuCall()でシャンテンが悪化しない場合だけ検討する
   function maybeCpuCalls(discarderSeat, tile){
     const seats = ["right", "top", "left"].filter(s => s !== discarderSeat && !riichiDeclared[s]);
     for(const s of seats){
@@ -2311,12 +2499,13 @@
       if(hadRon){
         furitenTemp.bottom = true;
         if(riichiDeclared.bottom) furitenRiichi.bottom = true;
+        passedRon.bottom = { tile: opts.tile, discarderSeat: opts.discarderSeat };
       }
-      if(type === "chi") executeChi("bottom", opts.discarderSeat, chosen, opts.tile);
+      if(type === "chi") voiceChiAndMaybeOpenWindow(opts.discarderSeat, opts.tile, "bottom", chosen, opts.declinedResponder || null);
       else executeCall("bottom", opts.discarderSeat, opts.tile, type, chosen);
       return;
     }
-    activeCallSelection = { type, discarderSeat: opts.discarderSeat, tile: opts.tile, shapes: opts.chiShapes, selected: [] };
+    activeCallSelection = { type, discarderSeat: opts.discarderSeat, tile: opts.tile, shapes: opts.chiShapes, selected: [], declinedResponder: opts.declinedResponder || null };
     setTurnIndicator("使う牌を選んでください（やめる場合はスルー）");
     updateActionButtons();
     renderMyHand(true);
@@ -2361,8 +2550,9 @@
     if(hadRon){
       furitenTemp.bottom = true;
       if(riichiDeclared.bottom) furitenRiichi.bottom = true;
+      passedRon.bottom = { tile: sel.tile, discarderSeat: sel.discarderSeat };
     }
-    if(sel.type === "chi") executeChi("bottom", sel.discarderSeat, sel.selected, sel.tile);
+    if(sel.type === "chi") voiceChiAndMaybeOpenWindow(sel.discarderSeat, sel.tile, "bottom", sel.selected, sel.declinedResponder || null);
     else executeCall("bottom", sel.discarderSeat, sel.tile, sel.type, sel.selected);
   }
 
@@ -2443,7 +2633,7 @@
 
   // --- チーの実行(プレイヤーのみ) ---
   // comboTiles: プレイヤーが牌の画像で選んだ実際の手牌2枚（[小さい方, 大きい方]）
-  // callerSeat: チーする本人（従来はbottom専用だったが、CPUのチー対応で汎用化した）
+  // callerSeat: チーする本人（従来はbottom専用だったが、邪魔ポン対応でCPUのチーも扱うため汎用化した）
   function executeChi(callerSeat, discarderSeat, comboTiles, tile){
     clearAllIppatsu(); // チーが成立した時点で一発は消える（誰の一発権であっても）
     playSfx(SFX.callChi); // チーが成立した瞬間に鳴らす
@@ -2495,6 +2685,7 @@
   // 鳴きが無ければ、通常通り次の人に手番が移る
   function advanceTurnAfterDiscard(discarderSeat){
     if(gameEnded) return;
+    passedRon.bottom = null; // この捨て牌についての邪魔ポンの機会は完全に終わったので、再ロン権も失効させる
     const next = NEXT_SEAT[discarderSeat];
     if(next === "bottom"){
       setTimeout(() => playerDraw(), DISCARD_TO_NEXT_DRAW_DELAY);
@@ -4991,9 +5182,22 @@
   // 打牌した直後など）は判定を待たずに常に無効化する。
   function updateWinButton(){
     const btn = document.getElementById("winBtn");
+    btn.classList.remove("nadapon-glow");
     if(gameEnded){
       btn.disabled = true;
       btn.onclick = null;
+      return;
+    }
+    if(nadaponWindow){
+      // 邪魔ポン：猶予窓の宣言が「ポン」の間だけ、一度スルーしたロンを取り戻せる
+      if(nadaponWindow.bottomRon && nadaponWindow.current.kind === "pon"){
+        btn.disabled = false;
+        btn.classList.add("nadapon-glow");
+        btn.onclick = () => nadaponOverrideRon();
+      } else {
+        btn.disabled = true;
+        btn.onclick = null;
+      }
       return;
     }
     if(pendingRon){
@@ -5032,6 +5236,12 @@
       btn.onclick = null;
       return;
     }
+    if(nadaponWindow){
+      // 邪魔ポンの猶予窓：待たずに今の宣言で確定させたい場合に使う（3秒経過でも自動的に確定する）
+      btn.disabled = false;
+      btn.onclick = () => finalizeNadaponWindow();
+      return;
+    }
     if(pendingCallContext){
       const ctx = pendingCallContext; // hideCallPrompt()がクリアする前にクロージャで確保しておく
       const hadRon = !!pendingRon; // ロン可能だった場面でスルーした＝フリテン。同じくクリア前に確保する
@@ -5050,6 +5260,7 @@
         if(hadRon){
           furitenTemp.bottom = true;
           if(riichiDeclared.bottom) furitenRiichi.bottom = true;
+          passedRon.bottom = { tile, discarderSeat: ctx.discarderSeat };
         }
         if(otherRonWinners.length > 0){
           // 自分はスルーしたが、他にロン可能な席がいた（ダブロン）：そちらは確定して局を終える
@@ -5057,8 +5268,9 @@
           return;
         }
         if(bottomPon || bottomKan){
-          // 自分がポン・カンをスルーした：チーの番へ進める（CPUのチーもここで判断する）
-          resolveChiStage(ctx.discarderSeat, tile, []);
+          // 自分がポン・カンをスルーした（ダブロン確認時に併せて提示された場合も含む）：
+          // チーの番へ進める（邪魔ポン対応）
+          resolveChiStage(ctx.discarderSeat, tile, [], { seat: "bottom", pon: bottomPon, kan: bottomKan });
           return;
         }
         advanceTurnAfterDiscard(ctx.discarderSeat);
@@ -5097,8 +5309,22 @@
     const chiBtn = document.getElementById("chiBtn");
     const ponBtn = document.getElementById("ponBtn");
     const kanBtn = document.getElementById("kanBtn");
+    [chiBtn, ponBtn, kanBtn].forEach(b => b.classList.remove("nadapon-glow"));
     if(gameEnded){
       [chiBtn, ponBtn, kanBtn].forEach(b => { b.disabled = true; b.onclick = null; });
+      return;
+    }
+    if(nadaponWindow){
+      // 邪魔ポンの猶予窓：まだ行使していない自分のポン・カンだけ、押せる状態のまま光らせ続ける
+      const w = nadaponWindow;
+      chiBtn.disabled = true;
+      chiBtn.onclick = null;
+      ponBtn.disabled = !w.bottomPon;
+      ponBtn.onclick = w.bottomPon ? () => nadaponOverridePonKan("pon") : null;
+      if(w.bottomPon) ponBtn.classList.add("nadapon-glow");
+      kanBtn.disabled = !w.bottomKan;
+      kanBtn.onclick = w.bottomKan ? () => nadaponOverridePonKan("kan") : null;
+      if(w.bottomKan) kanBtn.classList.add("nadapon-glow");
       return;
     }
     // リーチ後は一切鳴けない（念のための二重ガード。本来pendingCallOptions側で既に選択肢が作られない）
