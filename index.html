@@ -2159,30 +2159,83 @@
       return;
     }
 
-    if(discarderSeat !== "bottom"){
-      // ロンは誰も出来ない。チー・ポン・カンの選択肢だけ確認する
-      const pon = !riichiDeclared.bottom && canPon(myHandTiles, tile);
-      const kan = !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
-      const chi = (!riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
-      if(pon || kan || chi.length > 0){
-        pendingCallOptions = { discarderSeat, tile, pon, kan, chiShapes: chi };
-        pendingCallContext = { discarderSeat };
-        setTurnIndicator("鳴きますか？（" + seatLabel[discarderSeat] + "の捨て牌）");
-        updateActionButtons();
-        return;
-      }
-    }
+    // ロンは誰も出来ない。チー・ポン・カンの優先順位（ポン・カン > チー）に沿って判定する
+    resolveMeldCalls(discarderSeat, tile);
+  }
 
+  // ==================== 鳴きの優先順位判定（ポン・カン > チー） ====================
+  // 実際の麻雀と同じ優先順位で鳴きを判定する：まずポン・カンの資格者（自分優先、次にCPU）を確認し、
+  // 誰も取らなければチーの番に進む。CPUのチーもここで判断する（従来はプレイヤーのみ対応だった）
+  function resolveMeldCalls(discarderSeat, tile){
+    const bottomPon = discarderSeat !== "bottom" && !riichiDeclared.bottom && canPon(myHandTiles, tile);
+    const bottomKan = discarderSeat !== "bottom" && !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
+    const bottomChiShapes = (!riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
+
+    if(bottomPon || bottomKan){
+      // 自分にポン・カンの資格がある：まず自分の意思を聞く（自分がチーも兼ねる場合は従来通り併せて見せる）
+      pendingCallOptions = { discarderSeat, tile, pon: bottomPon, kan: bottomKan, chiShapes: bottomChiShapes };
+      pendingCallContext = { discarderSeat };
+      setTurnIndicator("鳴きますか？（" + seatLabel[discarderSeat] + "の捨て牌）");
+      updateActionButtons();
+      return;
+    }
+    resolveChiStage(discarderSeat, tile, bottomChiShapes);
+  }
+
+  // discarderSeatの捨て牌をチーできる可能性がある唯一の席（CPUのみ。bottomは呼び出し側で別途扱う）。
+  // リーチ後は鳴けないため対象外
+  function cpuChiEligibleSeat(discarderSeat){
+    const seat = ["right", "top", "left"].find(s => KAMICHA[s] === discarderSeat);
+    return (seat && !riichiDeclared[seat]) ? seat : null;
+  }
+
+  // ポン・カンでは誰も取らなかった段階の処理。自分にもポン・カンの資格が無い（または今しがた
+  // スルーした）状態で、チーの番へ進める
+  function resolveChiStage(discarderSeat, tile, bottomChiShapes){
     const cpuCall = maybeCpuCalls(discarderSeat, tile);
     if(cpuCall){
       executeCall(cpuCall.seat, discarderSeat, tile, cpuCall.type);
       return;
     }
+    if(bottomChiShapes.length > 0){
+      pendingCallOptions = { discarderSeat, tile, pon: false, kan: false, chiShapes: bottomChiShapes };
+      pendingCallContext = { discarderSeat };
+      setTurnIndicator("鳴きますか？（" + seatLabel[discarderSeat] + "の捨て牌）");
+      updateActionButtons();
+      return;
+    }
+    const chiSeat = cpuChiEligibleSeat(discarderSeat);
+    if(chiSeat){
+      const shapes = findChiShapes(hands[chiSeat], tile);
+      const combo = shapes.length > 0 ? shouldCpuChi(chiSeat, tile, shapes) : null;
+      if(combo){
+        executeChi(chiSeat, discarderSeat, combo, tile);
+        return;
+      }
+    }
     advanceTurnAfterDiscard(discarderSeat);
   }
 
-  // CPUのポン・カンAI（チーはプレイヤーのみ対応）。リーチ後は一切鳴けない（本物のルール通り）。
-  // shouldCpuCall()でシャンテンが悪化しない場合だけ検討する
+  // CPUのチーAI（初回判断）。shouldCpuCall（ポン・カン用）と同じ基準：シャンテンが良くなる、
+  // または変わらない場合だけ検討し、確率的に鳴くかどうかを決める。役の有無は考慮しない
+  function shouldCpuChi(seat, tile, shapes){
+    const combos = chiComboOptions(hands[seat], tile, shapes);
+    if(combos.length === 0) return null;
+    const beforeShanten = calcShanten(hands[seat], melds[seat].length);
+    let best = null;
+    combos.forEach(combo => {
+      const remaining = hands[seat].slice();
+      combo.forEach(t => remaining.splice(remaining.indexOf(t), 1));
+      const afterShanten = calcShanten(remaining, melds[seat].length + 1);
+      if(!best || afterShanten < best.afterShanten) best = { combo, afterShanten };
+    });
+    if(best.afterShanten > beforeShanten) return null;
+    const prob = best.afterShanten < beforeShanten ? 0.85 : 0.25;
+    return Math.random() < prob ? best.combo : null;
+  }
+
+  // CPUのポン・カンAI（一次判断。チーのCPU判断はshouldCpuChiを参照）。リーチ後は一切鳴けない
+  // （本物のルール通り）。shouldCpuCall()でシャンテンが悪化しない場合だけ検討する
   function maybeCpuCalls(discarderSeat, tile){
     const seats = ["right", "top", "left"].filter(s => s !== discarderSeat && !riichiDeclared[s]);
     for(const s of seats){
@@ -2259,7 +2312,7 @@
         furitenTemp.bottom = true;
         if(riichiDeclared.bottom) furitenRiichi.bottom = true;
       }
-      if(type === "chi") executeChi(chosen, opts.tile);
+      if(type === "chi") executeChi("bottom", opts.discarderSeat, chosen, opts.tile);
       else executeCall("bottom", opts.discarderSeat, opts.tile, type, chosen);
       return;
     }
@@ -2309,7 +2362,7 @@
       furitenTemp.bottom = true;
       if(riichiDeclared.bottom) furitenRiichi.bottom = true;
     }
-    if(sel.type === "chi") executeChi(sel.selected, sel.tile);
+    if(sel.type === "chi") executeChi("bottom", sel.discarderSeat, sel.selected, sel.tile);
     else executeCall("bottom", sel.discarderSeat, sel.tile, sel.type, sel.selected);
   }
 
@@ -2390,24 +2443,33 @@
 
   // --- チーの実行(プレイヤーのみ) ---
   // comboTiles: プレイヤーが牌の画像で選んだ実際の手牌2枚（[小さい方, 大きい方]）
-  function executeChi(comboTiles, tile){
+  // callerSeat: チーする本人（従来はbottom専用だったが、CPUのチー対応で汎用化した）
+  function executeChi(callerSeat, discarderSeat, comboTiles, tile){
     clearAllIppatsu(); // チーが成立した時点で一発は消える（誰の一発権であっても）
     playSfx(SFX.callChi); // チーが成立した瞬間に鳴らす
-    discards.left.pop();
+    discards[discarderSeat].pop();
     // 鳴かれて消えた捨て牌は、実配列(discards)からは消しつつ、見た目だけその位置に影として残す
-    discardShadows.left.push({ posIndex: discards.left.length, tile });
-    renderDiscard("left");
+    discardShadows[discarderSeat].push({ posIndex: discards[discarderSeat].length, tile });
+    renderDiscard(discarderSeat);
+    const hand = hands[callerSeat];
     const handTiles = [];
     comboTiles.forEach(t => {
-      const idx = myHandTiles.indexOf(t);
-      if(idx >= 0) handTiles.push(myHandTiles.splice(idx, 1)[0]);
+      const idx = hand.indexOf(t);
+      if(idx >= 0) handTiles.push(hand.splice(idx, 1)[0]);
     });
-    melds.bottom.push({ type: "chi", handTiles, calledTile: tile, calledFrom: "left" });
-    renderMelds("bottom");
-    lastDrawnTile = null;
-    renderMyHand(true);
-    setTurnIndicator("チーしました。捨てる牌をタップしてください");
-    updateActionButtons();
+    melds[callerSeat].push({ type: "chi", handTiles, calledTile: tile, calledFrom: discarderSeat });
+    renderMelds(callerSeat);
+    if(callerSeat === "bottom"){
+      lastDrawnTile = null;
+      renderMyHand(true);
+      setTurnIndicator("チーしました。捨てる牌をタップしてください");
+      updateActionButtons();
+    } else {
+      renderCpuHandBacks(callerSeat);
+      setTurnIndicator(seatLabel[callerSeat] + "がチーしました");
+      setTimeout(() => cpuDiscardOnly(callerSeat), DRAW_TO_DISCARD_DELAY);
+    }
+    fitTileSize();
   }
 
   // 手番のテンポ調整（ユーザー要望2026-09-03）：誰かがツモってから捨てるまでは0.5秒、
@@ -4973,6 +5035,9 @@
     if(pendingCallContext){
       const ctx = pendingCallContext; // hideCallPrompt()がクリアする前にクロージャで確保しておく
       const hadRon = !!pendingRon; // ロン可能だった場面でスルーした＝フリテン。同じくクリア前に確保する
+      const tile = pendingCallOptions ? pendingCallOptions.tile : null;
+      const bottomPon = pendingCallOptions ? pendingCallOptions.pon : false;
+      const bottomKan = pendingCallOptions ? pendingCallOptions.kan : false;
       // ダブロン対応：findAllRonWinnersが打牌時点でロン可能な全員（自分含む）を洗い出し済み。
       // 自分がスルーしても、自分以外の当事者のロンは自分の選択に関わらず確定させる必要がある
       const otherRonWinners = (hadRon && pendingRon.allWinners)
@@ -4989,6 +5054,11 @@
         if(otherRonWinners.length > 0){
           // 自分はスルーしたが、他にロン可能な席がいた（ダブロン）：そちらは確定して局を終える
           finalizeRon(otherRonWinners, ctx.discarderSeat);
+          return;
+        }
+        if(bottomPon || bottomKan){
+          // 自分がポン・カンをスルーした：チーの番へ進める（CPUのチーもここで判断する）
+          resolveChiStage(ctx.discarderSeat, tile, []);
           return;
         }
         advanceTurnAfterDiscard(ctx.discarderSeat);
