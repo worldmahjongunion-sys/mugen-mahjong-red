@@ -130,6 +130,25 @@
   .center-mid .kyotaku-row{
     color:#ccc;
   }
+  .center-mid .verify-banner{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:0.8em; /* 親(.top-left-info)のfont-sizeに連動して卓と一緒に縮む */
+    font-weight:bold;
+    color:var(--honor-red);
+    margin-top:2px;
+  }
+  .center-mid .verify-banner #verifyReturnBtn{
+    font-size:1em;
+    font-weight:bold;
+    color:#052014;
+    background:var(--gold);
+    border:none;
+    border-radius:5px;
+    padding:0.15em 0.7em;
+    cursor:pointer;
+  }
   .center-mid .dora-row{
     display:flex;
     align-items:flex-start;
@@ -835,17 +854,29 @@
     padding-top:3px;
     border-top:1px solid rgba(255,255,255,0.25);
   }
-  .result-box .next-kyoku-btn{
-    display:block;
+  .result-box .post-result-actions{
+    display:flex;
+    justify-content:center;
+    gap:8px;
     margin:8px auto 0;
+  }
+  .result-box .post-result-actions button{
     padding:0.35em 1.2em;
     font-size:13px;
     font-weight:bold;
+    border-radius:6px;
+    cursor:pointer;
+  }
+  .result-box .next-kyoku-btn{
     color:#052014;
     background:var(--gold);
     border:none;
-    border-radius:6px;
-    cursor:pointer;
+  }
+  /* リピートは「次局へ」と見た目で区別できるよう、金の縁取りだけの控えめなボタンにする */
+  .result-box .repeat-btn{
+    color:var(--gold);
+    background:transparent;
+    border:1px solid var(--gold);
   }
 
   /* 半荘終了時の最終順位画面。以前は卓全体を暗転させる全画面オーバーレイだったが、
@@ -1058,6 +1089,11 @@
     <div class="round-kyotaku-row">
       <div class="round" id="roundText">東1局 0本場</div>
       <div id="kyotakuCount" class="kyotaku-row">供託 0本</div>
+    </div>
+    <!-- 検証(リピート)モード中だけ出す注記。半荘本体には影響しない旨が伝わるよう「検証」と明記する -->
+    <div class="verify-banner" id="verifyBanner" style="display:none;">
+      リピート中（検証）
+      <button type="button" id="verifyReturnBtn" style="display:none;">本番に戻る</button>
     </div>
     <div class="dora-row">
       <div class="dora-item">
@@ -1722,11 +1758,11 @@
     const byPos = new Map();
     shadows.forEach(s => {
       if(!byPos.has(s.posIndex)) byPos.set(s.posIndex, []);
-      byPos.get(s.posIndex).push(s.tile);
+      byPos.get(s.posIndex).push(s); // wasRiichiTileなど影側の属性を後段(renderDiscard)まで残すため、tileだけでなくs自体を積む
     });
     const merged = [];
     for(let i = 0; i <= real.length; i++){
-      if(byPos.has(i)) byPos.get(i).forEach(t => merged.push({ tile: t, shadow: true }));
+      if(byPos.has(i)) byPos.get(i).forEach(s => merged.push({ tile: s.tile, shadow: true, wasRiichiTile: !!s.wasRiichiTile }));
       if(i < real.length) merged.push({ tile: real[i], shadow: false });
     }
     return merged;
@@ -1750,7 +1786,10 @@
       const baseRot = DISCARD_ROTATION[name];
       if(entry.shadow){
         tileElx.classList.add("discard-called-shadow"); // 鳴かれて消えた捨て牌の影（ドラ・ツモ切り色分けは付けない）
-        applyMeldRotation(tileElx, baseRot);
+        // 鳴かれた牌がリーチ宣言牌だった場合は、影になっても横向き表示を引き継ぐ（色はグレー影のまま向きだけ変える）。
+        // discard-riichi-tileは色を持たずoverflow:visible/z-indexだけのクラスなので、影の色と衝突しない
+        applyMeldRotation(tileElx, entry.wasRiichiTile ? baseRot - 90 : baseRot);
+        if(entry.wasRiichiTile) tileElx.classList.add("discard-riichi-tile");
         rows[groupIdx].appendChild(tileElx);
         return;
       }
@@ -2586,7 +2625,11 @@
     else if(type === "kan") playSfx(SFX.callKan); // 大明槓が成立した瞬間に鳴らす（自分・CPU問わず）
     discards[discarderSeat].pop();
     // 鳴かれて消えた捨て牌は、実配列(discards)からは消しつつ、見た目だけその位置に影として残す
-    discardShadows[discarderSeat].push({ posIndex: discards[discarderSeat].length, tile });
+    // （鳴かれた牌がリーチ宣言牌だった場合はwasRiichiTileに記録し、影になっても横向き表示を引き継ぐ）
+    discardShadows[discarderSeat].push({
+      posIndex: discards[discarderSeat].length, tile,
+      wasRiichiTile: tile === riichiDeclareTile[discarderSeat]
+    });
     renderDiscard(discarderSeat);
 
     const hand = hands[callerSeat];
@@ -2639,7 +2682,11 @@
     playSfx(SFX.callChi); // チーが成立した瞬間に鳴らす
     discards[discarderSeat].pop();
     // 鳴かれて消えた捨て牌は、実配列(discards)からは消しつつ、見た目だけその位置に影として残す
-    discardShadows[discarderSeat].push({ posIndex: discards[discarderSeat].length, tile });
+    // （鳴かれた牌がリーチ宣言牌だった場合はwasRiichiTileに記録し、影になっても横向き表示を引き継ぐ）
+    discardShadows[discarderSeat].push({
+      posIndex: discards[discarderSeat].length, tile,
+      wasRiichiTile: tile === riichiDeclareTile[discarderSeat]
+    });
     renderDiscard(discarderSeat);
     const hand = hands[callerSeat];
     const handTiles = [];
@@ -3061,6 +3108,235 @@
   // 半荘（8局固定・東場2周）の進行状態。savedMatchStateが無ければ東1局・0本場・自分が親から開始
   let kyokuNumber = savedMatchState ? savedMatchState.kyokuNumber : 1; // 1〜8（連番。東1〜8局として表示）
   let honba = savedMatchState ? savedMatchState.honba : 0;
+
+  // ==================== 検証(リピート)モード ====================
+  // 「局のやり直し」ではなく検証専用の機能。半荘本体（持ち点・局数・実際の結果・
+  // sessionStorageの永続状態）には一切影響させない。局開始直後（配牌・自摸山が確定し、
+  // 誰も牌を引く前）のスナップショットを取っておき、結果画面から「リピート」を押すと
+  // そこから同じ配牌・同じ自摸山でもう一度対局できる。「戻る」でスナップショットを破棄し、
+  // 本番の結果画面（実際の半荘の状態）へそのまま戻る。
+  let verifyMode = false; // true: 検証(リピート)モード中
+  let handStartSnapshot = null; // この局の配牌直後・自摸前の状態(結果画面が出ている間だけ保持すれば良い)
+  let realStateBeforeVerify = null; // 検証モードに入る直前の「本番」状態の退避先（「戻る」ボタン用）
+  let lastNextMatchStateForRepeat = null; // 直近にproceedOrEndMatchが計算したnext（「戻る」後の「次局へ」再結線用）
+
+  // 同じ牌オブジェクトへの参照（===比較。riichiDeclareTileなど）を、複製後も保ったまま
+  // コピーするためのヘルパー。mapを共有しないと、例えば「discards[seat]内の牌」と
+  // 「riichiDeclareTile[seat]」が指す牌が複製後に別オブジェクトになってしまい、
+  // リーチ宣言牌の横向き表示が復元後に消える
+  function cloneTileRef(t, map){
+    if(t == null) return null;
+    if(map.has(t)) return map.get(t);
+    const clone = { ...t };
+    map.set(t, clone);
+    return clone;
+  }
+  function cloneTileArrayRef(arr, map){ return arr.map(t => cloneTileRef(t, map)); }
+  function replaceArrayContents(arr, items){
+    arr.length = 0;
+    items.forEach(item => arr.push(item));
+  }
+
+  // 現在のゲーム状態を丸ごとスナップショットする（局開始直後にも、結果画面が出た直後にも使う共通関数）
+  function captureGameStateSnapshot(){
+    const map = new Map();
+    const seats = ["bottom", "top", "left", "right"];
+    const snap = {
+      wall: cloneTileArrayRef(wall, map),
+      deadWall: cloneTileArrayRef(deadWall, map),
+      hands: {}, discards: {}, discardShadows: {}, discardHistory: {}, melds: {},
+      lastDrawnCpu: {}, riichiDeclareTile: {}, riichiValidDiscards: {},
+      scores: { ...scores },
+      honba, riichiSticks, kyokuNumber, dealerSeat: DEALER_SEAT, gameEnded,
+      lastDrawnTile: cloneTileRef(lastDrawnTile, map),
+      riichiDeclared: { ...riichiDeclared },
+      ippatsuActive: { ...ippatsuActive },
+      furitenTemp: { ...furitenTemp },
+      furitenRiichi: { ...furitenRiichi },
+      awaitingRiichiDiscard: { ...awaitingRiichiDiscard }
+    };
+    seats.forEach(s => {
+      snap.hands[s] = cloneTileArrayRef(hands[s], map);
+      snap.discards[s] = cloneTileArrayRef(discards[s], map);
+      snap.discardShadows[s] = discardShadows[s].map(sh => ({ ...sh, tile: cloneTileRef(sh.tile, map) }));
+      snap.discardHistory[s] = discardHistory[s].slice();
+      snap.melds[s] = melds[s].map(m => ({
+        ...m,
+        handTiles: cloneTileArrayRef(m.handTiles, map),
+        calledTile: cloneTileRef(m.calledTile, map)
+      }));
+      snap.lastDrawnCpu[s] = cloneTileRef(lastDrawnCpu[s], map);
+      snap.riichiDeclareTile[s] = cloneTileRef(riichiDeclareTile[s], map);
+      snap.riichiValidDiscards[s] = riichiValidDiscards[s].slice();
+    });
+    return snap;
+  }
+
+  // スナップショットの内容を、実際に使われているグローバルな状態へ丸ごと反映する。
+  // const配列・オブジェクトは中身だけ入れ替え、let変数は再代入する。snapshot自身を
+  // 再利用可能なまま保つため（同じ局を何度もリピートできるように）、反映時にも
+  // もう一度cloneTileRef()で複製してから書き込む
+  function applyGameStateSnapshot(snap){
+    const map = new Map();
+    const seats = ["bottom", "top", "left", "right"];
+    replaceArrayContents(wall, cloneTileArrayRef(snap.wall, map));
+    replaceArrayContents(deadWall, cloneTileArrayRef(snap.deadWall, map));
+    seats.forEach(s => {
+      replaceArrayContents(hands[s], cloneTileArrayRef(snap.hands[s], map));
+      replaceArrayContents(discards[s], cloneTileArrayRef(snap.discards[s], map));
+      replaceArrayContents(discardShadows[s], snap.discardShadows[s].map(sh => ({ ...sh, tile: cloneTileRef(sh.tile, map) })));
+      replaceArrayContents(discardHistory[s], snap.discardHistory[s].slice());
+      replaceArrayContents(melds[s], snap.melds[s].map(m => ({
+        ...m,
+        handTiles: cloneTileArrayRef(m.handTiles, map),
+        calledTile: cloneTileRef(m.calledTile, map)
+      })));
+      lastDrawnCpu[s] = cloneTileRef(snap.lastDrawnCpu[s], map);
+      riichiDeclareTile[s] = cloneTileRef(snap.riichiDeclareTile[s], map);
+      riichiValidDiscards[s] = snap.riichiValidDiscards[s].slice();
+    });
+    Object.assign(scores, snap.scores);
+    honba = snap.honba;
+    riichiSticks = snap.riichiSticks;
+    kyokuNumber = snap.kyokuNumber;
+    DEALER_SEAT = snap.dealerSeat;
+    gameEnded = snap.gameEnded;
+    lastDrawnTile = cloneTileRef(snap.lastDrawnTile, map);
+    riichiDeclared = { ...snap.riichiDeclared };
+    ippatsuActive = { ...snap.ippatsuActive };
+    furitenTemp = { ...snap.furitenTemp };
+    furitenRiichi = { ...snap.furitenRiichi };
+    awaitingRiichiDiscard = { ...snap.awaitingRiichiDiscard };
+
+    // ターン中の一時的なプロンプト・タイマー類は、局開始直後・結果画面表示直後の
+    // どちらの復元先でも「何も開いていない」のが正しい状態なので、ここで必ず初期化する
+    // （名前付きタイマーはclearしてから捨てる。CPU手番進行の無名setTimeoutは追跡できないため、
+    // 危険な間は「戻る」ボタン自体を表示しない方針でガードする＝updateVerifyReturnButton参照）
+    pendingRon = null;
+    pendingCallContext = null;
+    pendingCallOptions = null;
+    pendingSankahou = null;
+    passedRon = { bottom: null };
+    if(nadaponWindow && nadaponWindow.timerId) clearTimeout(nadaponWindow.timerId);
+    nadaponWindow = null;
+    activeCallSelection = null;
+    pendingSelfKan = null;
+    selfKanSelecting = false;
+    if(riichiAutoDiscardTimer) clearTimeout(riichiAutoDiscardTimer);
+    riichiAutoDiscardTimer = null;
+    if(riichiAutoDiscardCountdownId) clearInterval(riichiAutoDiscardCountdownId);
+    riichiAutoDiscardCountdownId = null;
+    riichiKanDecisionPending = false;
+  }
+
+  // 状態を丸ごと入れ替えた後、卓の見た目（手牌以外）を作り直す共通処理
+  function renderTableFromState(){
+    ["top", "left", "right", "bottom"].forEach(renderDiscard);
+    renderScores();
+    updateKyotakuDisplay();
+    renderMatchHeader();
+    updateWallCount();
+  }
+
+  function updateVerifyBanner(){
+    const banner = document.getElementById("verifyBanner");
+    if(banner) banner.style.display = verifyMode ? "" : "none";
+  }
+
+  // 「戻る」ボタンの表示可否。CPU手番の進行（cpuChooseAndDiscard等）は無名のsetTimeoutで
+  // 連鎖しており、その途中でボタンを押されて状態を丸ごと入れ替えると、後から発火した
+  // タイマーが入れ替え後の状態を誤って書き換えてしまう恐れがある。安全に戻せるのは
+  // 「その局がもう終わっている（gameEnded、以後タイマーは発生しない）」か
+  // 「自分が牌を引いた直後で、他の非同期処理・プロンプトが何も無い（＝次のCPU手番用の
+  // タイマーがまだ仕掛かっていない）」の、どちらかが確実に言える瞬間だけに限定する
+  function isSafeToExitVerify(){
+    if(!verifyMode) return false;
+    if(gameEnded) return true;
+    return lastDrawnTile !== null &&
+      !pendingRon && !pendingCallContext && !pendingCallOptions && !pendingSankahou &&
+      !activeCallSelection && !pendingSelfKan && !selfKanSelecting;
+  }
+  function updateVerifyReturnButton(){
+    const btn = document.getElementById("verifyReturnBtn");
+    if(btn) btn.style.display = isSafeToExitVerify() ? "" : "none";
+  }
+
+  // 結果パネルの「次局へ」「リピート」ボタンにクリックハンドラを結線する。
+  // ボタン生成直後だけでなく、「戻る」でbox.innerHTMLを復元した直後にも呼び直す
+  // （innerHTML経由の復元ではイベントリスナーが失われるため）
+  function attachNextKyokuButton(next){
+    const btn = document.getElementById("nextKyokuBtn");
+    if(!btn) return;
+    btn.onclick = () => {
+      saveMatchState({ scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount });
+      location.reload();
+    };
+  }
+  function attachRepeatButton(){
+    const btn = document.getElementById("repeatBtn");
+    if(btn) btn.onclick = enterVerifyMode;
+  }
+
+  // 「リピート」：結果画面から、この局の配牌直後の状態へ丸ごと戻って対局をやり直す（検証専用）。
+  // 検証中の局が結論に達し、その結果画面から「もう一度リピート」で連続して呼ばれることもある
+  // （下のproceedOrEndMatch参照）。その場合は既に検証モード中なので、本番状態の退避
+  // （realStateBeforeVerify）を上書きしてはいけない（上書きすると「戻る」が本番ではなく
+  // 検証中の結果に戻ってしまう）
+  function enterVerifyMode(){
+    if(!handStartSnapshot) return;
+    if(!verifyMode){
+      realStateBeforeVerify = captureGameStateSnapshot();
+      realStateBeforeVerify.resultHtml = document.getElementById("resultBox").innerHTML;
+      realStateBeforeVerify.nextMatchState = lastNextMatchStateForRepeat;
+    }
+
+    applyGameStateSnapshot(handStartSnapshot);
+    verifyMode = true;
+
+    const box = document.getElementById("resultBox");
+    box.style.display = "none";
+    box.innerHTML = "";
+
+    renderTableFromState();
+    renderMyHand(DEALER_SEAT === "bottom");
+    ["top", "left", "right"].forEach(renderCpuHandBacks);
+    ["top", "left", "right", "bottom"].forEach(renderMelds);
+    updateVerifyBanner();
+    updateActionButtons(); // 内部でupdateVerifyReturnButton()も呼ぶ
+
+    // 最初の手番を開始する（局開始時と同じロジック）
+    if(DEALER_SEAT === "bottom"){
+      playerDraw();
+    } else {
+      setTurnIndicator(seatLabel[DEALER_SEAT] + "の番です");
+      setTimeout(() => cpuDrawAndDiscard(DEALER_SEAT), 500);
+    }
+  }
+
+  // 「戻る」：検証モードの状態を破棄し、本番の結果画面（実際の半荘の状態）へそのまま戻る
+  function exitVerifyMode(){
+    if(!isSafeToExitVerify() || !realStateBeforeVerify) return;
+    const snap = realStateBeforeVerify;
+    applyGameStateSnapshot(snap);
+    verifyMode = false;
+
+    renderTableFromState();
+    renderMyHand(false);
+    revealAllHands(); // 本番終了時と同じく、4人全員の手牌・副露を開示し直す
+    fitTileSize();
+    setTurnIndicator("");
+    updateVerifyBanner();
+
+    const box = document.getElementById("resultBox");
+    box.innerHTML = snap.resultHtml;
+    box.style.display = "block";
+    attachNextKyokuButton(snap.nextMatchState);
+    attachRepeatButton();
+
+    updateActionButtons();
+    realStateBeforeVerify = null;
+  }
+
   // ネームプレート（方角+名前+点数）は中央情報ボックスの中、各家の方角位置に置かれている
   const scoreElByName = {
     bottom: document.getElementById("scoreBottom"),
@@ -4104,11 +4380,12 @@
       return { seat, yaku, han, base, isTsumo, akaCount };
     }
 
-    // 同じ牌の並びでも「刻子優先」「順子優先」で解釈が分かれることがあるため
-    // （例：111222333は三連刻にも一色三順にもなり得る）、両方試して翻数が高い方を採用する
-    function buildStandardResult(preferSequence){
-      const decomp = findDecomposition(concealed, preferSequence);
-      if(!decomp) return null;
+    // 同じ牌の並びでも複数の分解が成立することがある
+    // （例：111222333は三連刻にも一色三順にもなり得る。和了牌が同一の数牌グループ内で
+    // 両面完成・嵌張完成の両方に読める場合も、ピンフの有無で翻数が変わる）。
+    // findAllDecompositions()であり得る分解を全て列挙し、それぞれ役を計算した上で、
+    // attemptWin側のcandidates.reduce（最大翻選択＝高め取り）に委ねる
+    function buildStandardResult(decomp){
       const pairTile = keyToTile(decomp.pairKey);
       const allSets = [...decomp.sets, ...meldsToSets(seat)];
       if(allSets.length !== 4) return null;
@@ -4159,7 +4436,8 @@
       return { seat, yaku, han, base, isTsumo, akaCount };
     }
 
-    const candidates = [buildKokushiResult(), buildChiitoitsuResult(), buildStandardResult(false), buildStandardResult(true), buildZuheLongResult(), buildZuheTongshunResult()].filter(Boolean);
+    const standardResults = findAllDecompositions(concealed).map(buildStandardResult).filter(Boolean);
+    const candidates = [buildKokushiResult(), buildChiitoitsuResult(), ...standardResults, buildZuheLongResult(), buildZuheTongshunResult()].filter(Boolean);
     if(candidates.length === 0) return null;
     return candidates.reduce((best, r) => (r.han > best.han ? r : best));
   }
@@ -4823,6 +5101,20 @@
   // winnerSeats：この局の和了者（複数可、無ければ[]）。トビ賞10,000点は和了者の人数で
   // 均等分配する（ダブロン対応、設計④）。単独なら従来通り全額1人が受け取る
   function proceedOrEndMatch(renchan, winnerSeats, bustSeat){
+    // 検証(リピート)モード中は、次局への進行判定も最終順位判定も一切行わない
+    // （sessionStorageへの書き込みも起きない）。結果表示自体は呼び出し側で既に
+    // 済んでいるので、ここでは同じ配牌からもう一度やり直せる「もう一度リピート」だけを
+    // 追加する（本番に戻るための「戻る」はバナー側に常設済み・gameEndedで自動的に表示される）
+    if(verifyMode){
+      const box = document.getElementById("resultBox");
+      box.insertAdjacentHTML("beforeend",
+        `<div class="post-result-actions">` +
+        `<button type="button" class="repeat-btn" id="repeatBtn">もう一度リピート</button>` +
+        `</div>`);
+      attachRepeatButton();
+      return;
+    }
+
     const seatsWon = winnerSeats || [];
     const finishedKyoku = kyokuNumber;
     const reason = bustSeat ? { type: "bust", seat: bustSeat } : checkMatchEnd(scores, finishedKyoku);
@@ -4838,12 +5130,15 @@
       return;
     }
     const next = computeNextMatchState({ kyokuNumber, honba, dealerSeat: DEALER_SEAT }, renchan);
+    lastNextMatchStateForRepeat = next; // 検証モードから「戻る」で結果パネルを復元する際、ボタンの再結線に使う
     const box = document.getElementById("resultBox");
-    box.insertAdjacentHTML("beforeend", `<button type="button" class="next-kyoku-btn" id="nextKyokuBtn">次局へ</button>`);
-    document.getElementById("nextKyokuBtn").onclick = () => {
-      saveMatchState({ scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount });
-      location.reload();
-    };
+    box.insertAdjacentHTML("beforeend",
+      `<div class="post-result-actions">` +
+      `<button type="button" class="next-kyoku-btn" id="nextKyokuBtn">次局へ</button>` +
+      `<button type="button" class="repeat-btn" id="repeatBtn">リピート</button>` +
+      `</div>`);
+    attachNextKyokuButton(next);
+    attachRepeatButton();
   }
 
   function settleRyuukyoku(tenpaiSeats, notenSeats){
@@ -5104,7 +5399,10 @@
     const kawa = discards[loserSeat];
     const ronTile = kawa.pop();
     if(ronTile){
-      discardShadows[loserSeat].push({ posIndex: kawa.length, tile: ronTile });
+      discardShadows[loserSeat].push({
+        posIndex: kawa.length, tile: ronTile,
+        wasRiichiTile: ronTile === riichiDeclareTile[loserSeat]
+      });
       renderDiscard(loserSeat); // 影を反映させるため、この河だけ再描画する
       const primarySeat = winners[0].seat;
       hands[primarySeat].push(ronTile);
@@ -5375,6 +5673,7 @@
     updateThroughButton();
     updateCallButtons();
     updateRiichiButton();
+    updateVerifyReturnButton();
   }
 
 
@@ -5410,6 +5709,11 @@
   renderMatchHeader();
   playSfx(SFX.shuffle); // 新しい局の開始（ページ読込）ごとに牌をまぜる音を1回鳴らす
   announceKyokuMilestone(); // 裏入・ラス前・オーラスのセリフ（honba===0で該当局の最初の1回だけ）
+
+  // 検証(リピート)用に、配牌・自摸山が確定した直後・誰も牌を引く前の状態をここで確定させておく
+  handStartSnapshot = captureGameStateSnapshot();
+  const verifyReturnBtnEl = document.getElementById("verifyReturnBtn");
+  if(verifyReturnBtnEl) verifyReturnBtnEl.onclick = exitVerifyMode;
 
   // 最初の手番を開始する（親が「あなた」ならplayerDraw()、CPUならcpuDrawAndDiscard()から連鎖する）
   if(DEALER_SEAT === "bottom"){
