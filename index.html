@@ -130,25 +130,6 @@
   .center-mid .kyotaku-row{
     color:#ccc;
   }
-  .center-mid .verify-banner{
-    display:flex;
-    align-items:center;
-    gap:8px;
-    font-size:0.8em; /* 親(.top-left-info)のfont-sizeに連動して卓と一緒に縮む */
-    font-weight:bold;
-    color:var(--honor-red);
-    margin-top:2px;
-  }
-  .center-mid .verify-banner #verifyReturnBtn{
-    font-size:1em;
-    font-weight:bold;
-    color:#052014;
-    background:var(--gold);
-    border:none;
-    border-radius:5px;
-    padding:0.15em 0.7em;
-    cursor:pointer;
-  }
   .center-mid .dora-row{
     display:flex;
     align-items:flex-start;
@@ -423,6 +404,22 @@
     inset:0;
     background:rgba(214,20,90,0.55);
     mix-blend-mode:multiply;
+    pointer-events:none;
+  }
+  /* 検証(リピート)モード中、牌を自摸った時点で「本番ではこの牌を切った」という予測を手牌側に表示する。
+     色分け用の::afterとレイヤーを分けるため::beforeを使い、他の色分けと自由に共存できるようにする */
+  .tile.hand-real-match::before{
+    content:"▼";
+    position:absolute;
+    top:0;
+    left:0;
+    right:0;
+    text-align:center;
+    font-size:clamp(8px, calc(var(--tile-h) * 0.32), 15px);
+    line-height:1;
+    color:var(--gold);
+    text-shadow:0 0 2px #000, 0 0 2px #000, 0 0 1px #000;
+    z-index:5;
     pointer-events:none;
   }
   /* 終局時の手牌・副露公開で、他家の待ち牌と一致する牌を薄い黄色で光らせる（放銃牌の濃いピンクとは別色） */
@@ -753,6 +750,25 @@
   .row-btn.nadapon-glow{
     animation:nadaponPulse 0.8s ease-in-out infinite;
   }
+  /* 検証(リピート)モード中、鳴き反応(スルー/チー/ポン/カン/ロン)の選択肢が出た時点で、
+     本番では実際にどれを選んだかをボタンの上に▼で予告表示する（手牌の▼マークと同じ手法） */
+  .row-btn.predicted-real-choice{
+    position:relative;
+  }
+  .row-btn.predicted-real-choice::before{
+    content:"▼";
+    position:absolute;
+    top:1px;
+    left:0;
+    right:0;
+    text-align:center;
+    font-size:clamp(8px, 1.6dvh, 12px);
+    line-height:1;
+    color:var(--gold);
+    text-shadow:0 0 2px #000, 0 0 2px #000, 0 0 1px #000;
+    z-index:5;
+    pointer-events:none;
+  }
   .hand-row.mine .tile.clickable{
     cursor:pointer;
     transition:transform 0.12s ease;
@@ -854,26 +870,26 @@
     padding-top:3px;
     border-top:1px solid rgba(255,255,255,0.25);
   }
-  .result-box .post-result-actions{
+  /* 結果表示の枠(.result-box)の外側・下に置く操作ボタン行。.result-box自身の
+     background/borderは持たせず、枠の外に出ていることが見た目でもわかるようにする */
+  .result-actions{
     display:flex;
-    justify-content:center;
     gap:8px;
-    margin:8px auto 0;
   }
-  .result-box .post-result-actions button{
+  .result-actions button{
     padding:0.35em 1.2em;
     font-size:13px;
     font-weight:bold;
     border-radius:6px;
     cursor:pointer;
   }
-  .result-box .next-kyoku-btn{
+  .result-actions .next-kyoku-btn{
     color:#052014;
     background:var(--gold);
     border:none;
   }
-  /* リピートは「次局へ」と見た目で区別できるよう、金の縁取りだけの控えめなボタンにする */
-  .result-box .repeat-btn{
+  /* リピート/リプレイは「次局へ/次へ」と見た目で区別できるよう、金の縁取りだけの控えめなボタンにする */
+  .result-actions .repeat-btn{
     color:var(--gold);
     background:transparent;
     border:1px solid var(--gold);
@@ -941,18 +957,36 @@
     border-top:1px solid rgba(255,255,255,0.15);
   }
 
-  /* .boardの左上（和了結果表示＝右上の対角）に固定表示する。中身は.center-midのレイアウトを流用する */
-  .top-left-info{
+  /* .boardの左上（和了結果表示＝右上の対角）に固定表示する。中身は.center-midのレイアウトを流用する。
+     局・供託・ドラを表示する枠(.top-left-info)と、その下の操作ボタン行(.result-actions)を
+     縦に並べる入れ物。位置決めはこちら側だけが持ち、.top-left-info自身は枠の見た目だけを持つ */
+  .top-left-stack{
     position:absolute;
     top:clamp(4px, 1dvh, 10px);
     left:clamp(4px, 1dvw, 10px);
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    gap:6px;
+    z-index:150; /* 対局終了時の最終順位画面(.result-stack, z-index:200)より下だが、
+                    卓上の他の要素より確実に上に来るよう、元の.top-left-info(80)より高くする */
+  }
+  .top-left-info{
     background:rgba(5,20,12,0.97);
     border:1px solid var(--gold);
     border-radius:10px;
     padding:0.55em 0.85em; /* em指定でfont-sizeと一緒に縮む */
     /* 右上の和了結果表示（.result-box）とfont-sizeの計算式を揃え、卓のサイズに連動して縮小する */
     font-size:clamp(9px, calc(var(--tile-h) * 0.4), 15px);
-    z-index:80;
+  }
+  /* 検証(リピート)モード中だけ出す表示専用の注記。中央の情報ボックス内、残り牌の数の下に置く。
+     ボタンは持たない（操作は.result-actions側の「リプレイ」「次へ」で行う） */
+  .verify-status{
+    font-size:10px;
+    font-weight:bold;
+    color:var(--honor-red);
+    text-align:center;
+    white-space:nowrap;
   }
 
   .call-prompt{
@@ -961,6 +995,21 @@
     justify-content:center;
     flex-wrap:wrap;
     margin-bottom:4px;
+  }
+  /* 邪魔ポンの猶予窓（3秒間）を、ボタンの点滅だけに頼らず文字でもはっきり知らせるための表示。
+     #callPromptは元々ボタン用の入れ物だが現状未使用のため、この告知バナー専用に流用する。
+     見落とし防止のため、ボタンのnadapon-glowと同じ赤・同じ点滅速度で強調する */
+  .call-prompt.nadapon-banner{
+    display:block;
+    text-align:center;
+    font-size:13px;
+    font-weight:bold;
+    color:var(--honor-red);
+    background:rgba(5,20,12,0.9);
+    border:1px solid var(--honor-red);
+    border-radius:8px;
+    padding:4px 10px;
+    animation:nadaponPulse 0.8s ease-in-out infinite;
   }
   .call-prompt .action-btn{
     background:#E7C766;
@@ -1068,6 +1117,9 @@
                           <span class="wall-count-label">残り牌</span>
                           <span class="wall-count-num" id="wallCountNum">76</span>
                         </div>
+                        <!-- 検証(リピート)モード中だけ出す注記。ボタンは持たない表示専用。
+                             操作用の「リプレイ」「次へ」ボタンは右上の#resultActions側にある -->
+                        <div class="verify-status" id="verifyBanner" style="display:none;">リプレイ検証中</div>
                       </div>
                     </div>
                   </div>
@@ -1083,27 +1135,34 @@
     </div>
   </div>
 
-  <!-- 場況表示（局・供託・ドラ）。和了結果表示（右上）の対角、画面左上に固定表示する。
-       1段目=局・供託、2段目=表ドラ・リーチドラの2段組 -->
-  <div class="center-mid top-left-info">
-    <div class="round-kyotaku-row">
-      <div class="round" id="roundText">東1局 0本場</div>
-      <div id="kyotakuCount" class="kyotaku-row">供託 0本</div>
-    </div>
-    <!-- 検証(リピート)モード中だけ出す注記。半荘本体には影響しない旨が伝わるよう「検証」と明記する -->
-    <div class="verify-banner" id="verifyBanner" style="display:none;">
-      リピート中（検証）
-      <button type="button" id="verifyReturnBtn" style="display:none;">本番に戻る</button>
-    </div>
-    <div class="dora-row">
-      <div class="dora-item">
-        <div class="tile dora-tile" id="doraActualTile"></div>
-        <div class="dora-label">表ドラ</div>
+  <!-- 場況表示（局・供託・ドラ）＋操作ボタン行を縦に並べる入れ物。画面左上に固定表示する。
+       対局終了時の最終順位画面(#finalOverlay、右上)に隠れずに常に押せるよう、
+       ボタン行(#resultActions)はここ（局表示の枠のすぐ下）に置く -->
+  <div class="top-left-stack">
+    <div class="center-mid top-left-info">
+      <div class="round-kyotaku-row">
+        <div class="round" id="roundText">東1局 0本場</div>
+        <div id="kyotakuCount" class="kyotaku-row">供託 0本</div>
       </div>
-      <div class="dora-item">
-        <div class="tile dora-tile riichi-dora-tile" id="riichiDoraActualTile"></div>
-        <div class="dora-label riichi-dora-label">リーチドラ</div>
+      <div class="dora-row">
+        <div class="dora-item">
+          <div class="tile dora-tile" id="doraActualTile"></div>
+          <div class="dora-label">表ドラ</div>
+        </div>
+        <div class="dora-item">
+          <div class="tile dora-tile riichi-dora-tile" id="riichiDoraActualTile"></div>
+          <div class="dora-label riichi-dora-label">リーチドラ</div>
+        </div>
       </div>
+    </div>
+    <!-- 局表示の枠(.top-left-info)の外側・下に置く操作ボタン。通常時は「リピート」「次局へ」、
+         検証(リピート)モード中は「リプレイ」「次へ」に文言・挙動を切り替えて使い回す
+         （切り替えはJS側のshowNormalResultActions/showVerifyResultActions/showFinalResultActions）。
+         検証モード中は対局の途中でも常時表示・常時押せる状態にする。対局終了後(オーラス)の
+         結果表示中も、#finalOverlayに隠れずここに表示され続けるので、最後の局もリピートできる -->
+    <div class="result-actions" id="resultActions" style="display:none;">
+      <button type="button" class="repeat-btn" id="repeatBtn"></button>
+      <button type="button" class="next-kyoku-btn" id="nextKyokuBtn"></button>
     </div>
   </div>
 
@@ -1418,8 +1477,30 @@
   function clearMatchState(){
     try { sessionStorage.removeItem(MATCH_STATE_KEY); } catch(e){}
   }
+  // ==================== 新しい半荘を始めるたびの自分の開始風サイクル ====================
+  // 「毎回起家スタート」ではなく、新しい半荘を始めるたびに自分(bottom)の開始風を
+  // 起家(東)→南家→西家→北家→(起家に戻る)の順でずらしていく。日をまたいでも
+  // 前回どこまで回したかを覚えておく必要があるため、タブを閉じると消えるsessionStorageではなく
+  // 消えないlocalStorageにサイクル位置(0〜3)だけを保存する。
+  // 配列の並びは「computeSeatWind(dealerSeat)でbottomの自風が1(東)→2(南)→3(西)→4(北)になる
+  // ようなdealerSeat」を順に並べたもの（NEXT_SEATの逆順=KAMICHA方向にbottomから1つずつ辿った並び）
+  const START_WIND_DEALER_CYCLE = ["bottom", "left", "top", "right"];
+  const START_WIND_CYCLE_KEY = "mugenMahjongRedStartWindCycleIndex";
+  // 新しい半荘を始める瞬間(＝savedMatchStateが無い時)だけ呼ぶ。現在のサイクル位置を読み、
+  // 今回使う起家(DEALER_SEAT)を決めたら、次回のためにサイクル位置を1つ進めて保存する
+  function pickAndAdvanceStartDealerSeat(){
+    let idx = 0;
+    try {
+      const raw = localStorage.getItem(START_WIND_CYCLE_KEY);
+      idx = raw === null ? 0 : ((parseInt(raw, 10) || 0) % START_WIND_DEALER_CYCLE.length);
+    } catch(e){}
+    const seat = START_WIND_DEALER_CYCLE[idx];
+    try { localStorage.setItem(START_WIND_CYCLE_KEY, String((idx + 1) % START_WIND_DEALER_CYCLE.length)); } catch(e){}
+    return seat;
+  }
+
   const savedMatchState = loadMatchState();
-  let DEALER_SEAT = savedMatchState ? savedMatchState.dealerSeat : "bottom"; // 親（局ごとにNEXT_SEATで交代しうる）
+  let DEALER_SEAT = savedMatchState ? savedMatchState.dealerSeat : pickAndAdvanceStartDealerSeat(); // 親（局ごとにNEXT_SEATで交代しうる）
   // 起家（＝東1局の親）は半荘を通じて固定。DEALER_SEATと違い連荘・親交代でも一切動かない
   const STARTING_DEALER_SEAT = savedMatchState ? savedMatchState.startingDealerSeat : DEALER_SEAT;
   // 半荘開始時刻（対局終了時のアナウンス「◯局◯分◯秒で終了なのだ」用）。
@@ -1507,6 +1588,9 @@
   let riichiKanDecisionPending = false;
   const hands = { bottom: myHandTiles, top: cpuTopTiles, left: cpuLeftTiles, right: cpuRightTiles };
   const discards = { top: [], left: [], right: [], bottom: [] };
+  // 検証(リピート)モードの▼予告表示用: 自分(bottom)が鳴き反応(スルー/チー/ポン/カン/ロン)の
+  // 選択肢を提示された際に、実際に選んだ種類("through"/"chi"/"pon"/"kan"/"ron")を発生順に記録する
+  const callDecisionLog = [];
   // 鳴かれて消えた捨て牌の「影」表示専用。discards（実配列）には含めない見た目だけの記録
   // （視認牌カウントやフリテン判定などのゲームロジックに影響させないため）。
   // 各要素は { posIndex, tile }：posIndexは「その影の直前に何枚の実捨て牌があったか」＝
@@ -1644,6 +1728,59 @@
     if(key === riichiDoraKey) el.classList.add("hand-riichi-dora");
   }
 
+  // 検証(リピート)モード中、まだ本番と一致している間(verifyDiverged===false)に、
+  // 「本番ではこの局のこの巡目で何を切ったか」を1枚だけ予測して返す。
+  // 牌を自摸った時点（lastDrawnTileがある時）にだけ使う想定で、
+  // 本番の捨て牌配列のうち「まだ自分がこれから切る番」に相当するインデックス
+  // (discards.bottom.length = 現時点までに実際に切った枚数 = 次に切るものの添字)を見る
+  function predictedRealDiscardForThisDraw(){
+    if(!verifyMode || verifyDiverged || !lastDrawnTile) return null;
+    const realBottomDiscards = realStateBeforeVerify && realStateBeforeVerify.discards.bottom;
+    if(!realBottomDiscards) return null;
+    return realBottomDiscards[discards.bottom.length] || null;
+  }
+
+  // 検証(リピート)モード中、まだ本番と一致している間(verifyDiverged===false)に、
+  // 今まさに提示されている鳴き反応(スルー/チー/ポン/カン/ロン)の選択肢のうち、
+  // 本番では実際にどれを選んだかを1つだけ予測して返す("through"/"chi"/"pon"/"kan"/"ron"のいずれか)。
+  // pendingCallContext(チー/ポン/カン/スルーの選択肢)かpendingRon(ロンの選択肢)のどちらかが
+  // 開いている、＝今まさに選択肢が提示されている間だけ使う想定
+  function predictedRealCallDecision(){
+    if(!verifyMode || verifyDiverged) return null;
+    if(!pendingCallContext && !pendingRon) return null;
+    const realLog = realStateBeforeVerify && realStateBeforeVerify.callDecisionLog;
+    if(!realLog) return null;
+    return realLog[callDecisionLog.length] || null;
+  }
+
+  // 自分(bottom)が鳴き反応(スルー/チー/ポン/カン/ロン)を実際に選んだ瞬間に呼ぶ。
+  // 本番プレイ中は常に記録を積み上げ、検証(リピート)モード中はまだ本番と一致している間
+  // (verifyDiverged===false)だけ、直前に記録した1件を本番の記録と照合し、不一致ならその場で
+  // 「自分モード」に切り替える（以後は▼予告表示もやめる。打牌の分岐検知と同じ仕組み）
+  function recordBottomCallDecision(type){
+    callDecisionLog.push(type);
+    if(verifyMode && !verifyDiverged){
+      const realLog = realStateBeforeVerify && realStateBeforeVerify.callDecisionLog;
+      const realType = realLog ? realLog[callDecisionLog.length - 1] : null;
+      if(realType !== type) verifyDiverged = true;
+    }
+  }
+
+  // predictedRealCallDecision()の結果を、対応するボタン(#winBtn/#throughBtn/#chiBtn/#ponBtn/#kanBtn)に
+  // predicted-real-choiceクラスとして反映する（CSSの::beforeで▼を表示）。updateActionButtonsの最後で呼ぶ
+  const CALL_DECISION_BTN_ID = { ron:"winBtn", through:"throughBtn", chi:"chiBtn", pon:"ponBtn", kan:"kanBtn" };
+  function updateCallDecisionPredictionMarks(){
+    Object.values(CALL_DECISION_BTN_ID).forEach(id => {
+      const el = document.getElementById(id);
+      if(el) el.classList.remove("predicted-real-choice");
+    });
+    const predicted = predictedRealCallDecision();
+    if(!predicted) return;
+    const btnId = CALL_DECISION_BTN_ID[predicted];
+    const btn = btnId && document.getElementById(btnId);
+    if(btn) btn.classList.add("predicted-real-choice");
+  }
+
   function renderMyHand(clickable){
     const priorityMap = suitPriorityMap();
     // ツモ牌は並び替えの対象に含めず、常に手牌全体の一番右に別枠で表示する
@@ -1656,6 +1793,10 @@
     const { doraKey, riichiDoraKey } = currentDoraKeys();
     // 終局（流局・和了）後の手牌公開画面でだけ、他家の待ち牌と一致する牌を光らせる
     const atariKeys = gameEnded ? otherSeatsWaitKeys("bottom") : null;
+    // 本番ではこの巡目に何を切ったかの予測（▼マーク用）。ツモ切りならツモ枠側、
+    // 手出しなら該当する種類の手牌のうち最初の1枚だけに付ける（同種牌が複数あっても1つだけ）
+    const predictedReal = predictedRealDiscardForThisDraw();
+    let predictedRealMarked = false;
 
     handMineEl.innerHTML = "";
 
@@ -1665,6 +1806,11 @@
       const el = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
       applyHandDoraHighlight(el, t, doraKey, riichiDoraKey);
       if(atariKeys) applyAtariHighlight(el, t, atariKeys);
+      if(!predictedRealMarked && predictedReal && !predictedReal.tsumogiri
+        && t.suit === predictedReal.suit && t.num === predictedReal.num && !!t.red === !!predictedReal.red){
+        el.classList.add("hand-real-match");
+        predictedRealMarked = true;
+      }
       if(activeCallSelection){
         // チー/ポン/カンの選択中は、打牌ではなく「使う牌を選ぶ」クリックにする
         if(isCallSelectable(t)){
@@ -1690,6 +1836,7 @@
       applyHandDoraHighlight(el, lastDrawnTile, doraKey, riichiDoraKey);
       if(atariKeys) applyAtariHighlight(el, lastDrawnTile, atariKeys);
       el.classList.add("drawn");
+      if(predictedReal && predictedReal.tsumogiri) el.classList.add("hand-real-match");
       if(selfKanSelecting && isSelfKanSelectable(lastDrawnTile)){
         el.classList.add("callable");
         el.addEventListener("click", () => onSelectSelfKanTile(lastDrawnTile));
@@ -2129,6 +2276,18 @@
       awaitingRiichiDiscard.bottom = false;
       ippatsuActive.bottom = true; // 一発権発生：宣言牌を切った瞬間から、鳴きが入るか自分の次の打牌までが有効期間
     }
+    // 検証(リピート)モード中、まだ本番と一致している間だけ、今切った牌が本番の同じ順番の
+    // 捨て牌と一致するか確認する。一致していればこのままrenderDiscard側で▼マークが付く。
+    // 一致しなければ「自分モード」（verifyDivergedがtrue）に切り替え、以後は本番との比較を
+    // 一切行わない＝これまで付いていた▼マークも含めて全て消える（renderDiscard側が
+    // verifyDivergedを見て判定するため、ここでフラグを立てるだけで良い）
+    if(verifyMode && !verifyDiverged){
+      const realBottomDiscards = realStateBeforeVerify && realStateBeforeVerify.discards.bottom;
+      const realTile = realBottomDiscards ? realBottomDiscards[discards.bottom.length - 1] : null;
+      const matchesReal = !!realTile && realTile.suit === discarded.suit && realTile.num === discarded.num
+        && !!realTile.red === !!discarded.red;
+      if(!matchesReal) verifyDiverged = true;
+    }
     lastDrawnTile = null;
     renderMyHand(false);
     renderDiscard("bottom");
@@ -2540,6 +2699,7 @@
         if(riichiDeclared.bottom) furitenRiichi.bottom = true;
         passedRon.bottom = { tile: opts.tile, discarderSeat: opts.discarderSeat };
       }
+      recordBottomCallDecision(type);
       if(type === "chi") voiceChiAndMaybeOpenWindow(opts.discarderSeat, opts.tile, "bottom", chosen, opts.declinedResponder || null);
       else executeCall("bottom", opts.discarderSeat, opts.tile, type, chosen);
       return;
@@ -2591,6 +2751,7 @@
       if(riichiDeclared.bottom) furitenRiichi.bottom = true;
       passedRon.bottom = { tile: sel.tile, discarderSeat: sel.discarderSeat };
     }
+    recordBottomCallDecision(sel.type);
     if(sel.type === "chi") voiceChiAndMaybeOpenWindow(sel.discarderSeat, sel.tile, "bottom", sel.selected, sel.declinedResponder || null);
     else executeCall("bottom", sel.discarderSeat, sel.tile, sel.type, sel.selected);
   }
@@ -2669,7 +2830,7 @@
         const rinshanWin = attemptWin(callerSeat, null, true);
         if(rinshanWin){ finalizeWin(callerSeat, callerSeat, rinshanWin); return; }
       }
-      setTimeout(() => cpuDiscardOnly(callerSeat), DRAW_TO_DISCARD_DELAY);
+      scheduleTurnTimeout(() => cpuDiscardOnly(callerSeat), DRAW_TO_DISCARD_DELAY);
     }
     fitTileSize();
   }
@@ -2704,7 +2865,7 @@
     } else {
       renderCpuHandBacks(callerSeat);
       setTurnIndicator(seatLabel[callerSeat] + "がチーしました");
-      setTimeout(() => cpuDiscardOnly(callerSeat), DRAW_TO_DISCARD_DELAY);
+      scheduleTurnTimeout(() => cpuDiscardOnly(callerSeat), DRAW_TO_DISCARD_DELAY);
     }
     fitTileSize();
   }
@@ -2735,9 +2896,9 @@
     passedRon.bottom = null; // この捨て牌についての邪魔ポンの機会は完全に終わったので、再ロン権も失効させる
     const next = NEXT_SEAT[discarderSeat];
     if(next === "bottom"){
-      setTimeout(() => playerDraw(), DISCARD_TO_NEXT_DRAW_DELAY);
+      scheduleTurnTimeout(() => playerDraw(), DISCARD_TO_NEXT_DRAW_DELAY);
     } else {
-      setTimeout(() => cpuDrawAndDiscard(next), DISCARD_TO_NEXT_DRAW_DELAY);
+      scheduleTurnTimeout(() => cpuDrawAndDiscard(next), DISCARD_TO_NEXT_DRAW_DELAY);
     }
   }
 
@@ -2776,7 +2937,7 @@
       return;
     }
 
-    setTimeout(() => cpuChooseAndDiscard(seat), DRAW_TO_DISCARD_DELAY);
+    scheduleTurnTimeout(() => cpuChooseAndDiscard(seat), DRAW_TO_DISCARD_DELAY);
   }
 
   function cpuChooseAndDiscard(seat){
@@ -2839,7 +3000,7 @@
       return;
     }
 
-    setTimeout(() => cpuChooseAndDiscard(seat), DRAW_TO_DISCARD_DELAY);
+    scheduleTurnTimeout(() => cpuChooseAndDiscard(seat), DRAW_TO_DISCARD_DELAY);
     fitTileSize();
   }
 
@@ -3117,8 +3278,27 @@
   // 本番の結果画面（実際の半荘の状態）へそのまま戻る。
   let verifyMode = false; // true: 検証(リピート)モード中
   let handStartSnapshot = null; // この局の配牌直後・自摸前の状態(結果画面が出ている間だけ保持すれば良い)
-  let realStateBeforeVerify = null; // 検証モードに入る直前の「本番」状態の退避先（「戻る」ボタン用）
-  let lastNextMatchStateForRepeat = null; // 直近にproceedOrEndMatchが計算したnext（「戻る」後の「次局へ」再結線用）
+  let realStateBeforeVerify = null; // 検証モードに入る直前の「本番」状態の退避先（「次へ」ボタン用）
+  let lastNextMatchStateForRepeat = null; // 直近にproceedOrEndMatchが計算したnext（検証モードの「次へ」用）
+  // 検証(リピート)モード中、自分(bottom)の捨て牌が本番と一致しなくなった(＝自分の意思で
+  // 違う牌を切った)瞬間にtrueにする。falseの間は自分の捨て牌に本番と同じだったことを示す
+  // ▼マークが付き、一度trueになったら「自分モード」として以後は一切マークを付けない
+  // （既に付いていたぶんも含めて消える。onDiscardMyTile/renderDiscardが参照する）
+  let verifyDiverged = false;
+
+  // 「リプレイ」「次へ」はいつでも(対局の途中でも)押せる仕様のため、押された瞬間に
+  // 丸ごと状態を入れ替える(applyGameStateSnapshot)ことがある。その際、既に仕掛かっている
+  // 無名setTimeout連鎖(cpuDrawAndDiscard等、手番を自動的に進めるためのもの)がそのまま
+  // 後から発火すると、入れ替え後の新しい状態を誤って書き換えてしまう恐れがある。
+  // そこで手番を進める全てのsetTimeoutをscheduleTurnTimeout経由に統一し、予約した瞬間の
+  // turnGenerationと発火時のそれが一致する場合だけ実行する。turnGenerationは強制的な
+  // 状態入れ替え(リプレイ再開・検証の中断)のたびに1つ進め、それより前に予約された
+  // タイマーを丸ごと無効化する
+  let turnGeneration = 0;
+  function scheduleTurnTimeout(fn, delay){
+    const gen = turnGeneration;
+    return setTimeout(() => { if(gen === turnGeneration) fn(); }, delay);
+  }
 
   // 同じ牌オブジェクトへの参照（===比較。riichiDeclareTileなど）を、複製後も保ったまま
   // コピーするためのヘルパー。mapを共有しないと、例えば「discards[seat]内の牌」と
@@ -3146,6 +3326,7 @@
       deadWall: cloneTileArrayRef(deadWall, map),
       hands: {}, discards: {}, discardShadows: {}, discardHistory: {}, melds: {},
       lastDrawnCpu: {}, riichiDeclareTile: {}, riichiValidDiscards: {},
+      callDecisionLog: callDecisionLog.slice(),
       scores: { ...scores },
       honba, riichiSticks, kyokuNumber, dealerSeat: DEALER_SEAT, gameEnded,
       lastDrawnTile: cloneTileRef(lastDrawnTile, map),
@@ -3181,6 +3362,7 @@
     const seats = ["bottom", "top", "left", "right"];
     replaceArrayContents(wall, cloneTileArrayRef(snap.wall, map));
     replaceArrayContents(deadWall, cloneTileArrayRef(snap.deadWall, map));
+    replaceArrayContents(callDecisionLog, snap.callDecisionLog.slice());
     seats.forEach(s => {
       replaceArrayContents(hands[s], cloneTileArrayRef(snap.hands[s], map));
       replaceArrayContents(discards[s], cloneTileArrayRef(snap.discards[s], map));
@@ -3211,7 +3393,8 @@
     // ターン中の一時的なプロンプト・タイマー類は、局開始直後・結果画面表示直後の
     // どちらの復元先でも「何も開いていない」のが正しい状態なので、ここで必ず初期化する
     // （名前付きタイマーはclearしてから捨てる。CPU手番進行の無名setTimeoutは追跡できないため、
-    // 危険な間は「戻る」ボタン自体を表示しない方針でガードする＝updateVerifyReturnButton参照）
+    // turnGeneration(呼び出し元のenterVerifyMode/advanceFromVerifyToNextKyokuで進める)で
+    // 古い分を無効化するガードをかけている＝scheduleTurnTimeout参照）
     pendingRon = null;
     pendingCallContext = null;
     pendingCallOptions = null;
@@ -3243,55 +3426,78 @@
     if(banner) banner.style.display = verifyMode ? "" : "none";
   }
 
-  // 「戻る」ボタンの表示可否。CPU手番の進行（cpuChooseAndDiscard等）は無名のsetTimeoutで
-  // 連鎖しており、その途中でボタンを押されて状態を丸ごと入れ替えると、後から発火した
-  // タイマーが入れ替え後の状態を誤って書き換えてしまう恐れがある。安全に戻せるのは
-  // 「その局がもう終わっている（gameEnded、以後タイマーは発生しない）」か
-  // 「自分が牌を引いた直後で、他の非同期処理・プロンプトが何も無い（＝次のCPU手番用の
-  // タイマーがまだ仕掛かっていない）」の、どちらかが確実に言える瞬間だけに限定する
-  function isSafeToExitVerify(){
-    if(!verifyMode) return false;
-    if(gameEnded) return true;
-    return lastDrawnTile !== null &&
-      !pendingRon && !pendingCallContext && !pendingCallOptions && !pendingSankahou &&
-      !activeCallSelection && !pendingSelfKan && !selfKanSelecting;
+  // 結果表示の枠(#resultBox)の外側・下に常設した操作ボタン2つ(#repeatBtn/#nextKyokuBtn)を、
+  // 通常時(局が終わった直後、次局へ進むかこの局を検証するか選ぶ場面)向けの見た目・挙動にする
+  function showNormalResultActions(next){
+    const actions = document.getElementById("resultActions");
+    if(!actions) return;
+    const repeatBtn = document.getElementById("repeatBtn");
+    const nextBtn = document.getElementById("nextKyokuBtn");
+    repeatBtn.textContent = "リピート";
+    repeatBtn.onclick = enterVerifyMode;
+    nextBtn.textContent = "次局へ";
+    nextBtn.onclick = () => goToNextKyoku(next);
+    nextBtn.style.display = ""; // showFinalResultActionsで隠されている場合に備えて必ず戻す
+    actions.style.display = "flex";
   }
-  function updateVerifyReturnButton(){
-    const btn = document.getElementById("verifyReturnBtn");
-    if(btn) btn.style.display = isSafeToExitVerify() ? "" : "none";
+  // 同じボタン2つを、検証(リピート)モード中向けの見た目・挙動に切り替える。
+  // 検証モード中はこのボタン行を常時表示し続け、対局の途中(CPUの手番中や自分の手牌選択中)
+  // でもいつでも押せるようにする
+  function showVerifyResultActions(){
+    const actions = document.getElementById("resultActions");
+    if(!actions) return;
+    const repeatBtn = document.getElementById("repeatBtn");
+    const nextBtn = document.getElementById("nextKyokuBtn");
+    repeatBtn.textContent = "リプレイ";
+    repeatBtn.onclick = enterVerifyMode; // 対局の途中でも押した瞬間にもう一度配牌直後からやり直す
+    nextBtn.textContent = "次へ";
+    nextBtn.onclick = advanceFromVerifyToNextKyoku; // 対局の途中でも押した瞬間に検証を打ち切り次局へ進む
+    // オーラス（次局が存在しない対局）をリピート中でも「次へ」は出す：押すと本番の状態
+    // （既にsessionStorageはクリア済み＝対局終了後）へ戻るため、そのままリロードすればよい
+    // （advanceFromVerifyToNextKyokuのnextMatchState無し時のフォールバックが処理する）
+    nextBtn.style.display = "";
+    actions.style.display = "flex";
+  }
+  // 半荘そのものが終了した局（オーラス等）の結果表示向け。「次局」は存在しないため、
+  // 右のボタンは「次局へ」ではなく「新しい半荘へ」に差し替える（押すとリロードして
+  // 新しい半荘を最初から始める。対局終了時に既にclearMatchState()済みなので、
+  // 保存された対局状態は無く、リロードすれば自然に新しい半荘が始まる）。
+  // これが無いと、最後の局の結果画面に「リピート」しか出ず、半荘を終える手段が無くなってしまう
+  function showFinalResultActions(){
+    const actions = document.getElementById("resultActions");
+    if(!actions) return;
+    const repeatBtn = document.getElementById("repeatBtn");
+    const nextBtn = document.getElementById("nextKyokuBtn");
+    repeatBtn.textContent = "リピート";
+    repeatBtn.onclick = enterVerifyMode;
+    nextBtn.textContent = "新しい半荘へ";
+    nextBtn.onclick = () => location.reload();
+    nextBtn.style.display = "";
+    actions.style.display = "flex";
+  }
+  // 次局の状態を保存してリロードする（通常時の「次局へ」・検証中の「次へ」の共通処理）
+  function goToNextKyoku(next){
+    saveMatchState({ scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount });
+    location.reload();
   }
 
-  // 結果パネルの「次局へ」「リピート」ボタンにクリックハンドラを結線する。
-  // ボタン生成直後だけでなく、「戻る」でbox.innerHTMLを復元した直後にも呼び直す
-  // （innerHTML経由の復元ではイベントリスナーが失われるため）
-  function attachNextKyokuButton(next){
-    const btn = document.getElementById("nextKyokuBtn");
-    if(!btn) return;
-    btn.onclick = () => {
-      saveMatchState({ scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount });
-      location.reload();
-    };
-  }
-  function attachRepeatButton(){
-    const btn = document.getElementById("repeatBtn");
-    if(btn) btn.onclick = enterVerifyMode;
-  }
-
-  // 「リピート」：結果画面から、この局の配牌直後の状態へ丸ごと戻って対局をやり直す（検証専用）。
-  // 検証中の局が結論に達し、その結果画面から「もう一度リピート」で連続して呼ばれることもある
-  // （下のproceedOrEndMatch参照）。その場合は既に検証モード中なので、本番状態の退避
-  // （realStateBeforeVerify）を上書きしてはいけない（上書きすると「戻る」が本番ではなく
-  // 検証中の結果に戻ってしまう）
+  // 「リプレイ」：この局の配牌直後の状態へ丸ごと戻って対局をやり直す（検証専用）。
+  // 通常の結果画面から初めて押された場合と、既に検証モード中に再度押された場合(対局の途中も含む)の
+  // どちらもこの1つの関数で扱う。既に検証モード中なら、本番状態の退避（realStateBeforeVerify）は
+  // 上書きしない（上書きすると「次へ」が本番の次局ではなく検証中の状態に基づいてしまう）
   function enterVerifyMode(){
     if(!handStartSnapshot) return;
     if(!verifyMode){
       realStateBeforeVerify = captureGameStateSnapshot();
-      realStateBeforeVerify.resultHtml = document.getElementById("resultBox").innerHTML;
       realStateBeforeVerify.nextMatchState = lastNextMatchStateForRepeat;
     }
 
+    // 対局の途中で押された場合に備え、それより前に仕掛かっている自動進行タイマーを
+    // すべて無効化してから状態を入れ替える
+    turnGeneration++;
     applyGameStateSnapshot(handStartSnapshot);
     verifyMode = true;
+    verifyDiverged = false; // リプレイをやり直すたびに、本番との比較(▼マーク)も最初からやり直す
 
     const box = document.getElementById("resultBox");
     box.style.display = "none";
@@ -3302,39 +3508,33 @@
     ["top", "left", "right"].forEach(renderCpuHandBacks);
     ["top", "left", "right", "bottom"].forEach(renderMelds);
     updateVerifyBanner();
-    updateActionButtons(); // 内部でupdateVerifyReturnButton()も呼ぶ
+    showVerifyResultActions();
+    updateActionButtons();
 
     // 最初の手番を開始する（局開始時と同じロジック）
     if(DEALER_SEAT === "bottom"){
       playerDraw();
     } else {
       setTurnIndicator(seatLabel[DEALER_SEAT] + "の番です");
-      setTimeout(() => cpuDrawAndDiscard(DEALER_SEAT), 500);
+      scheduleTurnTimeout(() => cpuDrawAndDiscard(DEALER_SEAT), 500);
     }
   }
 
-  // 「戻る」：検証モードの状態を破棄し、本番の結果画面（実際の半荘の状態）へそのまま戻る
-  function exitVerifyMode(){
-    if(!isSafeToExitVerify() || !realStateBeforeVerify) return;
-    const snap = realStateBeforeVerify;
-    applyGameStateSnapshot(snap);
+  // 「次へ」：検証モードを打ち切り、本番の次局へ直接進む（対局の途中でも即座に実行する）。
+  // 本番の実際の結果(realStateBeforeVerify)に基づいて次局の状態を計算済みのnextMatchStateを
+  // そのまま使う。検証中に変化した持ち点等はあくまで検証専用の値なので一切参照しない
+  function advanceFromVerifyToNextKyoku(){
+    if(!realStateBeforeVerify || !realStateBeforeVerify.nextMatchState){
+      location.reload();
+      return;
+    }
+    turnGeneration++; // 対局の途中でも安全に打ち切れるよう、仕掛かっているタイマーを無効化する
+    const real = realStateBeforeVerify;
+    const next = real.nextMatchState;
     verifyMode = false;
-
-    renderTableFromState();
-    renderMyHand(false);
-    revealAllHands(); // 本番終了時と同じく、4人全員の手牌・副露を開示し直す
-    fitTileSize();
-    setTurnIndicator("");
-    updateVerifyBanner();
-
-    const box = document.getElementById("resultBox");
-    box.innerHTML = snap.resultHtml;
-    box.style.display = "block";
-    attachNextKyokuButton(snap.nextMatchState);
-    attachRepeatButton();
-
-    updateActionButtons();
     realStateBeforeVerify = null;
+    saveMatchState({ scores: real.scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks: real.riichiSticks, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount });
+    location.reload();
   }
 
   // ネームプレート（方角+名前+点数）は中央情報ボックスの中、各家の方角位置に置かれている
@@ -4740,7 +4940,11 @@
   const BEHIND_UKEIRE_TOLERANCE = 4;
 
   // CPU(seat)が今まさに切る牌を選ぶ。{ tile, declareRiichi } を返す
-  // 1. 誰かがリーチ中で、自分がまだ2シャンテン以上遠い時は、現物があれば守備優先でベタオリする
+  // 1. 誰かがリーチ中で、自分がまだ聴牌していない(1シャンテン以上)時は、現物があれば守備優先でベタオリする。
+  //    (2026-09-12の実戦報告を受けて、以前は2シャンテン以上でしか発動しなかったためリーチ後1シャンテンの
+  //    CPUが一発目から無筋のドラ跨ぎ等の危険牌を押してしまう事例があった。現物があるのに1シャンテンだから
+  //    という理由だけで押すのはリスクに見合わないため、1シャンテンの時点でも現物があれば優先させる。
+  //    自分が聴牌(0シャンテン)している時までは降りない＝そこは従来通り押す)
   // 2. それ以外は、シャンテン数最小→受け入れ枚数最大→表ドラ・赤牌は残す、の順で選ぶ。
   //    ただし3着以下で沈んでいる時は、受け入れ枚数がBEHIND_UKEIRE_TOLERANCE枚以内の差なら
   //    受け入れよりドラ・赤牌の温存を優先する（安定重視をやめて一発逆転を狙いにいく）
@@ -4752,13 +4956,36 @@
     const bestShanten = Math.min(...candidates.map(c => c.shanten));
 
     const dangerousSeats = ["top", "left", "right"].filter(s => s !== seat && riichiDeclared[s]);
-    if(dangerousSeats.length > 0 && bestShanten >= 2){
+    if(dangerousSeats.length > 0 && bestShanten >= 1){
       const safe = candidates.filter(c => dangerousSeats.every(s => isGenbutsu(c.tile, s)));
       if(safe.length > 0){
         safe.sort((a, b) => a.shanten - b.shanten);
         return { tile: safe[0].tile, declareRiichi: false };
       }
-      // 現物が無ければ仕方なく通常通り効率重視で押す(フォールバック)
+      // 現物が無い場合、完全な安全牌ではないが経験則上いくらか通りやすい牌を優先する
+      // (2026-09-13の実戦報告を受けて追加):
+      // 1. 手牌にまだ2枚以上ある字牌(＝対子以上、単騎・シャンポン待ちに使われにくい)。
+      //    ただしリーチ者(のいずれか)の場風・自風に該当する字牌は役牌として狙われやすいため除外する
+      // 2. それも無ければ1・9牌(端牌はイーペーコー・両面などの受けに使われにくく比較的安全)
+      const pairedHonorSafe = candidates.filter(c => {
+        const t = c.tile;
+        if(t.suit !== "wind" && t.suit !== "dragon") return false;
+        if(dangerousSeats.some(s => t.suit === "wind" && (t.num === ROUND_WIND || t.num === SEAT_WIND[s]))) return false;
+        return hand.filter(h => h.suit === t.suit && h.num === t.num).length >= 2;
+      });
+      if(pairedHonorSafe.length > 0){
+        pairedHonorSafe.sort((a, b) => a.shanten - b.shanten);
+        return { tile: pairedHonorSafe[0].tile, declareRiichi: false };
+      }
+      const terminalSafe = candidates.filter(c => {
+        const t = c.tile;
+        return (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && (t.num === 1 || t.num === 9);
+      });
+      if(terminalSafe.length > 0){
+        terminalSafe.sort((a, b) => a.shanten - b.shanten);
+        return { tile: terminalSafe[0].tile, declareRiichi: false };
+      }
+      // それでも無ければ仕方なく通常通り効率重視で押す(フォールバック)
     }
 
     const bestCandidates = candidates.filter(c => c.shanten === bestShanten);
@@ -5102,18 +5329,10 @@
   // 均等分配する（ダブロン対応、設計④）。単独なら従来通り全額1人が受け取る
   function proceedOrEndMatch(renchan, winnerSeats, bustSeat){
     // 検証(リピート)モード中は、次局への進行判定も最終順位判定も一切行わない
-    // （sessionStorageへの書き込みも起きない）。結果表示自体は呼び出し側で既に
-    // 済んでいるので、ここでは同じ配牌からもう一度やり直せる「もう一度リピート」だけを
-    // 追加する（本番に戻るための「戻る」はバナー側に常設済み・gameEndedで自動的に表示される）
-    if(verifyMode){
-      const box = document.getElementById("resultBox");
-      box.insertAdjacentHTML("beforeend",
-        `<div class="post-result-actions">` +
-        `<button type="button" class="repeat-btn" id="repeatBtn">もう一度リピート</button>` +
-        `</div>`);
-      attachRepeatButton();
-      return;
-    }
+    // （sessionStorageへの書き込みも起きない）。結果表示(スコア・役)自体は呼び出し側で
+    // 既に済んでおり、操作用の「リプレイ」「次へ」ボタンは結果枠の外に常設済みで
+    // 検証モード中は常時使えるようになっているため、ここでは何もしなくてよい
+    if(verifyMode) return;
 
     const seatsWon = winnerSeats || [];
     const finishedKyoku = kyokuNumber;
@@ -5126,19 +5345,14 @@
         renderScores();
       }
       clearMatchState();
+      lastNextMatchStateForRepeat = null; // 対局終了後は「次局」が存在しない
       showFinalStandings(reason);
+      showFinalResultActions(); // 最後の局(オーラス等)も検証(リピート)できるようにする
       return;
     }
     const next = computeNextMatchState({ kyokuNumber, honba, dealerSeat: DEALER_SEAT }, renchan);
-    lastNextMatchStateForRepeat = next; // 検証モードから「戻る」で結果パネルを復元する際、ボタンの再結線に使う
-    const box = document.getElementById("resultBox");
-    box.insertAdjacentHTML("beforeend",
-      `<div class="post-result-actions">` +
-      `<button type="button" class="next-kyoku-btn" id="nextKyokuBtn">次局へ</button>` +
-      `<button type="button" class="repeat-btn" id="repeatBtn">リピート</button>` +
-      `</div>`);
-    attachNextKyokuButton(next);
-    attachRepeatButton();
+    lastNextMatchStateForRepeat = next; // 検証モード中の「次へ」が使う本番の次局状態
+    showNormalResultActions(next);
   }
 
   function settleRyuukyoku(tenpaiSeats, notenSeats){
@@ -5503,6 +5717,7 @@
       btn.disabled = false;
       btn.onclick = () => {
         if(maybeForceSankahou()) return; // 三家和確定中は選択を無視して強制流局にする
+        recordBottomCallDecision("ron");
         hideCallPrompt();
         // ダブロンでも自分が和了を選んだ場合は当事者全員（allWinners）分を確定する。
         // 自分だけが対象だった単独ロンではallWinners=[{seat:"bottom",...}]なので従来と同じ結果になる
@@ -5554,6 +5769,7 @@
       btn.disabled = false;
       btn.onclick = () => {
         if(maybeForceSankahou()) return; // 三家和確定中は選択を無視して強制流局にする
+        recordBottomCallDecision("through");
         hideCallPrompt();
         if(hadRon){
           furitenTemp.bottom = true;
@@ -5655,6 +5871,33 @@
     }
   }
 
+  // 邪魔ポンの猶予窓（3秒間）を、ボタンの点滅だけに頼らず文字でもはっきり知らせる告知。
+  // 以前は案内表示欄(setTurnIndicator)がこの瞬間のメッセージを出していたが、その表示欄自体が
+  // 別の経緯で廃止(no-op化)されており、ボタンの点滅だけが唯一の合図になっていた。実戦で
+  // 「ポンボタンが光らなかった(＝気づかないまま猶予窓が終わっていた)」と報告があったため追加
+  function updateNadaponBanner(){
+    const el = document.getElementById("callPrompt");
+    if(!el) return;
+    const w = nadaponWindow;
+    if(!w){
+      el.style.display = "none";
+      el.classList.remove("nadapon-banner");
+      el.textContent = "";
+      return;
+    }
+    let text;
+    if(w.chiSeat){
+      const options = w.bottomPon && w.bottomKan ? "ポン・カン" : (w.bottomKan ? "カン" : "ポン");
+      text = seatLabel[w.chiSeat] + "がチーしました！ 3秒以内なら" + options + "で割り込めます";
+    } else {
+      const kindText = w.current.kind === "kan" ? "カン" : "ポン";
+      text = seatLabel[w.current.seat] + "が" + kindText + "しました！ 3秒以内なら見逃したロンを取り戻せます";
+    }
+    el.textContent = text;
+    el.classList.add("nadapon-banner");
+    el.style.display = "block";
+  }
+
   // 下段の「リーチ」ボタン：和了ボタンと同じく、今まさに牌を引いた直後（lastDrawnTileがある間）
   // だけ、リーチ可能条件(canDeclareRiichi)を満たす時に有効化する
   function updateRiichiButton(){
@@ -5673,7 +5916,8 @@
     updateThroughButton();
     updateCallButtons();
     updateRiichiButton();
-    updateVerifyReturnButton();
+    updateNadaponBanner();
+    updateCallDecisionPredictionMarks();
   }
 
 
@@ -5712,15 +5956,13 @@
 
   // 検証(リピート)用に、配牌・自摸山が確定した直後・誰も牌を引く前の状態をここで確定させておく
   handStartSnapshot = captureGameStateSnapshot();
-  const verifyReturnBtnEl = document.getElementById("verifyReturnBtn");
-  if(verifyReturnBtnEl) verifyReturnBtnEl.onclick = exitVerifyMode;
 
   // 最初の手番を開始する（親が「あなた」ならplayerDraw()、CPUならcpuDrawAndDiscard()から連鎖する）
   if(DEALER_SEAT === "bottom"){
     playerDraw();
   } else {
     setTurnIndicator(seatLabel[DEALER_SEAT] + "の番です");
-    setTimeout(() => cpuDrawAndDiscard(DEALER_SEAT), 500);
+    scheduleTurnTimeout(() => cpuDrawAndDiscard(DEALER_SEAT), 500);
   }
 
   // --- 牌サイズ(--tile-h)を画面いっぱいまで最大化する ---
