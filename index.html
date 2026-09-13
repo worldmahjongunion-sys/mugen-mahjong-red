@@ -1613,7 +1613,8 @@
       umaMode:"ukiCount", fixedUmaTable:null,
       honbaRonBonus:1500, honbaTsumoBonusPerSeat:500,
       earlyEndOnBust:true, earlyEndOnOver70000:true, tobiEnabled:true,
-      yakunashiWinEnabled:true, multiRonEnabled:true, jamaPonEnabled:true
+      yakunashiWinEnabled:true, multiRonEnabled:true, jamaPonEnabled:true,
+      tenpaiRenchanEnabled:false, honbaResetOnDealerChange:true
     } },
     { id:"original", label:"無限ルールOriginal", status:"ready", ruleConfig:{
       akaDoraEnabled:false,
@@ -1621,7 +1622,8 @@
       umaMode:"fixed", fixedUmaTable:[10000, 0, 0, -10000],
       honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
       earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false,
-      yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false
+      yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
+      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:false
     } },
     { id:"mLeagueOriginal", label:"Mリーグ Original", status:"comingSoon", ruleConfig:null },
     { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null },
@@ -5466,7 +5468,10 @@
     if(renchan){
       return { kyokuNumber: current.kyokuNumber, honba: current.honba + 1, dealerSeat: current.dealerSeat };
     }
-    return { kyokuNumber: current.kyokuNumber + 1, honba: 0, dealerSeat: NEXT_SEAT[current.dealerSeat] };
+    // ruleConfig.honbaResetOnDealerChange:falseのルール(無限Original等)では、親交代時にも
+    // 本場をリセットせず増え続けさせる
+    const honba = ruleConfig.honbaResetOnDealerChange ? 0 : current.honba + 1;
+    return { kyokuNumber: current.kyokuNumber + 1, honba, dealerSeat: NEXT_SEAT[current.dealerSeat] };
   }
 
   // 終了判定：トビ（マイナス）＞70,000点超え＞東8局終了、の優先順で理由を返す（無ければnull）。
@@ -5657,7 +5662,10 @@
     renderMyHand(false);
     revealAllHands(); // 流局時も4人全員の手牌を公開する
     fitTileSize(); // 公開した牌の実寸に合わせて再計算し、自分の手牌がボタン行と被らないようにする
-    proceedOrEndMatch(false, []); // 上がり連荘：流局は常に親交代
+    // ruleConfig.tenpaiRenchanEnabled:trueのルール(無限Original等)は聴牌連荘：
+    // 流局時、親がテンパイなら連荘。falseのNEOは従来通り上がり連荘(流局は常に親交代)
+    const renchan = ruleConfig.tenpaiRenchanEnabled && tenpaiSeats.includes(DEALER_SEAT);
+    proceedOrEndMatch(renchan, []);
   }
 
   // 三家和（ロン可能な席が3つ揃った時点）による強制流局。ユーザー確定事項：自分がスルーできる／
@@ -5677,7 +5685,8 @@
     renderMyHand(false);
     revealAllHands();
     fitTileSize();
-    proceedOrEndMatch(false, []);
+    const renchan = ruleConfig.tenpaiRenchanEnabled && tenpaiSeats.includes(DEALER_SEAT);
+    proceedOrEndMatch(renchan, []);
   }
 
   // 役名の括弧書き（例:「役牌（三元牌）」の（三元牌）部分）は表示しない
