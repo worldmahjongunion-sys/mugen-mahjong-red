@@ -4254,6 +4254,11 @@
 
     if(isTsumo && closedHand) yaku.push({ name:"門前清自摸和", han:1 });
 
+    // 海底摸月・河底撈魚：山の最後の1枚をツモった直後の和了かどうかはwall.lengthで判定できる
+    // （その牌をツモった時点でwall.length===0になり、そのままロンされるまでwall.lengthは
+    // 変化しないため、ツモ・ロンどちらの判定タイミングでも同じ条件で拾える）
+    if(wall.length === 0) yaku.push({ name: isTsumo ? "海底摸月" : "河底撈魚", han:1 });
+
     // 全帯五（チェンタイウー）：全ての面子＋雀頭に、萬子5・筒子5・索子5のいずれかが1枚以上含まれている
     // （門前2翻・鳴き1翻。必ずタンヤオ形になるため、タンヤオとは複合させない）
     const hasFive = t => (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num === 5;
@@ -4809,6 +4814,7 @@
       if(riichiDeclared[seat]) yaku.push({ name:"リーチ", han:1 });
       if(riichiDeclared[seat] && ippatsuActive[seat] && (ruleConfig.ippatsuOnTsumoEnabled || !isTsumo)) yaku.push({ name:"一発", han:1 });
       if(isTsumo) yaku.push({ name:"門前清自摸和", han:1 });
+      if(wall.length === 0) yaku.push({ name: isTsumo ? "海底摸月" : "河底撈魚", han:1 });
       if(hasAllFiveSuits(concealed)) yaku.push({ name:"五門斉", han:1 });
       if(concealed.every(isToibudaoTile)) yaku.push({ name:"推不倒", han:2 });
       if(concealed.every(isXiaoYuWuTile)) yaku.push({ name:"小于五", han:2 });
