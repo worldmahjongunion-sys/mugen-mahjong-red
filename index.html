@@ -1612,14 +1612,16 @@
       startingPoints:35000, returnPoints:40000,
       umaMode:"ukiCount", fixedUmaTable:null,
       honbaRonBonus:1500, honbaTsumoBonusPerSeat:500,
-      earlyEndOnBust:true, earlyEndOnOver70000:true, tobiEnabled:true
+      earlyEndOnBust:true, earlyEndOnOver70000:true, tobiEnabled:true,
+      yakunashiWinEnabled:true
     } },
     { id:"original", label:"無限ルールOriginal", status:"ready", ruleConfig:{
       akaDoraEnabled:false,
       startingPoints:30000, returnPoints:30000,
       umaMode:"fixed", fixedUmaTable:[10000, 0, 0, -10000],
       honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
-      earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false
+      earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false,
+      yakunashiWinEnabled:false
     } },
     { id:"mLeagueOriginal", label:"Mリーグ Original", status:"comingSoon", ruleConfig:null },
     { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null },
@@ -2802,7 +2804,7 @@
   function nadaponOverrideRon(){
     const w = nadaponWindow;
     if(!w || !w.bottomRon || w.current.kind !== "pon") return;
-    const result = attemptWin("bottom", w.tile, false);
+    const result = attemptLegalWin("bottom", w.tile, false);
     if(!result) return;
     if(w.timerId){ clearTimeout(w.timerId); w.timerId = null; }
     nadaponWindow = null;
@@ -3017,7 +3019,7 @@
       renderCpuHandBacks(callerSeat);
       setTurnIndicator(seatLabel[callerSeat] + "が" + (type === "pon" ? "ポン" : "カン") + "しました");
       if(type === "kan"){
-        const rinshanWin = attemptWin(callerSeat, null, true);
+        const rinshanWin = attemptLegalWin(callerSeat, null, true);
         if(rinshanWin){ finalizeWin(callerSeat, callerSeat, rinshanWin); return; }
       }
       scheduleTurnTimeout(() => cpuDiscardOnly(callerSeat), DRAW_TO_DISCARD_DELAY);
@@ -3107,7 +3109,7 @@
     updateWallCount();
     renderCpuHandBacks(seat);
 
-    const tsumoResult = attemptWin(seat, null, true);
+    const tsumoResult = attemptLegalWin(seat, null, true);
     if(tsumoResult){
       finalizeWin(seat, seat, tsumoResult);
       return;
@@ -3184,7 +3186,7 @@
     renderCpuHandBacks(seat);
     setTurnIndicator(seatLabel[seat] + "が暗槓しました");
 
-    const rinshanWin = attemptWin(seat, null, true);
+    const rinshanWin = attemptLegalWin(seat, null, true);
     if(rinshanWin){
       finalizeWin(seat, seat, rinshanWin);
       return;
@@ -3211,7 +3213,7 @@
     if(riichiDeclared.bottom && !awaitingRiichiDiscard.bottom){
       renderMyHand(true); // isRiichiWaitDiscardable()により手牌は全てクリック不可で描画される
       updateActionButtons(); // ツモ和了できるならここで和了ボタンが有効になる
-      if(attemptWin("bottom", null, true)){
+      if(attemptLegalWin("bottom", null, true)){
         setTurnIndicator("あなたの番です（ツモ！）");
         return;
       }
@@ -4861,6 +4863,16 @@
     return candidates.reduce((best, r) => (r.han > best.han ? r : best));
   }
 
+  // ruleConfig.yakunashiWinEnabled:falseのルール(無限Original等)では役無し和了を認めない。
+  // ただし「形式テンパイ」(getWaits/isTenpai。ノーテン料・フリテン判定に使う)は役の有無を
+  // 問わない従来通りの挙動を保つため、そちらはattemptWinを直接使い続け、実際に和了を
+  // 成立させる/させられるかどうかの判定にだけこのラッパーを使う
+  function attemptLegalWin(seat, extraTile, isTsumo){
+    const result = attemptWin(seat, extraTile, isTsumo);
+    if(result && result.yakunashi && !ruleConfig.yakunashiWinEnabled) return null;
+    return result;
+  }
+
   // 待ち一覧：34種類の牌を1枚ずつ仮に加えてみて、和了の形になる（役なし和了も可の本ルールでは
   // attemptWin が非nullを返す）牌の種類だけを集めて返す（{suit,num}の配列）
   function getWaits(seat){
@@ -4919,7 +4931,7 @@
   // ロン判定はここを必ず通す：フリテン中は和了の形になっていてもロンできない
   function canRon(seat, tile){
     if(isFuriten(seat)) return false;
-    return attemptWin(seat, tile, false);
+    return attemptLegalWin(seat, tile, false);
   }
 
   // 門前（鳴きが無い、または暗槓のみ）かどうか。役判定側(closedHand)と同じ考え方
@@ -5976,7 +5988,7 @@
       btn.onclick = null;
       return;
     }
-    const result = attemptWin("bottom", null, true);
+    const result = attemptLegalWin("bottom", null, true);
     if(result){
       btn.disabled = false;
       btn.onclick = () => finalizeWin("bottom", "bottom", result);
