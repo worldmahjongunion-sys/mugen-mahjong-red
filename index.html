@@ -1613,7 +1613,7 @@
       umaMode:"ukiCount", fixedUmaTable:null,
       honbaRonBonus:1500, honbaTsumoBonusPerSeat:500,
       earlyEndOnBust:true, earlyEndOnOver70000:true, tobiEnabled:true,
-      yakunashiWinEnabled:true
+      yakunashiWinEnabled:true, multiRonEnabled:true, jamaPonEnabled:true
     } },
     { id:"original", label:"無限ルールOriginal", status:"ready", ruleConfig:{
       akaDoraEnabled:false,
@@ -1621,7 +1621,7 @@
       umaMode:"fixed", fixedUmaTable:[10000, 0, 0, -10000],
       honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
       earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false,
-      yakunashiWinEnabled:false
+      yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false
     } },
     { id:"mLeagueOriginal", label:"Mリーグ Original", status:"comingSoon", ruleConfig:null },
     { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null },
@@ -2524,7 +2524,11 @@
     // ダブロン対応：放銃者の下家から時計回りに見て、ロン可能な全員を集める。
     // 3人（＝放銃者以外の全席）がロン可能なら三家和として強制流局、1〜2人ならその全員が和了する
     const ronOrder = headBumpOrder(discarderSeat);
-    const winners = findAllRonWinners(ronOrder, tile);
+    // ruleConfig.multiRonEnabled:falseのルール(無限Original等)では複数人ロンを認めず、
+    // 頭ハネ(headBumpOrder順で最も近い1人だけ)の単独勝者にする。findAllRonWinnersは
+    // 既にheadBumpOrder順で列挙しているため、先頭だけを残せばよい
+    let winners = findAllRonWinners(ronOrder, tile);
+    if(!ruleConfig.multiRonEnabled && winners.length > 1) winners = [winners[0]];
 
     if(winners.length === 3){
       // 3人（自分含む）が全員ロン可能＝三家和。discarderSeatが"bottom"以外なら自分も含まれるため、
@@ -2654,7 +2658,10 @@
   // チーが決まった瞬間の処理。ポン・カンの資格を一度スルーした人（declinedResponder）がいれば、
   // その人に邪魔ポンの機会を与えてから確定する。いなければ即座に確定する（＝3秒待たない）
   function voiceChiAndMaybeOpenWindow(discarderSeat, tile, chiSeat, combo, declinedResponder){
-    if(!declinedResponder){
+    // ruleConfig.jamaPonEnabled:falseのルール(無限Original等)では、一度スルーした
+    // ポン・カン・ロンを後から取り消して成立させ直す「邪魔ポン」自体を認めない。
+    // declinedResponderが居ても3秒の猶予窓を一切開かず、チーをそのまま確定させる
+    if(!declinedResponder || !ruleConfig.jamaPonEnabled){
       executeChi(chiSeat, discarderSeat, combo, tile);
       return;
     }
