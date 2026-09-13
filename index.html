@@ -1614,7 +1614,8 @@
       honbaRonBonus:1500, honbaTsumoBonusPerSeat:500,
       earlyEndOnBust:true, earlyEndOnOver70000:true, tobiEnabled:true,
       yakunashiWinEnabled:true, multiRonEnabled:true, jamaPonEnabled:true,
-      tenpaiRenchanEnabled:false, honbaResetOnDealerChange:true
+      tenpaiRenchanEnabled:false, honbaResetOnDealerChange:true,
+      notenPenaltyMode:"perSeat", notenPenaltyPool:null
     } },
     { id:"original", label:"無限ルールOriginal", status:"ready", ruleConfig:{
       akaDoraEnabled:false,
@@ -1623,7 +1624,8 @@
       honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
       earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false,
       yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
-      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:false
+      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:false,
+      notenPenaltyMode:"pool", notenPenaltyPool:3000
     } },
     { id:"mLeagueOriginal", label:"Mリーグ Original", status:"comingSoon", ruleConfig:null },
     { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null },
@@ -5619,10 +5621,22 @@
     showNormalResultActions(next);
   }
 
+  // ノーテン料1人あたりの受取額・支払額を計算する。
+  // notenPenaltyMode:"perSeat"(NEO): テンパイ1人がノーテン1人につき1,000点を受け取る
+  // （＝受取額はノーテン人数分、支払額はテンパイ人数分の乗算）
+  // notenPenaltyMode:"pool"(Original): 場3,000点の固定プールを、テンパイ人数で均等に
+  // 受け取り、ノーテン人数で均等に支払う
+  function computeNotenPenaltyAmounts(tenpaiSeats, notenSeats){
+    if(ruleConfig.notenPenaltyMode === "pool"){
+      const pool = ruleConfig.notenPenaltyPool;
+      return { gainEach: pool / tenpaiSeats.length, lossEach: pool / notenSeats.length };
+    }
+    return { gainEach: 1000 * notenSeats.length, lossEach: 1000 * tenpaiSeats.length };
+  }
+
   function settleRyuukyoku(tenpaiSeats, notenSeats){
     if(tenpaiSeats.length === 0 || notenSeats.length === 0) return;
-    const gainEach = 1000 * notenSeats.length;
-    const lossEach = 1000 * tenpaiSeats.length;
+    const { gainEach, lossEach } = computeNotenPenaltyAmounts(tenpaiSeats, notenSeats);
     tenpaiSeats.forEach(s => { scores[s] += gainEach; });
     notenSeats.forEach(s => { scores[s] -= lossEach; });
   }
@@ -5633,8 +5647,9 @@
     // 全員テンパイ／全員ノーテンは点数移動が発生しない（settleRyuukyoku側で0扱い）ので、
     // その場合は自然に±0点になる。テンパイ／ノーテンの文言は出さず点数だけを表示する
     const hasMovement = tenpaiSeats.length > 0 && notenSeats.length > 0;
-    const gainEach = hasMovement ? 1000 * notenSeats.length : 0;
-    const lossEach = hasMovement ? 1000 * tenpaiSeats.length : 0;
+    const penalty = hasMovement ? computeNotenPenaltyAmounts(tenpaiSeats, notenSeats) : { gainEach:0, lossEach:0 };
+    const gainEach = penalty.gainEach;
+    const lossEach = penalty.lossEach;
     // 席ごとに1行ずつ、あなた→下家→対面→上家の順（＝seats配列の順）で点数増減だけを出す
     const rows = ["bottom", "right", "top", "left"].map(s => {
       const delta = tenpaiSeats.includes(s) ? gainEach : -lossEach;
