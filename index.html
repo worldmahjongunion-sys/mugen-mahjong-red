@@ -1615,7 +1615,8 @@
       earlyEndOnBust:true, earlyEndOnOver70000:true, tobiEnabled:true,
       yakunashiWinEnabled:true, multiRonEnabled:true, jamaPonEnabled:true,
       tenpaiRenchanEnabled:false, honbaResetOnDealerChange:true,
-      notenPenaltyMode:"perSeat", notenPenaltyPool:null
+      notenPenaltyMode:"perSeat", notenPenaltyPool:null,
+      ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:true
     } },
     { id:"original", label:"無限ルールOriginal", status:"ready", ruleConfig:{
       akaDoraEnabled:false,
@@ -1625,7 +1626,8 @@
       earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false,
       yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
       tenpaiRenchanEnabled:true, honbaResetOnDealerChange:false,
-      notenPenaltyMode:"pool", notenPenaltyPool:3000
+      notenPenaltyMode:"pool", notenPenaltyPool:3000,
+      ippatsuOnTsumoEnabled:false, chiitoitsuFourTileEnabled:false
     } },
     { id:"mLeagueOriginal", label:"Mリーグ Original", status:"comingSoon", ruleConfig:null },
     { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null },
@@ -4246,7 +4248,9 @@
     if(riichiDeclared[seat]) yaku.push({ name:"リーチ", han:1 });
     // 一発：席ごとに判定(CPUのリーチにも付く、2026-09-03〜)。ippatsuActive[seat]は
     // その席がリーチ宣言牌を切った時にtrue、鳴きが入るかその席自身の次の打牌が終わるとfalseになる
-    if(riichiDeclared[seat] && ippatsuActive[seat]) yaku.push({ name:"一発", han:1 });
+    // ruleConfig.ippatsuOnTsumoEnabled:falseのルール(無限Original等)では、一発はロン(出和了り)
+    // だけに付き、ツモには付かない
+    if(riichiDeclared[seat] && ippatsuActive[seat] && (ruleConfig.ippatsuOnTsumoEnabled || !isTsumo)) yaku.push({ name:"一発", han:1 });
 
     if(isTsumo && closedHand) yaku.push({ name:"門前清自摸和", han:1 });
 
@@ -4765,11 +4769,15 @@
       const allEven = values.every(c => c % 2 === 0);
       const totalPairs = values.reduce((sum, c) => sum + c / 2, 0);
       if(!allEven || totalPairs !== 7) return null;
+      const keys = Object.keys(counts);
+      const isStrictSevenPairs = keys.length === 7 && keys.every(k => counts[k] === 2);
+      // ruleConfig.chiitoitsuFourTileEnabled:falseのルール(無限Original等)では、同じ牌を
+      // 4枚(2組扱い)使う七対子を認めない。7種類がちょうど2枚ずつの場合だけ成立させる
+      if(!ruleConfig.chiitoitsuFourTileEnabled && !isStrictSevenPairs) return null;
 
       // 連七対（役満）：同じ色の7つの連続した数字が、ちょうど2枚ずつの対子になっている（4枚使いは不可）
-      const keys = Object.keys(counts);
       let isRenchitoi = false;
-      if(keys.length === 7 && keys.every(k => counts[k] === 2)){
+      if(isStrictSevenPairs){
         const tiles7 = keys.map(keyToTile);
         const suit0 = tiles7[0].suit;
         if(tiles7.every(t => t.suit === suit0)){
@@ -4799,7 +4807,7 @@
       else yaku = [{ name:"七対子", han:2 }];
       // computeYaku()を経由しない役なので、ここでも同様にリーチ・一発をカウントする
       if(riichiDeclared[seat]) yaku.push({ name:"リーチ", han:1 });
-      if(riichiDeclared[seat] && ippatsuActive[seat]) yaku.push({ name:"一発", han:1 });
+      if(riichiDeclared[seat] && ippatsuActive[seat] && (ruleConfig.ippatsuOnTsumoEnabled || !isTsumo)) yaku.push({ name:"一発", han:1 });
       if(isTsumo) yaku.push({ name:"門前清自摸和", han:1 });
       if(hasAllFiveSuits(concealed)) yaku.push({ name:"五門斉", han:1 });
       if(concealed.every(isToibudaoTile)) yaku.push({ name:"推不倒", han:2 });
