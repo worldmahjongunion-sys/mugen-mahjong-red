@@ -894,6 +894,12 @@
     background:transparent;
     border:1px solid var(--gold);
   }
+  /* 「ホームページに戻る」：次局へ/リピートのどちらとも紛らわしくないよう、地味な縁取りボタンにする */
+  .result-actions .home-btn{
+    color:var(--text-light);
+    background:transparent;
+    border:1px solid rgba(243,239,227,0.5);
+  }
 
   /* 半荘終了時の最終順位画面。以前は卓全体を暗転させる全画面オーバーレイだったが、
      卓全体を暗くしないでほしいとの要望で撤廃。今は.result-stack内で#resultBoxの
@@ -1027,10 +1033,96 @@
   .action-btn:disabled{
     opacity:0.35;
   }
+
+  /* ==================== 表紙画面(#titleScreen) ====================
+     対局卓より手前に表示する全画面オーバーレイ。ルール未選択(=保存状態が無い)時だけ
+     JS側でdisplay:flexにする。既定は非表示にしておき、対局再開時のちらつきを避ける */
+  #titleScreen{
+    display:none;
+    position:fixed;
+    inset:0;
+    z-index:500;
+    background:radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-dark)100%);
+    color:var(--text-light);
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-start;
+    gap:14px;
+    padding:6dvh 16px 24px;
+    overflow-y:auto;
+    text-align:center;
+  }
+  .title-screen-heading{
+    font-size:clamp(24px, 6dvh, 40px);
+    font-weight:bold;
+    color:var(--gold);
+    letter-spacing:0.05em;
+    margin:0;
+  }
+  .title-screen-catch{
+    margin:0;
+    font-size:clamp(12px, 2.2dvh, 15px);
+    line-height:1.6;
+    color:var(--text-light);
+    opacity:0.9;
+  }
+  .title-screen-rules{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));
+    gap:10px;
+    width:100%;
+    max-width:640px;
+    margin-top:8px;
+  }
+  .title-screen-rules button{
+    position:relative;
+    padding:0.8em 0.6em;
+    font-size:13px;
+    font-weight:bold;
+    color:var(--text-light);
+    background:rgba(0,0,0,0.25);
+    border:1px solid var(--gold);
+    border-radius:8px;
+    cursor:pointer;
+  }
+  .title-screen-rules button:active{
+    background:rgba(0,0,0,0.4);
+  }
+  .title-screen-rules button.coming-soon{
+    color:rgba(243,239,227,0.65);
+    border-color:rgba(243,239,227,0.4);
+  }
+  .title-screen-rules button .rule-btn-badge{
+    display:block;
+    font-size:10px;
+    font-weight:normal;
+    color:var(--gold);
+    margin-top:3px;
+  }
+  .title-screen-rules button.coming-soon .rule-btn-badge{
+    color:rgba(243,239,227,0.55);
+  }
+  .title-screen-message{
+    min-height:1.6em;
+    font-size:13px;
+    font-weight:bold;
+    color:var(--honor-red);
+    background:rgba(0,0,0,0.3);
+    border-radius:6px;
+    padding:6px 14px;
+    display:none;
+  }
 </style>
 </head>
 <body>
 
+<!-- 表紙画面。ルール未選択時のみJSがdisplay:flexで表示する（RULESETSに基づきボタンをJSで生成） -->
+<div id="titleScreen">
+  <h1 class="title-screen-heading">AI麻雀 聖龍</h1>
+  <p class="title-screen-catch">現役麻雀プロが開発したAI麻雀<br>10種類の麻雀ルールに対応</p>
+  <div class="title-screen-rules" id="titleScreenRules"></div>
+  <div class="title-screen-message" id="titleScreenMessage"></div>
+</div>
 
 <div class="board">
 
@@ -1163,6 +1255,7 @@
     <div class="result-actions" id="resultActions" style="display:none;">
       <button type="button" class="repeat-btn" id="repeatBtn"></button>
       <button type="button" class="next-kyoku-btn" id="nextKyokuBtn"></button>
+      <button type="button" class="home-btn" id="homeBtn">ホームページに戻る</button>
     </div>
   </div>
 
@@ -1429,15 +1522,17 @@
   }
   const ALL_TILE_TYPES = buildTileTypes(); // テンパイ判定で全34種を試すために使う
 
-  // 136枚の牌山を作る（各種4枚ずつ）
-  function buildWall(){
+  // 136枚の牌山を作る（各種4枚ずつ）。ruleConfig.akaDoraEnabledがfalseのルール(無限Original等)では
+  // 赤ドラを一切生成しない。CPU AIの温存判断・得点計算・見た目のハイライトはすべてtile.redから
+  // 導出される作りのため、ここ1箇所をガードするだけで下流は自動的に「赤なし」として整合する
+  function buildWall(ruleConfig){
     const types = buildTileTypes();
     const wall = [];
     types.forEach(t => {
       for(let i = 0; i < 4; i++){
         const tile = { suit:t.suit, num:t.num };
         // 各色（萬子・筒子・索子）の5のうち1枚を赤ドラにする（Mリーグ方式）
-        if(t.num === 5 && (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && i === 0){
+        if(ruleConfig.akaDoraEnabled && t.num === 5 && (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && i === 0){
           tile.red = true;
         }
         wall.push(tile);
@@ -1499,7 +1594,102 @@
     return seat;
   }
 
+  // ==================== 表紙画面(#titleScreen)・ルール選択 ====================
+  // 10ルール構想の第一歩。実装済みの2ルールだけruleConfigを持つ。3〜10はstatus:"comingSoon"で
+  // ボタン自体は常時表示するが、押しても対局室には入らず表紙内にメッセージを出すだけにする
+  // ruleConfigの各フィールド(段階的に実装。現時点ではStage1=値の差し替えのみ反映済み):
+  //   akaDoraEnabled: 赤ドラを生成するか
+  //   startingPoints/returnPoints: 開始点・返し点
+  //   umaMode: "ukiCount"(NEO、浮き人数で3パターン切替+オカ) / "fixed"(Original、着順固定・オカ無し)
+  //   fixedUmaTable: umaMode:"fixed"の時に使う[1位,2位,3位,4位]の順位点
+  //   honbaRonBonus/honbaTsumoBonusPerSeat: 本場ボーナス(ロンは総取り額、ツモは支払者1人あたり)
+  //   earlyEndOnBust/earlyEndOnOver70000: マイナス点/70,000点超えでの即時終了を行うか
+  //   tobiEnabled: 0点止め(支払いをその人の持ち点までに制限)と飛び賞(10,000点)を行うか。
+  //     falseの場合はマイナス点をそのまま持ち越し、飛び賞の精算も一切行わない
+  const RULESETS = [
+    { id:"akaNeo", label:"赤入り無限ルールNEO", status:"ready", ruleConfig:{
+      akaDoraEnabled:true,
+      startingPoints:35000, returnPoints:40000,
+      umaMode:"ukiCount", fixedUmaTable:null,
+      honbaRonBonus:1500, honbaTsumoBonusPerSeat:500,
+      earlyEndOnBust:true, earlyEndOnOver70000:true, tobiEnabled:true
+    } },
+    { id:"original", label:"無限ルールOriginal", status:"ready", ruleConfig:{
+      akaDoraEnabled:false,
+      startingPoints:30000, returnPoints:30000,
+      umaMode:"fixed", fixedUmaTable:[10000, 0, 0, -10000],
+      honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
+      earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false
+    } },
+    { id:"mLeagueOriginal", label:"Mリーグ Original", status:"comingSoon", ruleConfig:null },
+    { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null },
+    { id:"wwStandard", label:"麻雀共同体WW スタンダード", status:"comingSoon", ruleConfig:null },
+    { id:"wwPremium", label:"麻雀共同体WW プレミアム", status:"comingSoon", ruleConfig:null },
+    { id:"sanninNeo", label:"無限ルールNEO(3人打ち)", status:"comingSoon", ruleConfig:null },
+    { id:"zanLeague", label:"ザンリーグルール", status:"comingSoon", ruleConfig:null },
+    { id:"mcrFukushiki", label:"複式MCR", status:"comingSoon", ruleConfig:null },
+    { id:"mcrNeo", label:"MCR-NEO", status:"comingSoon", ruleConfig:null }
+  ];
+  const DEFAULT_RULE_ID = "akaNeo";
+  // 表紙で選んだルールIDを覚えておくキー。半荘中(savedMatchStateがまだ無いkyoku1中)でも
+  // うっかりリロードした時にルールがデフォルトへ戻らないよう、savedMatchStateとは別に
+  // 表紙で選んだ瞬間からずっと持たせておく。「ホームページに戻る」でのみクリアする
+  const SELECTED_RULE_ID_KEY = "mugenMahjongRedSelectedRuleId";
+  function loadSelectedRuleId(){
+    try { return sessionStorage.getItem(SELECTED_RULE_ID_KEY); } catch(e){ return null; }
+  }
+  function saveSelectedRuleId(id){
+    try { sessionStorage.setItem(SELECTED_RULE_ID_KEY, id); } catch(e){}
+  }
+  function clearSelectedRuleId(){
+    try { sessionStorage.removeItem(SELECTED_RULE_ID_KEY); } catch(e){}
+  }
+
   const savedMatchState = loadMatchState();
+  // 優先順位: 進行中の半荘(savedMatchState.ruleId) > 表紙で選択済み(sessionStorage) > 表紙未選択
+  const pendingRuleId = (savedMatchState && savedMatchState.ruleId) || loadSelectedRuleId();
+  const CURRENT_RULE_ID = pendingRuleId || DEFAULT_RULE_ID;
+  const CURRENT_RULESET = RULESETS.find(r => r.id === CURRENT_RULE_ID) || RULESETS[0];
+  const ruleConfig = CURRENT_RULESET.ruleConfig || RULESETS[0].ruleConfig;
+
+  // まだ何も選ばれていない(＝真っさらな初回訪問、または「ホームページに戻る」直後)時だけ表紙を出す。
+  // 対局そのものはこの下でいつも通り組み立てるが(値は選択待ちの間は捨てる前提のダミー)、
+  // 表紙オーバーレイが手前を覆うので実害は無い。選択されるとlocation.reload()で作り直される
+  if(!pendingRuleId){
+    const titleScreen = document.getElementById("titleScreen");
+    if(titleScreen) titleScreen.style.display = "flex";
+  }
+
+  (function initTitleScreen(){
+    const container = document.getElementById("titleScreenRules");
+    const message = document.getElementById("titleScreenMessage");
+    if(!container) return;
+    RULESETS.forEach(rule => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = rule.label;
+      if(rule.status !== "ready"){
+        btn.classList.add("coming-soon");
+        const badge = document.createElement("span");
+        badge.className = "rule-btn-badge";
+        badge.textContent = "近日公開";
+        btn.appendChild(badge);
+      }
+      btn.addEventListener("click", () => {
+        if(rule.status !== "ready"){
+          if(message){
+            message.textContent = "工事中です、近日公開予定";
+            message.style.display = "block";
+          }
+          return;
+        }
+        saveSelectedRuleId(rule.id);
+        location.reload();
+      });
+      container.appendChild(btn);
+    });
+  })();
+
   let DEALER_SEAT = savedMatchState ? savedMatchState.dealerSeat : pickAndAdvanceStartDealerSeat(); // 親（局ごとにNEXT_SEATで交代しうる）
   // 起家（＝東1局の親）は半荘を通じて固定。DEALER_SEATと違い連荘・親交代でも一切動かない
   const STARTING_DEALER_SEAT = savedMatchState ? savedMatchState.startingDealerSeat : DEALER_SEAT;
@@ -1511,7 +1701,7 @@
   const handsPlayedCount = (savedMatchState && savedMatchState.handsPlayedCount ? savedMatchState.handsPlayedCount : 0) + 1;
 
   // --- 牌山を作ってシャッフル ---
-  const wall = buildWall();
+  const wall = buildWall(ruleConfig);
   shuffle(wall);
 
   // 王牌（8枚固定、山からの補充は一切しない）
@@ -3265,7 +3455,7 @@
   function clearAllIppatsu(){ ippatsuActive = { bottom:false, top:false, left:false, right:false }; }
   const scores = savedMatchState
     ? { ...savedMatchState.scores }
-    : { bottom: 35000, top: 35000, left: 35000, right: 35000 };
+    : { bottom: ruleConfig.startingPoints, top: ruleConfig.startingPoints, left: ruleConfig.startingPoints, right: ruleConfig.startingPoints };
   // 半荘（8局固定・東場2周）の進行状態。savedMatchStateが無ければ東1局・0本場・自分が親から開始
   let kyokuNumber = savedMatchState ? savedMatchState.kyokuNumber : 1; // 1〜8（連番。東1〜8局として表示）
   let honba = savedMatchState ? savedMatchState.honba : 0;
@@ -3438,6 +3628,14 @@
     nextBtn.textContent = "次局へ";
     nextBtn.onclick = () => goToNextKyoku(next);
     nextBtn.style.display = ""; // showFinalResultActionsで隠されている場合に備えて必ず戻す
+    // 半荘の途中(まだ次局が残っている状態)なので、誤タップで打ち切ってしまわないよう確認を挟む
+    const homeBtn = document.getElementById("homeBtn");
+    if(homeBtn){
+      homeBtn.style.display = "";
+      homeBtn.onclick = () => {
+        if(window.confirm("対局中の半荘を終了してホームページに戻りますか?")) goHome();
+      };
+    }
     actions.style.display = "flex";
   }
   // 同じボタン2つを、検証(リピート)モード中向けの見た目・挙動に切り替える。
@@ -3456,6 +3654,9 @@
     // （既にsessionStorageはクリア済み＝対局終了後）へ戻るため、そのままリロードすればよい
     // （advanceFromVerifyToNextKyokuのnextMatchState無し時のフォールバックが処理する）
     nextBtn.style.display = "";
+    // 検証(リピート)モード中は「ホームページに戻る」の対象外(仕様上、通常時・オーラス後のみ)
+    const homeBtn = document.getElementById("homeBtn");
+    if(homeBtn) homeBtn.style.display = "none";
     actions.style.display = "flex";
   }
   // 半荘そのものが終了した局（オーラス等）の結果表示向け。「次局」は存在しないため、
@@ -3473,11 +3674,29 @@
     nextBtn.textContent = "新しい半荘へ";
     nextBtn.onclick = () => location.reload();
     nextBtn.style.display = "";
+    // 半荘は既に終了している(clearMatchState()済み)ので、確認無しでそのままホームへ戻ってよい
+    const homeBtn = document.getElementById("homeBtn");
+    if(homeBtn){
+      homeBtn.style.display = "";
+      homeBtn.onclick = goHome;
+    }
     actions.style.display = "flex";
+  }
+  // 「ホームページに戻る」：進行中の半荘があれば打ち切り、location.reload()はせずに
+  // 表紙画面(#titleScreen)を直接表示する分岐にする(表紙で選び直したルールが次にsavedMatchStateへ
+  // 反映される前提のため)。仕掛かり中のCPU自動進行タイマーはturnGenerationを進めて無効化する
+  function goHome(){
+    turnGeneration++;
+    clearMatchState();
+    clearSelectedRuleId();
+    const actions = document.getElementById("resultActions");
+    if(actions) actions.style.display = "none";
+    const titleScreen = document.getElementById("titleScreen");
+    if(titleScreen) titleScreen.style.display = "flex";
   }
   // 次局の状態を保存してリロードする（通常時の「次局へ」・検証中の「次へ」の共通処理）
   function goToNextKyoku(next){
-    saveMatchState({ scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount });
+    saveMatchState({ scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount, ruleId: CURRENT_RULE_ID });
     location.reload();
   }
 
@@ -3533,7 +3752,7 @@
     const next = real.nextMatchState;
     verifyMode = false;
     realStateBeforeVerify = null;
-    saveMatchState({ scores: real.scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks: real.riichiSticks, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount });
+    saveMatchState({ scores: real.scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks: real.riichiSticks, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount, ruleId: CURRENT_RULE_ID });
     location.reload();
   }
 
@@ -5076,7 +5295,7 @@
   // 従来のfinalizeWinと同じ。honbaCountはこの局開始時点の本場数
   function computeRonAmount(winnerSeat, loserSeat, result, honbaCount){
     const isDealer = winnerSeat === DEALER_SEAT;
-    const honbaBonus = honbaCount > 0 ? honbaCount * 1500 : 0; // 旧applyHonbaBonusのロン分岐
+    const honbaBonus = honbaCount > 0 ? honbaCount * ruleConfig.honbaRonBonus : 0; // 旧applyHonbaBonusのロン分岐
     if(result.yakunashi){
       // 旧settleYakunashiのロン分岐：子1,000点・親1,500点を基準に、ドラは同単位で加算。
       // 赤牌は親子・ツモロン問わず1枚につき1,000点
@@ -5102,7 +5321,7 @@
   function computeTsumoAmounts(winnerSeat, result, honbaCount){
     const isDealer = winnerSeat === DEALER_SEAT;
     const others = ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat);
-    const honbaPerSeat = honbaCount > 0 ? honbaCount * 500 : 0; // 旧applyHonbaBonusのツモ分岐
+    const honbaPerSeat = honbaCount > 0 ? honbaCount * ruleConfig.honbaTsumoBonusPerSeat : 0; // 旧applyHonbaBonusのツモ分岐
     let baseBySeat;
     if(result.yakunashi){
       // 旧settleYakunashiのツモ分岐：親子を問わず500点(+ドラ1につき500点)オールを3人から。
@@ -5235,10 +5454,14 @@
   // finishedKyokuNumberは今終わった局の番号（連荘か親交代かによらず、次局へ進む前の値）
   function checkMatchEnd(currentScores, finishedKyokuNumber){
     const seats = ["bottom", "top", "left", "right"];
-    const bustSeat = seats.find(s => currentScores[s] < 0);
-    if(bustSeat) return { type:"bust", seat:bustSeat };
-    const overSeat = seats.find(s => currentScores[s] > 70000);
-    if(overSeat) return { type:"over70000", seat:overSeat };
+    if(ruleConfig.earlyEndOnBust){
+      const bustSeat = seats.find(s => currentScores[s] < 0);
+      if(bustSeat) return { type:"bust", seat:bustSeat };
+    }
+    if(ruleConfig.earlyEndOnOver70000){
+      const overSeat = seats.find(s => currentScores[s] > 70000);
+      if(overSeat) return { type:"over70000", seat:overSeat };
+    }
     if(finishedKyokuNumber >= 8) return { type:"final" };
     return null;
   }
@@ -5264,7 +5487,24 @@
   function computeUmaBySeat(finalScores){
     const seats = ["bottom", "right", "top", "left"]; // 同点時：あなた→下家→対面→上家の順を優先
     const ranked = seats.slice().sort((a, b) => finalScores[b] - finalScores[a]);
-    const ukiCount = seats.filter(s => finalScores[s] > 40000).length;
+    // Original等umaMode:"fixed"のルールは、浮き人数による切り替え・オカを一切行わず、
+    // 常に固定の着順ウマ(fixedUmaTable)だけを使う
+    if(ruleConfig.umaMode === "fixed"){
+      const table = ruleConfig.fixedUmaTable;
+      const umaBySeat = {};
+      let i = 0;
+      while(i < ranked.length){
+        let j = i;
+        while(j + 1 < ranked.length && finalScores[ranked[j + 1]] === finalScores[ranked[i]]) j++;
+        const groupSeats = ranked.slice(i, j + 1);
+        const groupSum = table.slice(i, j + 1).reduce((a, b) => a + b, 0);
+        const split = Math.round(groupSum / groupSeats.length / 100) * 100;
+        groupSeats.forEach(s => { umaBySeat[s] = split; });
+        i = j + 1;
+      }
+      return { ranked, umaBySeat };
+    }
+    const ukiCount = seats.filter(s => finalScores[s] > ruleConfig.returnPoints).length;
     const table = ukiCount === 0 ? OKA_ONLY_TABLE : UMA_TABLE_BY_UKI_COUNT[ukiCount];
     // UMA_TABLE_BY_UKI_COUNT は純粋なウマ（合計0）のみを表しており、オカ20,000点分は
     // 含まれていない。浮き0人の場合はOKA_ONLY_TABLEに20,000点が既に含まれているため、
@@ -5301,7 +5541,7 @@
     const elapsedText = formatElapsedText(Date.now() - matchStartTime); // 音声化はしないが画面には残す
     const rows = ranked.map((s, i) => {
       const uma = umaBySeat[s];
-      const rawDiff = scores[s] - 40000;
+      const rawDiff = scores[s] - ruleConfig.returnPoints;
       const total = rawDiff + uma;
       return `<div class="final-rank-row"><span class="final-rank-num">${i + 1}位</span>` +
         `<span class="final-rank-name">${seatLabel[s]}</span>` +
@@ -5313,7 +5553,7 @@
       `<div class="final-title">対局終了</div>` +
       `<div class="final-reason">${finalReasonText(reason)}／${handsPlayedCount}局 ${elapsedText}</div>` +
       `<div class="final-rank-row final-rank-header">` +
-      `<span></span><span></span><span>素点(40,000基準)</span><span>順位点</span><span>合計</span></div>` +
+      `<span></span><span></span><span>素点(${ruleConfig.returnPoints.toLocaleString()}基準)</span><span>順位点</span><span>合計</span></div>` +
       rows;
     document.getElementById("finalOverlay").style.display = "flex";
   }
@@ -5575,16 +5815,20 @@
     // ちょうど0点で止まった場合はまだ継続（トビではない）。0点を超えて払えなかった場合だけ
     // その席をこの局のトビの原因として記録し、あとのproceedOrEndMatchで飛び賞(10,000点)の
     // 対象にする（この時点でscoresはもう負数を持たないため、負数チェックではトビを検出できない）
+    // tobiEnabled:falseのルール(無限Original等)では0点止め・飛び賞を一切行わず、
+    // マイナス点をそのまま持ち越す（bustSeatThisHandも常にnullのまま）
     let bustSeatThisHand = null;
-    seats.forEach(s => {
-      if(s === winnerSeat) return;
-      if(scores[s] < 0){
-        const shortfall = -scores[s];
-        scores[s] = 0;
-        scores[winnerSeat] -= shortfall;
-        bustSeatThisHand = s;
-      }
-    });
+    if(ruleConfig.tobiEnabled){
+      seats.forEach(s => {
+        if(s === winnerSeat) return;
+        if(scores[s] < 0){
+          const shortfall = -scores[s];
+          scores[s] = 0;
+          scores[winnerSeat] -= shortfall;
+          bustSeatThisHand = s;
+        }
+      });
+    }
 
     const paymentsBySeat = {};
     seats.forEach(s => { paymentsBySeat[s] = scoresBefore[s] - scores[s]; });
@@ -5633,9 +5877,11 @@
     const totalNominal = claims.reduce((sum, c) => sum + c.nominalGain, 0);
 
     // 2. 放銃者の持ち点と比較し、実際に支払う総額を確定する
+    // tobiEnabled:falseのルール(無限Original等)では0点止めを行わず、名目額をそのまま
+    // 支払わせる（放銃者がマイナス点になることを許容する）
     const availableFromLoser = scores[loserSeat];
-    const actualTotal = Math.min(totalNominal, availableFromLoser);
-    const isShort = actualTotal < totalNominal;
+    const actualTotal = ruleConfig.tobiEnabled ? Math.min(totalNominal, availableFromLoser) : totalNominal;
+    const isShort = ruleConfig.tobiEnabled && actualTotal < totalNominal;
 
     // 3. 各和了者の最終受取額（不足が無ければ名目通り、不足があれば均等割り＋端数は放銃者に近い席）
     const finalAmounts = isShort
