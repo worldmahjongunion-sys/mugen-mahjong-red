@@ -101,7 +101,7 @@
     background:var(--honor-red);
     color:#fff;
     border-radius:3px;
-    font-size:13px;
+    font-size:0.72em; /* 親.nameplateのfont-size(--tile-hに連動)に追従させる。旧13px固定 */
     padding:0 4px;
     line-height:1.4;
   }
@@ -274,7 +274,10 @@
     background:rgba(0,0,0,0.3);
     border-radius:10px;
     padding:3px 10px;
-    font-size:18px; /* 読みやすさのため拡大（旧12px） */
+    /* --tile-hに連動して卓と一緒に縮む(旧18px固定)。縦持ちスマホ等でfitTileSize()が
+       --tile-hを大きく縮めた時、得点・方角ラベルがセルからはみ出して重なって見える
+       不具合の原因だったため、固定値からcalc()に変更した */
+    font-size:clamp(12px, calc(var(--tile-h) * 0.55), 18px);
     white-space:nowrap;
   }
   .nameplate .score{
@@ -304,7 +307,7 @@
     border-radius:4px;
     background:var(--tile-bg);
     color:var(--honor-wind);
-    font-size:15px;
+    font-size:0.83em; /* 親.nameplateのfont-size(--tile-hに連動)に追従させる。旧15px固定 */
     font-weight:bold;
   }
 
