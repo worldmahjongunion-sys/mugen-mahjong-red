@@ -1616,7 +1616,9 @@
       yakunashiWinEnabled:true, multiRonEnabled:true, jamaPonEnabled:true,
       tenpaiRenchanEnabled:false, honbaResetOnDealerChange:true,
       notenPenaltyMode:"perSeat", notenPenaltyPool:null,
-      ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:true
+      ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:true,
+      ippatsuEnabled:true, uraDoraEnabled:true,
+      scoreTableMode:"linear", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
     { id:"original", label:"無限ルールOriginal", status:"ready", ruleConfig:{
       akaDoraEnabled:false,
@@ -1627,12 +1629,52 @@
       yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
       tenpaiRenchanEnabled:true, honbaResetOnDealerChange:false,
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
-      ippatsuOnTsumoEnabled:false, chiitoitsuFourTileEnabled:false
+      ippatsuOnTsumoEnabled:false, chiitoitsuFourTileEnabled:false,
+      ippatsuEnabled:true, uraDoraEnabled:true,
+      scoreTableMode:"linear", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
-    { id:"mLeagueOriginal", label:"Mリーグ Original", status:"comingSoon", ruleConfig:null },
-    { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null },
-    { id:"wwStandard", label:"麻雀共同体WW スタンダード", status:"comingSoon", ruleConfig:null },
-    { id:"wwPremium", label:"麻雀共同体WW プレミアム", status:"comingSoon", ruleConfig:null },
+    { id:"mLeagueOriginal", label:"Mリーグ Original", status:"ready", ruleConfig:{
+      akaDoraEnabled:true,
+      startingPoints:25000, returnPoints:30000,
+      umaMode:"fixed", fixedUmaTable:[50000, 10000, -10000, -30000], // 順位ウマ+30/+10/-10/-30とオカ20,000(1着総取り)を合算した値
+      honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
+      earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false,
+      yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
+      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true,
+      notenPenaltyMode:"pool", notenPenaltyPool:3000,
+      ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:false,
+      ippatsuEnabled:true, uraDoraEnabled:true,
+      // 符計算はせず固定点数早見表(切り上げ満貫あり)を使う。役満の複合(W役満等)を認め、
+      // 名の付いた役満が1つも無い「数え役満」は三倍満止めにする
+      scoreTableMode:"lookup", scoreTableKiriage:true, yakumanMultiplierEnabled:true, countedYakumanCapped:true
+    } },
+    { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null }, // 少牌+オールマイティー牌は別スコープ
+    { id:"wwStandard", label:"麻雀共同体WW スタンダード", status:"ready", ruleConfig:{
+      akaDoraEnabled:false,
+      startingPoints:30000, returnPoints:30000,
+      umaMode:"fixed", fixedUmaTable:[30000, 10000, -10000, -30000], // ウマ10-30、オカ無し(合計0)
+      honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
+      earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false, // 0点未満はマイナス表示のまま進行(貸し借り処理は実装しない)
+      yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
+      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true,
+      notenPenaltyMode:"pool", notenPenaltyPool:3000,
+      ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:true,
+      ippatsuEnabled:true, uraDoraEnabled:true,
+      scoreTableMode:"lookup", scoreTableKiriage:true, yakumanMultiplierEnabled:false, countedYakumanCapped:false
+    } },
+    { id:"wwPremium", label:"麻雀共同体WW プレミアム", status:"ready", ruleConfig:{
+      akaDoraEnabled:false,
+      startingPoints:30000, returnPoints:30000,
+      umaMode:"fixed", fixedUmaTable:[15000, 5000, -5000, -15000], // ウマ5-15、オカ無し(合計0)
+      honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
+      earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false,
+      yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
+      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true,
+      notenPenaltyMode:"pool", notenPenaltyPool:3000,
+      ippatsuOnTsumoEnabled:false, chiitoitsuFourTileEnabled:true,
+      ippatsuEnabled:false, uraDoraEnabled:false, // 一発・裏ドラ・カンドラ無し(カンドラは現行エンジンに無い機構のため未実装のまま)
+      scoreTableMode:"lookup", scoreTableKiriage:false, yakumanMultiplierEnabled:false, countedYakumanCapped:false // 切り上げ満貫無し(子7700・親11600の実数)
+    } },
     { id:"sanninNeo", label:"無限ルールNEO(3人打ち)", status:"comingSoon", ruleConfig:null },
     { id:"zanLeague", label:"ザンリーグルール", status:"comingSoon", ruleConfig:null },
     { id:"mcrFukushiki", label:"複式MCR", status:"comingSoon", ruleConfig:null },
@@ -4248,9 +4290,10 @@
     if(riichiDeclared[seat]) yaku.push({ name:"リーチ", han:1 });
     // 一発：席ごとに判定(CPUのリーチにも付く、2026-09-03〜)。ippatsuActive[seat]は
     // その席がリーチ宣言牌を切った時にtrue、鳴きが入るかその席自身の次の打牌が終わるとfalseになる
-    // ruleConfig.ippatsuOnTsumoEnabled:falseのルール(無限Original等)では、一発はロン(出和了り)
+    // ruleConfig.ippatsuEnabled:falseのルール(WWプレミアム等)では一発自体が無い。
+    // ippatsuOnTsumoEnabled:falseのルール(無限Original等)では、一発はロン(出和了り)
     // だけに付き、ツモには付かない
-    if(riichiDeclared[seat] && ippatsuActive[seat] && (ruleConfig.ippatsuOnTsumoEnabled || !isTsumo)) yaku.push({ name:"一発", han:1 });
+    if(riichiDeclared[seat] && ippatsuActive[seat] && ruleConfig.ippatsuEnabled && (ruleConfig.ippatsuOnTsumoEnabled || !isTsumo)) yaku.push({ name:"一発", han:1 });
 
     if(isTsumo && closedHand) yaku.push({ name:"門前清自摸和", han:1 });
 
@@ -4725,7 +4768,8 @@
     const indicatorDora = countDoraDetail(allTiles);
     if(indicatorDora > 0) yaku.push({ name:"ドラ", han:indicatorDora });
     let total = indicatorDora;
-    if(riichiDeclared[seat]){
+    // ruleConfig.uraDoraEnabled:falseのルール(WWプレミアム等)ではリーチドラ(裏ドラ相当)自体が無い
+    if(riichiDeclared[seat] && ruleConfig.uraDoraEnabled){
       const riichiDora = countRiichiDoraDetail(allTiles);
       if(riichiDora > 0) yaku.push({ name:"リーチドラ", han:riichiDora });
       total += riichiDora;
@@ -4738,6 +4782,50 @@
   //   子＝飜数×2,000点、親＝飜数×3,000点になります）
   function calcBasePoints(han){
     return han * 500;
+  }
+
+  // ==================== 固定点数早見表(Mリーグ・WW用、符計算をしない近似値) ====================
+  // ruleConfig.scoreTableMode:"lookup"のルールでcomputeRonAmount/computeTsumoAmountsが使う。
+  // 添字は翻数(1〜13、13以上は13の値=役満固定額を使う)。各行:
+  // [子ロン, 親ロン, 子ツモ(非親から受取), 子ツモ(親から受取), 親ツモ(オール)]
+  const SCORE_TABLE_KIRIAGE = {
+    1: [1000, 1500, 300, 500, 500],
+    2: [2000, 3900, 500, 1000, 1000],
+    3: [3900, 5800, 1000, 2000, 2000],
+    4: [8000, 12000, 2000, 4000, 4000], // 切り上げ満貫
+    5: [8000, 12000, 2000, 4000, 4000],
+    6: [12000, 18000, 3000, 6000, 6000],
+    7: [12000, 18000, 3000, 6000, 6000],
+    8: [16000, 24000, 4000, 8000, 8000],
+    9: [16000, 24000, 4000, 8000, 8000],
+    10: [16000, 24000, 4000, 8000, 8000],
+    11: [24000, 36000, 6000, 12000, 12000],
+    12: [24000, 36000, 6000, 12000, 12000],
+    13: [32000, 48000, 8000, 16000, 16000]
+  };
+  // 切り上げ満貫なし(WWプレミアム)：4翻の行だけ実数値に差し替える。5翻以降は満貫〜役満の
+  // 固定バンドのため切り上げの有無に関係なく同じ値
+  const SCORE_TABLE_NO_KIRIAGE = Object.assign({}, SCORE_TABLE_KIRIAGE, {
+    4: [7700, 11600, 2000, 3900, 3900]
+  });
+
+  // 役満(han>=13)到達時、実際に何を基準額とするかを決める。
+  // - yaku配列の中でhan>=13の項目(名の付いた本物の役満)が1つも無い場合(役の合算だけで
+  //   13翻に達した「数え役満」)、ruleConfig.countedYakumanCapped:trueなら三倍満(12翻)止め
+  //   にする(Mリーグ: 数え役満は無い、11翻以上は三倍満止めというルールに対応)
+  // - 名の付いた役満が複数同時成立している場合、ruleConfig.yakumanMultiplierEnabled:trueなら
+  //   その数だけ役満固定額を掛け算する(Mリーグ Originalの「役満複合」)
+  function resolveScoreHanAndMultiplier(result){
+    if(result.han < 13) return { effectiveHan: result.han, multiplier: 1 };
+    const namedYakumanUnits = result.yaku.filter(y => y.han >= 13).length;
+    if(namedYakumanUnits === 0 && ruleConfig.countedYakumanCapped) return { effectiveHan: 12, multiplier: 1 };
+    const multiplier = ruleConfig.yakumanMultiplierEnabled ? Math.max(1, namedYakumanUnits) : 1;
+    return { effectiveHan: 13, multiplier };
+  }
+
+  function lookupScoreRow(effectiveHan){
+    const table = ruleConfig.scoreTableKiriage ? SCORE_TABLE_KIRIAGE : SCORE_TABLE_NO_KIRIAGE;
+    return table[Math.min(Math.max(effectiveHan, 1), 13)];
   }
 
   // 手牌が和了形になっているか判定し、役があれば結果を返す（役なしはnull）
@@ -4812,7 +4900,7 @@
       else yaku = [{ name:"七対子", han:2 }];
       // computeYaku()を経由しない役なので、ここでも同様にリーチ・一発をカウントする
       if(riichiDeclared[seat]) yaku.push({ name:"リーチ", han:1 });
-      if(riichiDeclared[seat] && ippatsuActive[seat] && (ruleConfig.ippatsuOnTsumoEnabled || !isTsumo)) yaku.push({ name:"一発", han:1 });
+      if(riichiDeclared[seat] && ippatsuActive[seat] && ruleConfig.ippatsuEnabled && (ruleConfig.ippatsuOnTsumoEnabled || !isTsumo)) yaku.push({ name:"一発", han:1 });
       if(isTsumo) yaku.push({ name:"門前清自摸和", han:1 });
       if(wall.length === 0) yaku.push({ name: isTsumo ? "海底摸月" : "河底撈魚", han:1 });
       if(hasAllFiveSuits(concealed)) yaku.push({ name:"五門斉", han:1 });
@@ -5341,6 +5429,16 @@
       const akaBonus = result.akaCount * 1000;
       return { seat: winnerSeat, nominalGain: baseAndDora + akaBonus + honbaBonus, akaBonus, honbaBonus };
     }
+    // ruleConfig.scoreTableMode:"lookup"のルール(Mリーグ・WW)は、翻数×500の線形計算ではなく
+    // 固定点数早見表(SCORE_TABLE_KIRIAGE/NO_KIRIAGE)を引く。役満の複合・数え役満の三倍満止めも
+    // ここで解決する
+    if(ruleConfig.scoreTableMode === "lookup"){
+      const { effectiveHan, multiplier } = resolveScoreHanAndMultiplier(result);
+      const row = lookupScoreRow(effectiveHan);
+      const base = row[isDealer ? 1 : 0] * multiplier;
+      const akaBonus = result.akaCount * 2000;
+      return { seat: winnerSeat, nominalGain: base + akaBonus + honbaBonus, akaBonus, honbaBonus };
+    }
     if(result.han >= 13){
       // 旧settleYakumanRon：役満は固定点数（親48,000点・子32,000点）
       const base = isDealer ? 48000 : 32000;
@@ -5365,6 +5463,10 @@
       // 赤牌（1枚1,000点）もこのshareに含む
       const share = 500 * (1 + result.indicatorDoraCount) + result.akaCount * 1000;
       baseBySeat = () => share;
+    } else if(ruleConfig.scoreTableMode === "lookup"){
+      const { effectiveHan, multiplier } = resolveScoreHanAndMultiplier(result);
+      const row = lookupScoreRow(effectiveHan);
+      baseBySeat = s => (isDealer ? row[4] : (s === DEALER_SEAT ? row[3] : row[2])) * multiplier;
     } else if(result.han >= 13){
       baseBySeat = s => isDealer ? 16000 : (s === DEALER_SEAT ? 16000 : 8000); // 旧settleYakumanTsumo
     } else {
