@@ -1094,7 +1094,7 @@
   }
   .title-screen-rules button .rule-btn-badge{
     display:block;
-    font-size:10px;
+    font-size:12px;
     font-weight:normal;
     color:var(--gold);
     margin-top:3px;
@@ -5392,7 +5392,7 @@
     // デバッグ用ログ：CPUがどの牌を・なぜ切ったか（シャンテン/受け入れ枚数/価値の内訳）を
     // ブラウザのDevToolsコンソールに残す。プレイには影響しない。おかしな打牌を見つけた時に
     // コンソールを開いて該当箇所をコピーしてもらえれば、この関数のどの分岐が選ばれたか特定できる
-    console.debug("[CPU打牌AI]", seat, "沈み=" + behind, "最小シャンテン=" + bestShanten,
+    console.log("[CPU打牌AI]", seat, "沈み=" + behind, "最小シャンテン=" + bestShanten,
       "候補=" + bestCandidates.map(c => c.kind + (c.tile.red ? "(赤)" : "") + ":sh" + c.shanten + "/uk" + c.ukeire + "/val" + c.value).join(", "),
       "→選択=" + chosen.kind + (chosen.tile.red ? "(赤)" : ""));
     const willRiichi = bestShanten === 0 && !riichiDeclared[seat] && isClosedHand(seat)
