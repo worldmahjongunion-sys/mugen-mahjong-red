@@ -1617,7 +1617,7 @@
       tenpaiRenchanEnabled:false, honbaResetOnDealerChange:true,
       notenPenaltyMode:"perSeat", notenPenaltyPool:null,
       ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:true,
-      ippatsuEnabled:true, uraDoraEnabled:true,
+      ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:false,
       scoreTableMode:"linear", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
     { id:"original", label:"無限ルールOriginal", status:"ready", ruleConfig:{
@@ -1630,7 +1630,7 @@
       tenpaiRenchanEnabled:true, honbaResetOnDealerChange:false,
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
       ippatsuOnTsumoEnabled:false, chiitoitsuFourTileEnabled:false,
-      ippatsuEnabled:true, uraDoraEnabled:true,
+      ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:false,
       scoreTableMode:"linear", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
     { id:"mLeagueOriginal", label:"Mリーグ Original", status:"ready", ruleConfig:{
@@ -1643,7 +1643,7 @@
       tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true,
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
       ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:false,
-      ippatsuEnabled:true, uraDoraEnabled:true,
+      ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:true,
       // 符計算はせず固定点数早見表(切り上げ満貫あり)を使う。役満の複合(W役満等)を認め、
       // 名の付いた役満が1つも無い「数え役満」は三倍満止めにする
       scoreTableMode:"lookup", scoreTableKiriage:true, yakumanMultiplierEnabled:true, countedYakumanCapped:true
@@ -1658,8 +1658,8 @@
       yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
       tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true,
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
-      ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:true,
-      ippatsuEnabled:true, uraDoraEnabled:true,
+      ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:false, // 追記11で確定: WWも4枚使いは無し
+      ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:true,
       scoreTableMode:"lookup", scoreTableKiriage:true, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
     { id:"wwPremium", label:"麻雀共同体WW プレミアム", status:"ready", ruleConfig:{
@@ -1671,8 +1671,8 @@
       yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
       tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true,
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
-      ippatsuOnTsumoEnabled:false, chiitoitsuFourTileEnabled:true,
-      ippatsuEnabled:false, uraDoraEnabled:false, // 一発・裏ドラ・カンドラ無し(カンドラは現行エンジンに無い機構のため未実装のまま)
+      ippatsuOnTsumoEnabled:false, chiitoitsuFourTileEnabled:false, // 追記11で確定: WWも4枚使いは無し
+      ippatsuEnabled:false, uraDoraEnabled:false, kanDoraEnabled:false, // 一発・裏ドラ・カンドラ無し
       scoreTableMode:"lookup", scoreTableKiriage:false, yakumanMultiplierEnabled:false, countedYakumanCapped:false // 切り上げ満貫無し(子7700・親11600の実数)
     } },
     { id:"sanninNeo", label:"無限ルールNEO(3人打ち)", status:"comingSoon", ruleConfig:null },
@@ -1754,15 +1754,31 @@
   const wall = buildWall(ruleConfig);
   shuffle(wall);
 
-  // 王牌（8枚固定、山からの補充は一切しない）
-  // 内訳：嶺上牌4枚（末尾側からpopして使う）＋ドラ表示牌1枚＋リーチドラ表示牌1枚＋予備2枚（先頭側4枚は触らない）
-  // 補充しないため、山からの生きたツモは常に136-8-52=76回、海底牌は開局時から確定する
-  const deadWall = wall.splice(0, 8);
+  // 王牌。ruleConfig.kanDoraEnabled:falseなら従来通り8枚固定
+  // （内訳：嶺上牌4枚（末尾側からpopして使う）＋ドラ表示牌1枚＋リーチドラ表示牌1枚＋予備2枚）。
+  // kanDoraEnabled:trueのルール(Mリーグ Original・WWスタンダード)だけ本家同様14枚に増やす
+  // （内訳：[0]表ドラ1枚目 [1]裏ドラ1枚目 [2]〜[5]表ドラ予備2〜5枚目 [6]〜[9]裏ドラ予備2〜5枚目
+  // [10]〜[13]嶺上牌4枚）。補充しないため、山からの生きたツモ回数・海底牌のタイミングは
+  // wall.lengthを都度動的に見ている既存ロジックのままで自動的に追随する（王牌枚数のハードコード無し）
+  // rinshanAvailable()・updateRinshanVisual()が「王牌のうち何枚が嶺上牌用の予備か」を
+  // 判定するのに使う基準値。deadWallはpop()で縮んでいくため、開始時点の枚数を控えておく
+  const DEAD_WALL_INITIAL_SIZE = ruleConfig.kanDoraEnabled ? 14 : 8;
+  const deadWall = wall.splice(0, DEAD_WALL_INITIAL_SIZE);
   // ドラ表示牌・リーチドラ表示牌はここで確定させる（実際に卓へ表向きで見せる処理・演出は
   // 従来通り下の方(paintTile呼び出し)で行うが、値そのものはrenderMyHand等の初回描画より前に
-  // 必要になる(手牌のドラ色分け表示用)ため、constの宣言だけこの時点まで前倒しする）
-  const doraIndicator = deadWall[0];
-  const riichiDoraIndicator = deadWall[1];
+  // 必要になる(手牌のドラ色分け表示用)ため、宣言だけこの時点まで前倒しする）。
+  // 単一値ではなく配列にし、カンのたびにrevealNextKanDora()が予備領域から1枚ずつ追加する
+  const doraIndicators = [deadWall[0]];
+  const riichiDoraIndicators = [deadWall[1]];
+  // カンが成立するたびに呼ぶ。kanDoraEnabled:falseなら何もしない。予備4組(カン最大4回ぶん)を
+  // 使い切ったら(通常到達しないが念のため)それ以上は追加しない
+  function revealNextKanDora(){
+    if(!ruleConfig.kanDoraEnabled) return;
+    const kanIndex = doraIndicators.length - 1; // 0始まり。今回が何回目のカンドラ追加かを表す
+    if(kanIndex >= 4) return;
+    doraIndicators.push(deadWall[2 + kanIndex]);
+    riichiDoraIndicators.push(deadWall[6 + kanIndex]);
+  }
 
   // 自分・CPU3人へ配牌（13枚ずつ。山は既にシャッフル済みのため、誰が親でも配る順序自体は無関係）
   const myTiles13 = wall.splice(0, 13);
@@ -1928,7 +1944,7 @@
   // （表ドラ・リーチドラの2枚は対象外＝常に表示のまま）
   function updateRinshanVisual(){
     const el = document.getElementById("wallDead");
-    const rinshanUsed = 8 - deadWall.length; // 0〜4（物理枚数）
+    const rinshanUsed = DEAD_WALL_INITIAL_SIZE - deadWall.length; // 0〜4（物理枚数）
     Array.from(el.children).slice(0, 2).forEach((tile, idx) => {
       const consumed = Math.max(0, Math.min(2, rinshanUsed - idx * 2));
       applyStackVisual(tile, consumed);
@@ -1956,16 +1972,20 @@
     return false;
   }
 
-  // 表ドラ・リーチドラの実際の牌種(suit_num)。手牌の色分け表示で使う
+  // 表ドラ・リーチドラの実際の牌種(suit_num)。手牌の色分け表示で使う。
+  // カンドラ対応で複数枚になりうるため、それぞれSetで返す(通常は要素数1)
   function currentDoraKeys(){
-    return { doraKey: tileKey(nextTileForDora(doraIndicator)), riichiDoraKey: tileKey(nextTileForDora(riichiDoraIndicator)) };
+    return {
+      doraKey: new Set(doraIndicators.map(ind => tileKey(nextTileForDora(ind)))),
+      riichiDoraKey: new Set(riichiDoraIndicators.map(ind => tileKey(nextTileForDora(ind))))
+    };
   }
   // 手牌用の牌要素に、表ドラ(薄いピンク背景)・リーチドラ(赤い線で囲む)の見た目を付ける。
   // 両方に該当する牌は両方のクラスを重ねて付ける
   function applyHandDoraHighlight(el, t, doraKey, riichiDoraKey){
     const key = tileKey(t);
-    if(key === doraKey) el.classList.add("hand-dora");
-    if(key === riichiDoraKey) el.classList.add("hand-riichi-dora");
+    if(doraKey.has(key)) el.classList.add("hand-dora");
+    if(riichiDoraKey.has(key)) el.classList.add("hand-riichi-dora");
   }
 
   // 検証(リピート)モード中、まだ本番と一致している間(verifyDiverged===false)に、
@@ -2493,7 +2513,9 @@
   }
   // 王牌の先頭4枚（ドラ表示・リーチドラ表示・予備2枚）は嶺上牌に使わない。
   // 補充が無いため嶺上牌は最大4枚＝カンは通算4回まで
-  function rinshanAvailable(){ return deadWall.length > 4; }
+  // 嶺上牌は常に末尾4枚。王牌の開始枚数(DEAD_WALL_INITIAL_SIZE)から4を引いた分より
+  // deadWallが減っていなければ、まだ嶺上牌が残っている
+  function rinshanAvailable(){ return deadWall.length > DEAD_WALL_INITIAL_SIZE - 4; }
   function findChiShapes(hand, tile){
     if(tile.suit !== "man" && tile.suit !== "pin" && tile.suit !== "sou") return [];
     const has = n => hand.some(t => t.suit === tile.suit && t.num === n);
@@ -3053,6 +3075,7 @@
     // カンをしたら王牌から嶺上牌を1枚ツモる（山からの補充はしない）
     if(type === "kan"){
       const rinshan = deadWall.pop();
+      revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
       updateRinshanVisual();
       hand.push(rinshan);
       if(callerSeat === "bottom") lastDrawnTile = rinshan;
@@ -3235,6 +3258,7 @@
 
     // 嶺上牌をツモる（山からの補充はしない）
     const rinshan = deadWall.pop();
+    revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
     updateRinshanVisual();
     hand.push(rinshan);
     lastDrawnCpu[seat] = rinshan;
@@ -3448,6 +3472,7 @@
 
     // 嶺上牌をツモる（山からの補充はしない）
     const rinshan = deadWall.pop();
+    revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
     updateRinshanVisual();
     myHandTiles.push(rinshan);
     lastDrawnTile = rinshan;
@@ -3477,6 +3502,7 @@
 
     // 嶺上牌をツモる（山からの補充はしない）
     const rinshan = deadWall.pop();
+    revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
     updateRinshanVisual();
     myHandTiles.push(rinshan);
     lastDrawnTile = rinshan;
@@ -4747,17 +4773,22 @@
     return { suit:"dragon", num: t.num === 3 ? 1 : t.num + 1 };
   }
 
+  // カンドラ対応：doraIndicatorsは通常1枚だが、kanDoraEnabledルールではカンのたびに増える。
+  // 各表示牌が示すドラ牌の枚数をそれぞれ数えて合算する
   function countDoraDetail(allTiles){
-    const doraTile = nextTileForDora(doraIndicator);
-    const indicatorDora = allTiles.filter(t => t.suit === doraTile.suit && t.num === doraTile.num).length;
-    return indicatorDora;
+    return doraIndicators.reduce((sum, indicator) => {
+      const doraTile = nextTileForDora(indicator);
+      return sum + allTiles.filter(t => t.suit === doraTile.suit && t.num === doraTile.num).length;
+    }, 0);
   }
 
   // リーチドラ（通常の裏ドラに相当。開局時から表向きに公開済み）：
-  // リーチを宣言して和了した人にだけ適用する
+  // リーチを宣言して和了した人にだけ適用する。カンドラ対応で複数枚になりうる点はドラと同様
   function countRiichiDoraDetail(allTiles){
-    const riichiDoraTile = nextTileForDora(riichiDoraIndicator);
-    return allTiles.filter(t => t.suit === riichiDoraTile.suit && t.num === riichiDoraTile.num).length;
+    return riichiDoraIndicators.reduce((sum, indicator) => {
+      const riichiDoraTile = nextTileForDora(indicator);
+      return sum + allTiles.filter(t => t.suit === riichiDoraTile.suit && t.num === riichiDoraTile.num).length;
+    }, 0);
   }
 
   function countAka(allTiles){
@@ -5227,8 +5258,8 @@
         if(m.addedTile) add(m.addedTile);
       });
     });
-    add(doraIndicator);
-    add(riichiDoraIndicator);
+    doraIndicators.forEach(add);
+    riichiDoraIndicators.forEach(add);
     return visible;
   }
 
@@ -5249,8 +5280,8 @@
   // 表ドラ・リーチドラの実際のドラ牌の種類(suit_num)一覧
   function getDoraKindSet(){
     const set = new Set();
-    set.add(tileKey(nextTileForDora(doraIndicator)));
-    set.add(tileKey(nextTileForDora(riichiDoraIndicator)));
+    doraIndicators.forEach(ind => set.add(tileKey(nextTileForDora(ind))));
+    riichiDoraIndicators.forEach(ind => set.add(tileKey(nextTileForDora(ind))));
     return set;
   }
 
@@ -6345,12 +6376,15 @@
   }
 
   // 王牌のうち2枚を表向きにして、実際のドラ表示牌・リーチドラ表示牌として見せる（以降は一切めくらない）。
-  // doraIndicator/riichiDoraIndicator自体はdeadWall確定時点で既に宣言済み（上部を参照）
-  paintTile("doraIndicatorTile", doraIndicator, "wall-indicator");
-  paintTile("riichiDoraIndicatorTile", riichiDoraIndicator, "wall-indicator riichi-dora-tile");
+  // doraIndicators/riichiDoraIndicators自体はdeadWall確定時点で既に宣言済み（上部を参照）。
+  // kanDoraEnabledルールでカンが増えても、この固定UI枠は最初の1枚目だけを表示し続ける
+  // （得点計算(countDoraDetail等)は追加分もすべて合算するため正しく動くが、王牌演出の見た目は
+  // 最小限にとどめる、という追記11の実装方針に合わせた割り切り）
+  paintTile("doraIndicatorTile", doraIndicators[0], "wall-indicator");
+  paintTile("riichiDoraIndicatorTile", riichiDoraIndicators[0], "wall-indicator riichi-dora-tile");
   // 局表示の横には、表示牌そのものではなく実際のドラ（次の牌）を出す
-  paintTile("doraActualTile", nextTileForDora(doraIndicator), "dora-tile");
-  paintTile("riichiDoraActualTile", nextTileForDora(riichiDoraIndicator), "dora-tile riichi-dora-tile");
+  paintTile("doraActualTile", nextTileForDora(doraIndicators[0]), "dora-tile");
+  paintTile("riichiDoraActualTile", nextTileForDora(riichiDoraIndicators[0]), "dora-tile riichi-dora-tile");
 
   updateWallCount();
   renderScores();
