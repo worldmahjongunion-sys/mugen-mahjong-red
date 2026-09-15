@@ -5218,14 +5218,23 @@
     return 13 - kinds - (hasPair ? 1 : 0);
   }
 
+  // calcShantenは「牌の枚数構成(counts)＋鳴き面子数」だけで結果が決まる純粋な計算。
+  // calcUkeireは1回のAI打牌判断につき候補ごとに34種類を試すため、同じ枚数構成を何度も
+  // 計算し直しがち。session中ずっと使い回せるキャッシュを持たせて再計算を避ける
+  const shantenCache = new Map();
+
   // 手牌(オブジェクト配列)から総合シャンテン数(標準形・七対子・国士無双の最小値)を求める
   function calcShanten(tiles, calledMeldsCount){
     const counts = countsArrayFromTiles(tiles);
+    const cacheKey = counts.join(",") + "|" + calledMeldsCount;
+    const cached = shantenCache.get(cacheKey);
+    if(cached !== undefined) return cached;
     let best = calcStandardShanten(counts, calledMeldsCount);
     if(calledMeldsCount === 0){
       best = Math.min(best, calcChiitoiShanten(counts));
       best = Math.min(best, calcKokushiShanten(counts));
     }
+    shantenCache.set(cacheKey, best);
     return best;
   }
 
