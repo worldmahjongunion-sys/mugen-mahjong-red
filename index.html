@@ -1959,7 +1959,11 @@
     const counts = { wind:0, dragon:0, man:0, pin:0, sou:0 };
     myHandTiles.forEach(t => counts[t.suit]++);
     const tiebreak = ["wind", "dragon", "man", "pin", "sou"];
-    const ordered = tiebreak.slice().sort((a, b) => (counts[b] - counts[a]) || (tiebreak.indexOf(a) - tiebreak.indexOf(b)));
+    // tiebreak.indexOf(a)を比較のたびに呼ぶと、5件の配列を毎回端から探すことになる
+    // （renderMyHand()から手牌を動かすたび呼ばれるので回数は多い）。事前に「種類→並び順」の
+    // 索引を1回だけ作っておき、比較のたびはMap参照(O(1))で済ませる
+    const tiebreakIndex = new Map(tiebreak.map((s, i) => [s, i]));
+    const ordered = tiebreak.slice().sort((a, b) => (counts[b] - counts[a]) || (tiebreakIndex.get(a) - tiebreakIndex.get(b)));
     const map = {};
     ordered.forEach((s, i) => { map[s] = i; });
     return map;
