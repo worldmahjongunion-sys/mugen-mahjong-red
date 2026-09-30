@@ -2831,8 +2831,11 @@
     return used;
   }
 
-  // 邪魔ポンの3秒間の猶予窓を開く。ここではまだ何も公開・確定しない（手牌も鳴き面子も動かさない）
+  // 邪魔ポンの3秒間の猶予窓を開く。手牌も鳴き面子もまだ動かさない（さらすのは窓を閉じる時）。
+  // ただしチーの発声だけはここで鳴らす：以前は窓を閉じる時(executeChi)に鳴っていたため、
+  // 発声を聞いてからポンを押しても必ず窓が閉じた後になり、邪魔ポンできなかった
   function openNadaponWindow(discarderSeat, tile, chiSeat, combo, declinedResponder){
+    playSfx(SFX.callChi);
     nadaponWindow = {
       discarderSeat, tile, chiSeat,
       overrideCount: 0,
@@ -2840,6 +2843,7 @@
       bottomPon: declinedResponder.pon,
       bottomKan: declinedResponder.kan,
       bottomRon: isSamePassedRonTile(discarderSeat, tile),
+      chiVoiced: true, // 窓を閉じてチーが確定する時に、同じ発声を二度鳴らさないための印
       timerId: null
     };
     passedRon.bottom = null; // 判定に使い終えたのでここでクリアする（他の巡へ持ち越さない）
@@ -2856,7 +2860,7 @@
     nadaponWindow = null;
     updateActionButtons();
     const c = w.current;
-    if(c.kind === "chi") executeChi(c.seat, w.discarderSeat, c.tiles, w.tile);
+    if(c.kind === "chi") executeChi(c.seat, w.discarderSeat, c.tiles, w.tile, !!w.chiVoiced);
     else executeCall(c.seat, w.discarderSeat, w.tile, c.kind, c.tiles);
   }
 
@@ -3115,9 +3119,10 @@
   // --- チーの実行(プレイヤーのみ) ---
   // comboTiles: プレイヤーが牌の画像で選んだ実際の手牌2枚（[小さい方, 大きい方]）
   // callerSeat: チーする本人（従来はbottom専用だったが、邪魔ポン対応でCPUのチーも扱うため汎用化した）
-  function executeChi(callerSeat, discarderSeat, comboTiles, tile){
+  // alreadyVoiced: 邪魔ポンの猶予窓を開いた時点で発声済み（openNadaponWindow）なら true
+  function executeChi(callerSeat, discarderSeat, comboTiles, tile, alreadyVoiced){
     clearAllIppatsu(); // チーが成立した時点で一発は消える（誰の一発権であっても）
-    playSfx(SFX.callChi); // チーが成立した瞬間に鳴らす
+    if(!alreadyVoiced) playSfx(SFX.callChi); // チーが成立した瞬間に鳴らす
     discards[discarderSeat].pop();
     // 鳴かれて消えた捨て牌は、実配列(discards)からは消しつつ、見た目だけその位置に影として残す
     // （鳴かれた牌がリーチ宣言牌だった場合はwasRiichiTileに記録し、影になっても横向き表示を引き継ぐ）
