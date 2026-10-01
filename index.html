@@ -1636,6 +1636,7 @@
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:false,
       scoreTableMode:"linear", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
+    { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null }, // 少牌+オールマイティー牌は別スコープ
     { id:"mLeagueOriginal", label:"Mリーグ Original", status:"ready", ruleConfig:{
       akaDoraEnabled:true,
       startingPoints:25000, returnPoints:30000,
@@ -1651,20 +1652,6 @@
       // 名の付いた役満が1つも無い「数え役満」は三倍満止めにする
       scoreTableMode:"lookup", scoreTableKiriage:true, yakumanMultiplierEnabled:true, countedYakumanCapped:true
     } },
-    { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null }, // 少牌+オールマイティー牌は別スコープ
-    { id:"wwStandard", label:"麻雀共同体WW スタンダード", status:"ready", ruleConfig:{
-      akaDoraEnabled:false,
-      startingPoints:30000, returnPoints:30000,
-      umaMode:"fixed", fixedUmaTable:[30000, 10000, -10000, -30000], // ウマ10-30、オカ無し(合計0)
-      honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
-      earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false, // 0点未満はマイナス表示のまま進行(貸し借り処理は実装しない)
-      yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
-      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true,
-      notenPenaltyMode:"pool", notenPenaltyPool:3000,
-      ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:false, // 追記11で確定: WWも4枚使いは無し
-      ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:true,
-      scoreTableMode:"lookup", scoreTableKiriage:true, yakumanMultiplierEnabled:false, countedYakumanCapped:false
-    } },
     { id:"wwPremium", label:"麻雀共同体WW プレミアム", status:"ready", ruleConfig:{
       akaDoraEnabled:false,
       startingPoints:30000, returnPoints:30000,
@@ -1678,10 +1665,23 @@
       ippatsuEnabled:false, uraDoraEnabled:false, kanDoraEnabled:false, // 一発・裏ドラ・カンドラ無し
       scoreTableMode:"lookup", scoreTableKiriage:false, yakumanMultiplierEnabled:false, countedYakumanCapped:false // 切り上げ満貫無し(子7700・親11600の実数)
     } },
+    { id:"wwStandard", label:"麻雀共同体WW スタンダード", status:"ready", ruleConfig:{
+      akaDoraEnabled:false,
+      startingPoints:30000, returnPoints:30000,
+      umaMode:"fixed", fixedUmaTable:[30000, 10000, -10000, -30000], // ウマ10-30、オカ無し(合計0)
+      honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
+      earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false, // 0点未満はマイナス表示のまま進行(貸し借り処理は実装しない)
+      yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
+      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true,
+      notenPenaltyMode:"pool", notenPenaltyPool:3000,
+      ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:false, // 追記11で確定: WWも4枚使いは無し
+      ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:true,
+      scoreTableMode:"lookup", scoreTableKiriage:true, yakumanMultiplierEnabled:false, countedYakumanCapped:false
+    } },
     { id:"sanninNeo", label:"無限ルールNEO(3人打ち)", status:"comingSoon", ruleConfig:null },
     { id:"zanLeague", label:"ザンリーグルール", status:"comingSoon", ruleConfig:null },
-    { id:"mcrFukushiki", label:"複式MCR", status:"comingSoon", ruleConfig:null },
-    { id:"mcrNeo", label:"MCR-NEO", status:"comingSoon", ruleConfig:null }
+    { id:"mcrNeo", label:"MCR-NEO", status:"comingSoon", ruleConfig:null },
+    { id:"mcrFukushiki", label:"複式MCR", status:"comingSoon", ruleConfig:null }
   ];
   const DEFAULT_RULE_ID = "akaNeo";
   // 表紙で選んだルールIDを覚えておくキー。半荘中(savedMatchStateがまだ無いkyoku1中)でも
