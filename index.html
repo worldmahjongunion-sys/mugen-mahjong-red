@@ -2626,9 +2626,11 @@
         return;
       }
       pendingSankahou = { discarderSeat, tile };
-      const pon = !riichiDeclared.bottom && canPon(myHandTiles, tile);
-      const kan = !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
-      const chi = (!riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
+      // 河底牌（山0枚の捨て牌）はチー・ポン・大明槓できない（ロンだけ）
+      const callable = wall.length > 0;
+      const pon = callable && !riichiDeclared.bottom && canPon(myHandTiles, tile);
+      const kan = callable && !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
+      const chi = (callable && !riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
       const selfWin = winners.find(w => w.seat === "bottom");
       pendingRon = selfWin ? { discarderSeat, result: selfWin.result, allWinners: winners } : null;
       pendingCallOptions = { discarderSeat, tile, pon, kan, chiShapes: chi };
@@ -2654,9 +2656,11 @@
       // ダブロン時は鳴きで割り込む余地が無い（他家のロンがこの牌に対して既に確定している以上、
       // 同じ牌を鳴きに使うことはできない）ため、鳴き選択肢は単独ロンの時だけ提示する
       const isMultiRon = winners.length > 1;
-      const pon = !isMultiRon && !riichiDeclared.bottom && canPon(myHandTiles, tile);
-      const kan = !isMultiRon && !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
-      const chi = (!isMultiRon && !riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
+      // 河底牌（山0枚の捨て牌）はチー・ポン・大明槓できないので、和了・スルーだけを出す
+      const callable = !isMultiRon && wall.length > 0;
+      const pon = callable && !riichiDeclared.bottom && canPon(myHandTiles, tile);
+      const kan = callable && !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
+      const chi = (callable && !riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
       pendingRon = { discarderSeat, result: selfWin.result, allWinners: winners };
       pendingCallOptions = { discarderSeat, tile, pon, kan, chiShapes: chi };
       pendingCallContext = { discarderSeat };
@@ -2676,6 +2680,12 @@
   // 誰も取らなければチーの番に進む。ポン・カンの資格者が「一度スルー」した後にチーが成立した場合は、
   // resolveChiStage/voiceChiAndMaybeOpenWindowが、その資格者が後から邪魔ポンできる余地を追跡する
   function resolveMeldCalls(discarderSeat, tile){
+    // 河底牌（山0枚の捨て牌）は誰もチー・ポン・大明槓できない（ロンの判定は呼び出し側で済んでいる）。
+    // 自分・CPUの鳴きも邪魔ポンの猶予窓も出さずに次へ進める。次の人はツモれないので流局になる
+    if(wall.length === 0){
+      advanceTurnAfterDiscard(discarderSeat);
+      return;
+    }
     const bottomPon = discarderSeat !== "bottom" && !riichiDeclared.bottom && canPon(myHandTiles, tile);
     const bottomKan = discarderSeat !== "bottom" && !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
     const bottomChiShapes = (!riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
@@ -3225,7 +3235,8 @@
     const ankanTile = !riichiDeclared[seat]
       ? findAnkanTile(hands[seat])
       : (findAllAnkanTiles(hands[seat]).filter(t => canAnkanAfterRiichi(seat, t))[0] || null);
-    if(ankanTile && rinshanAvailable()){
+    // 海底牌（山の最後の1枚）をツモった手番では暗槓できない
+    if(ankanTile && rinshanAvailable() && wall.length > 0){
       executeCpuAnkan(seat, ankanTile);
       return;
     }
@@ -3423,6 +3434,7 @@
   // 両方が同時に成立することもあるため、候補は配列でまとめて返す
   function computeSelfKanCandidates(drawnTile){
     if(!rinshanAvailable()) return [];
+    if(wall.length === 0) return []; // 海底牌（山の最後の1枚）をツモった手番では暗槓も加槓もできない
     const list = [];
     if(drawnTile && !riichiDeclared.bottom){ // リーチ後は加槓不可
       const meldIdx = melds.bottom.findIndex(m => m.type === "pon" && m.calledTile.suit === drawnTile.suit && m.calledTile.num === drawnTile.num);
