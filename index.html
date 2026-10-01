@@ -1802,6 +1802,11 @@
   const myHandTiles = [...sortedHand]; // {suit,num} の配列（13枚。親が「あなた」の場合はこの後playerDraw()で14枚になる）
   let lastDrawnTile = null; // 直前にツモった牌（並び替えても離して表示するため参照で管理）。手番が来るまではnull
   const lastDrawnCpu = { top:null, left:null, right:null }; // CPU各自の現在のツモ牌（カン後の嶺上牌も含めて明示的に管理）
+  // 今のツモが嶺上牌（カン後の補充ツモ）かどうかの目印。嶺上開花の判定と、嶺上牌でのツモに
+  // 海底摸月を付けないための除外に使う。嶺上牌を引く4か所（大明槓・CPUの暗槓・自分の暗槓・
+  // 自分の加槓）で立て、打牌(handleDiscard)・次のツモ・局の状態の入れ替え(applyGameStateSnapshot)で下ろす。
+  // 局の開始はページの読み込み直しなので、初期値のnullがそのまま「目印なし」になる
+  let rinshanDraw = null; // { seat, tile } | null（tileは引いた嶺上牌そのもの。参照で比べる）
   // 他家の捨て牌に対してロン可能な間だけ保持する状態（下段の「和了」ボタンの有効/無効に使う）
   let pendingRon = null; // { discarderSeat, result } | null
   // 鳴きプロンプト（他家の捨て牌への応答）が開いている間だけ保持する状態（下段の「スルー」ボタンに使う）
@@ -2595,6 +2600,7 @@
 
   // --- 打牌のあと：鳴きが入るか判定してから次に進む ---
   function handleDiscard(discarderSeat, tile){
+    rinshanDraw = null; // 打牌したので、嶺上牌のツモではなくなる
     if(gameEnded) return;
     playSfx(SFX.discard); // 自分・CPU問わず、打牌のたび毎回鳴らす
 
@@ -3091,6 +3097,7 @@
       hand.push(rinshan);
       if(callerSeat === "bottom") lastDrawnTile = rinshan;
       else lastDrawnCpu[callerSeat] = rinshan;
+      rinshanDraw = { seat: callerSeat, tile: rinshan };
     }
 
     if(callerSeat === "bottom"){
@@ -3194,6 +3201,7 @@
     setTurnIndicator(seatLabel[seat] + "の番です");
     playSfx(SFX.draw, DRAW_SFX_VOLUME);
     const drawn = wall.shift();
+    rinshanDraw = null; // 山からの通常のツモ
     hands[seat].push(drawn);
     lastDrawnCpu[seat] = drawn;
     updateWallCount();
@@ -3274,6 +3282,7 @@
     updateRinshanVisual();
     hand.push(rinshan);
     lastDrawnCpu[seat] = rinshan;
+    rinshanDraw = { seat, tile: rinshan };
     renderCpuHandBacks(seat);
     setTurnIndicator(seatLabel[seat] + "が暗槓しました");
 
@@ -3296,6 +3305,7 @@
     furitenTemp.bottom = false; // 同巡内フリテンは自分の次のツモで解除（リーチ後の永続フリテンは触らない）
     playSfx(SFX.draw, DRAW_SFX_VOLUME);
     const drawn = wall.shift();
+    rinshanDraw = null; // 山からの通常のツモ
     myHandTiles.push(drawn);
     lastDrawnTile = drawn;
     updateWallCount();
@@ -3488,6 +3498,7 @@
     updateRinshanVisual();
     myHandTiles.push(rinshan);
     lastDrawnTile = rinshan;
+    rinshanDraw = { seat: "bottom", tile: rinshan };
 
     updateSelfKanOpportunity(rinshan); // 続けて引いた嶺上牌で新たに暗槓・加槓が成立する場合を拾う
     renderMyHand(true);
@@ -3518,6 +3529,7 @@
     updateRinshanVisual();
     myHandTiles.push(rinshan);
     lastDrawnTile = rinshan;
+    rinshanDraw = { seat: "bottom", tile: rinshan };
 
     updateSelfKanOpportunity(rinshan); // 続けて引いた嶺上牌で新たに暗槓・加槓が成立する場合を拾う
     renderMyHand(true);
@@ -3643,6 +3655,7 @@
   // 再利用可能なまま保つため（同じ局を何度もリピートできるように）、反映時にも
   // もう一度cloneTileRef()で複製してから書き込む
   function applyGameStateSnapshot(snap){
+    rinshanDraw = null; // 配牌直後などの状態に入れ替えるので、嶺上牌のツモの目印は持ち越さない
     const map = new Map();
     const seats = ["bottom", "top", "left", "right"];
     replaceArrayContents(wall, cloneTileArrayRef(snap.wall, map));
@@ -4335,10 +4348,16 @@
 
     if(isTsumo && closedHand) yaku.push({ name:"門前清自摸和", han:1 });
 
+    // 嶺上開花：カン後の補充ツモ（嶺上牌）で和了した時（暗槓・加槓・大明槓のどれでも）。
+    // 和了牌が引いた嶺上牌そのものかを参照で比べるので、待ち一覧(getWaits)などの仮のツモ判定には付かない
+    const isRinshanWin = isTsumo && rinshanDraw !== null && rinshanDraw.seat === seat && winTile === rinshanDraw.tile;
+    if(isRinshanWin) yaku.push({ name:"嶺上開花", han:1 });
+
     // 海底摸月・河底撈魚：山の最後の1枚をツモった直後の和了かどうかはwall.lengthで判定できる
     // （その牌をツモった時点でwall.length===0になり、そのままロンされるまでwall.lengthは
-    // 変化しないため、ツモ・ロンどちらの判定タイミングでも同じ条件で拾える）
-    if(wall.length === 0) yaku.push({ name: isTsumo ? "海底摸月" : "河底撈魚", han:1 });
+    // 変化しないため、ツモ・ロンどちらの判定タイミングでも同じ条件で拾える）。
+    // 嶺上牌でのツモは山の牌ではないので、海底摸月は付けない（嶺上開花だけにする）
+    if(wall.length === 0 && !isRinshanWin) yaku.push({ name: isTsumo ? "海底摸月" : "河底撈魚", han:1 });
 
     // 全帯五（チェンタイウー）：全ての面子＋雀頭に、萬子5・筒子5・索子5のいずれかが1枚以上含まれている
     // （門前2翻・鳴き1翻。必ずタンヤオ形になるため、タンヤオとは複合させない）
