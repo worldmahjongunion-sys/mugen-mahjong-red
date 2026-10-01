@@ -1807,6 +1807,9 @@
   // 自分の加槓）で立て、打牌(handleDiscard)・次のツモ・局の状態の入れ替え(applyGameStateSnapshot)で下ろす。
   // 局の開始はページの読み込み直しなので、初期値のnullがそのまま「目印なし」になる
   let rinshanDraw = null; // { seat, tile } | null（tileは引いた嶺上牌そのもの。参照で比べる）
+  // 槍槓の判定中だけ、加槓しようとしている牌そのものを入れておく（判定が終わればすぐnullに戻す）。
+  // computeYakuはロン判定の和了牌がこの牌と同じ参照なら槍槓を付ける
+  let chankanTile = null;
   // 他家の捨て牌に対してロン可能な間だけ保持する状態（下段の「和了」ボタンの有効/無効に使う）
   let pendingRon = null; // { discarderSeat, result } | null
   // 鳴きプロンプト（他家の捨て牌への応答）が開いている間だけ保持する状態（下段の「スルー」ボタンに使う）
@@ -3513,7 +3516,39 @@
     fitTileSize();
   }
 
+  // 槍槓：自分の加槓の牌で他家（CPU）がロンできるか確認し、できればその場で和了させる。
+  // CPUは加槓をしないため、槍槓が起こるのはこの「自分の加槓」の場面だけ。暗槓に対する槍槓
+  // （国士無双のみ）は扱わない。複数のロンは通常の打牌時(handleDiscard)と同じ扱いに従う：
+  // multiRonEnabled:falseのルール(無限Original等)は頭ハネで1人、NEO等はダブロン、
+  // 3人全員なら三家和の流局。ロンされた場合は加槓は成立せず、面子はポンのまま残る。
+  // 一発の権利はロンの判定より後でしか消さない（槍槓でも一発は付く）
+  function tryChankan(tile){
+    let winners;
+    chankanTile = tile;
+    try {
+      winners = findAllRonWinners(headBumpOrder("bottom"), tile);
+    } finally {
+      chankanTile = null;
+    }
+    if(!ruleConfig.multiRonEnabled && winners.length > 1) winners = [winners[0]];
+    if(winners.length === 0) return false;
+
+    playSfx(SFX.callKan); // 加槓の発声はしている
+    const idx = myHandTiles.indexOf(tile);
+    if(idx >= 0) myHandTiles.splice(idx, 1); // 加槓しようとした牌は和了牌として他家へ渡る
+    lastDrawnTile = null;
+    pendingSelfKan = null;
+    selfKanSelecting = false;
+    if(winners.length === 3){
+      handleSankahou("bottom");
+      return true;
+    }
+    finalizeRon(winners, "bottom", tile);
+    return true;
+  }
+
   function executeKakan(meldIdx, drawnTile){
+    if(tryChankan(drawnTile)) return; // 槍槓されたら加槓は成立しない
     clearAllIppatsu(); // 既存meldの書き換えとはいえ加槓も鳴きなので一発は消える（誰の一発権であっても）
     playSfx(SFX.callKan); // 自分の加槓が成立した瞬間に鳴らす
     const meld = melds.bottom[meldIdx];
@@ -4353,11 +4388,16 @@
     const isRinshanWin = isTsumo && rinshanDraw !== null && rinshanDraw.seat === seat && winTile === rinshanDraw.tile;
     if(isRinshanWin) yaku.push({ name:"嶺上開花", han:1 });
 
+    // 槍槓：他家の加槓の牌でロンした時（和了牌が判定中の加槓の牌そのものかを参照で比べる）
+    const isChankanWin = !isTsumo && chankanTile !== null && winTile === chankanTile;
+    if(isChankanWin) yaku.push({ name:"槍槓", han:1 });
+
     // 海底摸月・河底撈魚：山の最後の1枚をツモった直後の和了かどうかはwall.lengthで判定できる
     // （その牌をツモった時点でwall.length===0になり、そのままロンされるまでwall.lengthは
     // 変化しないため、ツモ・ロンどちらの判定タイミングでも同じ条件で拾える）。
-    // 嶺上牌でのツモは山の牌ではないので、海底摸月は付けない（嶺上開花だけにする）
-    if(wall.length === 0 && !isRinshanWin) yaku.push({ name: isTsumo ? "海底摸月" : "河底撈魚", han:1 });
+    // 嶺上牌でのツモは山の牌ではないので、海底摸月は付けない（嶺上開花だけにする）。
+    // 槍槓も捨て牌でのロンではないので、河底撈魚は付けない
+    if(wall.length === 0 && !isRinshanWin && !isChankanWin) yaku.push({ name: isTsumo ? "海底摸月" : "河底撈魚", han:1 });
 
     // 全帯五（チェンタイウー）：全ての面子＋雀頭に、萬子5・筒子5・索子5のいずれかが1枚以上含まれている
     // （門前2翻・鳴き1翻。必ずタンヤオ形になるため、タンヤオとは複合させない）
@@ -6077,7 +6117,8 @@
   // ロンの精算（単独・複数どちらも）。winnersは[{seat, result}]（単独ロンなら要素1件）。
   // 設計②のステップ通り、全員分の名目額を先に出し切ってから実際の支払い総額を確定し、
   // 最後にまとめてscores[]を動かす（途中で名目上受け取りすぎている状態を経由しない）
-  function finalizeRon(winners, loserSeat){
+  // robbedTileは槍槓の時だけ渡す（加槓しようとした牌。河には無いので、河から取り除かない）
+  function finalizeRon(winners, loserSeat, robbedTile){
     gameEnded = true;
     playSfx(SFX.callRon); // ロンの瞬間（誰の和了でも）に鳴らす
 
@@ -6085,13 +6126,15 @@
     // チー・ポン・カンと同じdiscardShadows仕組みでグレーの影を残す。取り除いた牌そのものは
     // 代表者（先頭の和了者）の手牌に移し、単独ロンの見た目をそのまま踏襲する
     const kawa = discards[loserSeat];
-    const ronTile = kawa.pop();
+    const ronTile = robbedTile || kawa.pop();
     if(ronTile){
-      discardShadows[loserSeat].push({
-        posIndex: kawa.length, tile: ronTile,
-        wasRiichiTile: ronTile === riichiDeclareTile[loserSeat]
-      });
-      renderDiscard(loserSeat); // 影を反映させるため、この河だけ再描画する
+      if(!robbedTile){
+        discardShadows[loserSeat].push({
+          posIndex: kawa.length, tile: ronTile,
+          wasRiichiTile: ronTile === riichiDeclareTile[loserSeat]
+        });
+        renderDiscard(loserSeat); // 影を反映させるため、この河だけ再描画する
+      }
       const primarySeat = winners[0].seat;
       hands[primarySeat].push(ronTile);
       if(primarySeat === "bottom") lastDrawnTile = ronTile;
