@@ -4543,7 +4543,25 @@
 
     const suitsUsed = new Set(allTiles.filter(t => t.suit === "man" || t.suit === "pin" || t.suit === "sou").map(t => t.suit));
     const hasHonor = allTiles.some(t => t.suit === "wind" || t.suit === "dragon");
-    if(!hasYisSeShuangLong && suitsUsed.size === 1){
+
+    // 九蓮宝燈（役満）：門前（暗槓も無し）の清一色で、1112345678999＋同じ色の任意の1枚の形。
+    // 和了牌を除いた13枚がちょうど1112345678999（9面待ち）なら「純正九蓮宝燈」と表示する。
+    // 純正を別の額にする仕組みは無いので、額はどちらも役満1つ分（白石さん確認済み）。
+    // 清一色はこの形に必ず含まれるので、一色双龍会と同じく清一色とは複合させない
+    let isChuuren = false;
+    if(melds[seat].length === 0 && !hasHonor && suitsUsed.size === 1 && allTiles.length === 14){
+      const counts = Array(10).fill(0);
+      allTiles.forEach(t => counts[t.num]++);
+      const need = [0, 3, 1, 1, 1, 1, 1, 1, 1, 3];
+      isChuuren = need.every((n, num) => counts[num] >= n);
+      if(isChuuren){
+        const winSuit = [...suitsUsed][0];
+        const isJunsei = !!winTile && winTile.suit === winSuit && counts[winTile.num] - 1 === need[winTile.num];
+        yaku.push({ name: isJunsei ? "純正九蓮宝燈" : "九蓮宝燈", han:13 });
+      }
+    }
+
+    if(!hasYisSeShuangLong && !isChuuren && suitsUsed.size === 1){
       if(hasHonor) yaku.push({ name:"混一色", han: closedHand ? 3 : 2 });
       else yaku.push({ name:"清一色", han: closedHand ? 6 : 5 });
     }
