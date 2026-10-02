@@ -96,17 +96,15 @@
     align-self:center;
   }
   /* 中央BOXに置く起家マーク（ネームプレートの中に入る）。
-     表東場(東1〜4局)は赤、親が一巡して裏東場(東5〜8局)に入ったら緑にする */
+     色(背景・文字・縁取り)はJS側のDEALER_MARK_COLORSから、renderMatchHeaderがインラインで入れる。
+     ここの背景色は、JSが色を入れる前の初期値でしかない */
   .dealer-mark{
-    background:var(--honor-red);
+    background:#2F6FD0;
     color:#fff;
     border-radius:3px;
     font-size:0.72em; /* 親.nameplateのfont-size(--tile-hに連動)に追従させる。旧13px固定 */
     padding:0 4px;
     line-height:1.4;
-  }
-  .dealer-mark.second-lap{
-    background:var(--honor-green);
   }
   .center-mid{
     display:flex;
@@ -4018,19 +4016,39 @@
   // 局表示（「東n局 m本場」）・各家の自風マーク・起家（＝その局の親）マークを、
   // 現在のkyokuNumber/honba/DEALER_SEAT/SEAT_WINDに合わせて描き直す
   const WIND_CHAR = { 1:"東", 2:"南", 3:"西", 4:"北" };
+  // 起家マークの色。bg=背景、fg=文字、outline=縁取り(無ければnull)。
+  // 白と黒は卓(暗い緑)やネームプレート(半透明の黒)に紛れるので、縁取りを付けて見分けられるようにする
+  const DEALER_MARK_COLORS = {
+    blue:  { bg:"#2F6FD0", fg:"#fff", outline:null },
+    green: { bg:"#2E8B4E", fg:"#fff", outline:null },
+    red:   { bg:"#C23B3B", fg:"#fff", outline:null },
+    white: { bg:"#F5F2E8", fg:"#1A1A1A", outline:"#1A1A1A" },
+    black: { bg:"#1A1A1A", fg:"#fff", outline:"#F5F2E8" }
+  };
+  // 裏東場があるルール(NEO等)：表東場(東1〜4局)／裏東場(東5〜8局)
+  const DEALER_MARK_COLOR_BY_LAP = { first:"blue", second:"green" };
+  // 南場に入るルール(無限Original)：場風(ROUND_WIND 1〜4＝東南西北)。
+  // 今は南4局で終わるので西・北には入らないが、色だけ決めておく
+  const DEALER_MARK_COLOR_BY_ROUND_WIND = { 1:"blue", 2:"red", 3:"white", 4:"black" };
   function renderMatchHeader(){
     const roundLabel = isSouthRound() ? "南" + (kyokuNumber - 4) : "東" + kyokuNumber;
     document.getElementById("roundText").textContent = roundLabel + "局 " + honba + "本場";
-    // ハウスルール：親が一巡(東1〜4局＝表東場)したら南場にはせず、そのまま東5〜8局(裏東場)を
-    // 続ける。起家マークの色で表/裏を区別する(赤=表東場、緑=裏東場)。
-    // 南場に入るルール(無限Original)は裏東場が無いので、起家マークは赤のまま
+    // 起家マークの色。南場に入るルール(無限Original)は場風で決める(東=青/南=赤/西=白/北=黒)。
+    // それ以外のルールは親が一巡(東1〜4局＝表東場)しても南場にはせず、そのまま東5〜8局(裏東場)を
+    // 続けるので、表/裏で決める(表東場=青、裏東場=緑)
     const isSecondLap = kyokuNumber > 4 && !ruleConfig.southRoundEnabled;
+    const markColor = ruleConfig.southRoundEnabled
+      ? DEALER_MARK_COLORS[DEALER_MARK_COLOR_BY_ROUND_WIND[ROUND_WIND]]
+      : DEALER_MARK_COLORS[isSecondLap ? DEALER_MARK_COLOR_BY_LAP.second : DEALER_MARK_COLOR_BY_LAP.first];
     Object.keys(nameplateElByName).forEach(seat => {
       const plate = nameplateElByName[seat];
       plate.querySelector(".wind-mark").textContent = WIND_CHAR[SEAT_WIND[seat]];
       const dealerMarkEl = plate.querySelector(".dealer-mark");
       dealerMarkEl.style.display = (seat === STARTING_DEALER_SEAT) ? "" : "none";
       dealerMarkEl.classList.toggle("second-lap", isSecondLap);
+      dealerMarkEl.style.background = markColor.bg;
+      dealerMarkEl.style.color = markColor.fg;
+      dealerMarkEl.style.boxShadow = markColor.outline ? "0 0 0 1px " + markColor.outline : "";
     });
   }
 
