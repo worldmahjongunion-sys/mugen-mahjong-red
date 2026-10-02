@@ -1609,6 +1609,12 @@
   //   earlyEndOnBust/earlyEndOnOver70000: マイナス点/70,000点超えでの即時終了を行うか
   //   tobiEnabled: 0点止め(支払いをその人の持ち点までに制限)と飛び賞(10,000点)を行うか。
   //     falseの場合はマイナス点をそのまま持ち越し、飛び賞の精算も一切行わない
+  //   honbaResetOnDealerChange: 親が流れたら(和了・流局を問わず)本場を0に戻すか
+  //   honbaResetOnChildWin: honbaResetOnDealerChange:falseのルールで、子の和了の時だけ本場を0に戻すか
+  //     (Original: 親の和了と流局は本場+1、子の和了だけ0に戻す)
+  //   southRoundEnabled: 東4局の次を南1局にするか。falseは東5〜8局(裏東場)を続ける
+  //   renchanAtFinalKyokuEnabled: 最終局で親が連荘したら終局せず続けるか(アガリ止めなし)。
+  //     falseは最終局が終わった時点で連荘かどうかによらず終局する
   const RULESETS = [
     { id:"akaNeo", label:"赤入り無限ルールNEO", status:"ready", ruleConfig:{
       akaDoraEnabled:true,
@@ -1617,7 +1623,8 @@
       honbaRonBonus:1500, honbaTsumoBonusPerSeat:500,
       earlyEndOnBust:true, earlyEndOnOver70000:true, tobiEnabled:true,
       yakunashiWinEnabled:true, multiRonEnabled:true, jamaPonEnabled:true,
-      tenpaiRenchanEnabled:false, honbaResetOnDealerChange:true,
+      tenpaiRenchanEnabled:false, honbaResetOnDealerChange:true, honbaResetOnChildWin:true,
+      southRoundEnabled:false, renchanAtFinalKyokuEnabled:false,
       notenPenaltyMode:"perSeat", notenPenaltyPool:null,
       ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:true,
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:false,
@@ -1630,7 +1637,8 @@
       honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
       earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false,
       yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
-      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:false,
+      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:false, honbaResetOnChildWin:true,
+      southRoundEnabled:true, renchanAtFinalKyokuEnabled:true,
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
       ippatsuOnTsumoEnabled:false, chiitoitsuFourTileEnabled:false,
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:false,
@@ -1644,7 +1652,8 @@
       honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
       earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false,
       yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
-      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true,
+      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true, honbaResetOnChildWin:true,
+      southRoundEnabled:false, renchanAtFinalKyokuEnabled:false,
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
       ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:false,
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:true,
@@ -1659,7 +1668,8 @@
       honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
       earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false,
       yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
-      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true,
+      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true, honbaResetOnChildWin:true,
+      southRoundEnabled:false, renchanAtFinalKyokuEnabled:false,
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
       ippatsuOnTsumoEnabled:false, chiitoitsuFourTileEnabled:false, // 追記11で確定: WWも4枚使いは無し
       ippatsuEnabled:false, uraDoraEnabled:false, kanDoraEnabled:false, // 一発・裏ドラ・カンドラ無し
@@ -1672,7 +1682,8 @@
       honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
       earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false, // 0点未満はマイナス表示のまま進行(貸し借り処理は実装しない)
       yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
-      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true,
+      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true, honbaResetOnChildWin:true,
+      southRoundEnabled:false, renchanAtFinalKyokuEnabled:false,
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
       ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:false, // 追記11で確定: WWも4枚使いは無し
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:true,
@@ -3611,7 +3622,7 @@
     ? { ...savedMatchState.scores }
     : { bottom: ruleConfig.startingPoints, top: ruleConfig.startingPoints, left: ruleConfig.startingPoints, right: ruleConfig.startingPoints };
   // 半荘（8局固定・東場2周）の進行状態。savedMatchStateが無ければ東1局・0本場・自分が親から開始
-  let kyokuNumber = savedMatchState ? savedMatchState.kyokuNumber : 1; // 1〜8（連番。東1〜8局として表示）
+  let kyokuNumber = savedMatchState ? savedMatchState.kyokuNumber : 1; // 1〜8（連番。東1〜8局として表示。無限Originalだけ5〜8を南1〜4局として表示）
   let honba = savedMatchState ? savedMatchState.honba : 0;
 
   // ==================== 検証(リピート)モード ====================
@@ -3922,7 +3933,10 @@
   const nameplateElByName = {};
   Object.keys(scoreElByName).forEach(s => { nameplateElByName[s] = scoreElByName[s].closest(".nameplate"); });
   // DEALER_SEATはファイル冒頭（配牌処理の直前）で既に読み込み済み
-  const ROUND_WIND = 1; // 場風は東のみ固定（東場を2周する半荘のため、南入はしない）
+  // 南場に入っているか。southRoundEnabledのルール(無限Original)だけ、5局目以降を南1〜4局として扱う。
+  // それ以外のルールは東場を2周する半荘(東5〜8局＝裏東場)のため、南入はしない
+  function isSouthRound(){ return ruleConfig.southRoundEnabled && kyokuNumber > 4; }
+  const ROUND_WIND = isSouthRound() ? 2 : 1; // 場風。南場は南、それ以外は東
   // 自風は親を基準に東→南→西→北の順で決まる（NEXT_SEATの手番順＝親交代順と同じ並び）
   function computeSeatWind(dealerSeat){
     const winds = {};
@@ -4005,10 +4019,12 @@
   // 現在のkyokuNumber/honba/DEALER_SEAT/SEAT_WINDに合わせて描き直す
   const WIND_CHAR = { 1:"東", 2:"南", 3:"西", 4:"北" };
   function renderMatchHeader(){
-    document.getElementById("roundText").textContent = "東" + kyokuNumber + "局 " + honba + "本場";
+    const roundLabel = isSouthRound() ? "南" + (kyokuNumber - 4) : "東" + kyokuNumber;
+    document.getElementById("roundText").textContent = roundLabel + "局 " + honba + "本場";
     // ハウスルール：親が一巡(東1〜4局＝表東場)したら南場にはせず、そのまま東5〜8局(裏東場)を
-    // 続ける。起家マークの色で表/裏を区別する(赤=表東場、緑=裏東場)
-    const isSecondLap = kyokuNumber > 4;
+    // 続ける。起家マークの色で表/裏を区別する(赤=表東場、緑=裏東場)。
+    // 南場に入るルール(無限Original)は裏東場が無いので、起家マークは赤のまま
+    const isSecondLap = kyokuNumber > 4 && !ruleConfig.southRoundEnabled;
     Object.keys(nameplateElByName).forEach(seat => {
       const plate = nameplateElByName[seat];
       plate.querySelector(".wind-mark").textContent = WIND_CHAR[SEAT_WIND[seat]];
@@ -5665,7 +5681,9 @@
   // 意味するので、これで判定すれば同じ局に連荘で何度いても1回しか鳴らない
   function announceKyokuMilestone(){
     if(honba !== 0) return;
-    if(kyokuNumber === 5) speakZundamon("ura");
+    // 「裏入」は裏東場に入るルールだけ。南場に入るルール(無限Original)では鳴らさない。
+    // ラス前・オーラスは局の連番(7・8)で決まるので、南3局・南4局でもそのまま鳴る
+    if(kyokuNumber === 5){ if(!ruleConfig.southRoundEnabled) speakZundamon("ura"); }
     else if(kyokuNumber === 7) speakZundamon("lastBefore");
     else if(kyokuNumber === 8) speakZundamon("owarasu");
   }
@@ -5723,19 +5741,23 @@
   // 次局の状態（局数・本場・親）を決める純粋関数。
   // renchan=true：連荘（親はそのまま、本場+1、局数据え置き）
   // renchan=false：親交代（親はNEXT_SEAT、局数+1、本場0にリセット）
-  function computeNextMatchState(current, renchan){
+  // byWin：この局が和了で終わったか（流局ならfalse）。renchan=falseかつbyWin=trueは子の和了
+  function computeNextMatchState(current, renchan, byWin){
     if(renchan){
       return { kyokuNumber: current.kyokuNumber, honba: current.honba + 1, dealerSeat: current.dealerSeat };
     }
-    // ruleConfig.honbaResetOnDealerChange:falseのルール(無限Original等)では、親交代時にも
-    // 本場をリセットせず増え続けさせる
-    const honba = ruleConfig.honbaResetOnDealerChange ? 0 : current.honba + 1;
+    // ruleConfig.honbaResetOnDealerChange:falseのルール(無限Original等)では、流局で親が流れた時は
+    // 本場をリセットせず+1する。子の和了で親が流れた時だけ、honbaResetOnChildWinに従って0に戻す
+    const reset = ruleConfig.honbaResetOnDealerChange || (byWin && ruleConfig.honbaResetOnChildWin);
+    const honba = reset ? 0 : current.honba + 1;
     return { kyokuNumber: current.kyokuNumber + 1, honba, dealerSeat: NEXT_SEAT[current.dealerSeat] };
   }
 
   // 終了判定：トビ（マイナス）＞70,000点超え＞東8局終了、の優先順で理由を返す（無ければnull）。
   // finishedKyokuNumberは今終わった局の番号（連荘か親交代かによらず、次局へ進む前の値）
-  function checkMatchEnd(currentScores, finishedKyokuNumber){
+  // renchan：今終わった局で親が連荘するか。renchanAtFinalKyokuEnabledのルール(無限Original)は
+  // アガリ止めなしで、最終局でも親が連荘する間は終局しない（親が流れた時だけ終局）
+  function checkMatchEnd(currentScores, finishedKyokuNumber, renchan){
     const seats = ["bottom", "top", "left", "right"];
     if(ruleConfig.earlyEndOnBust){
       const bustSeat = seats.find(s => currentScores[s] < 0);
@@ -5745,14 +5767,14 @@
       const overSeat = seats.find(s => currentScores[s] > 70000);
       if(overSeat) return { type:"over70000", seat:overSeat };
     }
-    if(finishedKyokuNumber >= 8) return { type:"final" };
+    if(finishedKyokuNumber >= 8 && !(ruleConfig.renchanAtFinalKyokuEnabled && renchan)) return { type:"final" };
     return null;
   }
 
   function finalReasonText(reason){
     if(reason.type === "bust") return seatLabel[reason.seat] + "の持ち点がマイナスになったため終了（トビ）";
     if(reason.type === "over70000") return seatLabel[reason.seat] + "が70,000点を超えたため終了";
-    return "東8局が終了したため終了";
+    return (ruleConfig.southRoundEnabled ? "南4局" : "東8局") + "が終了したため終了";
   }
 
   // 順位点（ウマ）テーブル。40,000点（返し）超えの人数＝浮き人数で使うテーブルを切り替える。
@@ -5859,7 +5881,7 @@
 
     const seatsWon = winnerSeats || [];
     const finishedKyoku = kyokuNumber;
-    const reason = bustSeat ? { type: "bust", seat: bustSeat } : checkMatchEnd(scores, finishedKyoku);
+    const reason = bustSeat ? { type: "bust", seat: bustSeat } : checkMatchEnd(scores, finishedKyoku, renchan);
     if(reason){
       if(reason.type === "bust" && seatsWon.length > 0){
         const shares = splitEvenlyWithRemainderToClosestSeat(10000, seatsWon, reason.seat);
@@ -5873,7 +5895,7 @@
       showFinalResultActions(); // 最後の局(オーラス等)も検証(リピート)できるようにする
       return;
     }
-    const next = computeNextMatchState({ kyokuNumber, honba, dealerSeat: DEALER_SEAT }, renchan);
+    const next = computeNextMatchState({ kyokuNumber, honba, dealerSeat: DEALER_SEAT }, renchan, seatsWon.length > 0);
     lastNextMatchStateForRepeat = next; // 検証モード中の「次へ」が使う本番の次局状態
     showNormalResultActions(next);
   }
