@@ -1,0 +1,10 @@
+# 予備の公開（GitLab Pages）。main に push されると、ゲームに必要なファイルだけを公開する
+pages:
+  image: alpine:latest
+  script:
+    - mkdir public
+    - cp -r index.html README.txt images sounds public/
+  artifacts:
+    paths: [public]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
