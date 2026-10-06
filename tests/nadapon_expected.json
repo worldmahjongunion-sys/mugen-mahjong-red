@@ -1,0 +1,843 @@
+[
+ {
+  "id": "J-top-放置",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した"
+   ],
+   "events": [
+    "window:chi:pontruekanfalse",
+    "chi:left"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-top-窓内ポン",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した",
+    "ponBtn:押した"
+   ],
+   "events": [
+    "window:chi:pontruekanfalse",
+    "pon:bottom:5m,5m"
+   ],
+   "bottomMelds": [
+    "pon:5m,5m"
+   ],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-top-窓後ポン",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した",
+    "ponBtn:無効"
+   ],
+   "events": [
+    "window:chi:pontruekanfalse",
+    "chi:left"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-top-窓内スルーで即確定",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した",
+    "throughBtn:押した"
+   ],
+   "events": [
+    "window:chi:pontruekanfalse",
+    "chi:left"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-top-窓内カン",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": true
+   },
+   "actions": [
+    "throughBtn:押した",
+    "kanBtn:押した"
+   ],
+   "events": [
+    "window:chi:pontruekantrue",
+    "kan:bottom:5m,5m,5m"
+   ],
+   "bottomMelds": [
+    "kan:5m,5m,5m"
+   ],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-top-赤5手で窓内ポン",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した",
+    "ponBtn:押した"
+   ],
+   "events": [
+    "window:chi:pontruekanfalse",
+    "pon:bottom:5mr,5m"
+   ],
+   "bottomMelds": [
+    "pon:5mr,5m"
+   ],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-top-赤5捨てで窓内ポン",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した",
+    "ponBtn:押した"
+   ],
+   "events": [
+    "window:chi:pontruekanfalse",
+    "pon:bottom:5m,5m"
+   ],
+   "bottomMelds": [
+    "pon:5m,5m"
+   ],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-top-CPUがチーしない",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した"
+   ],
+   "events": [
+    "advance:top"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-right-放置",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した"
+   ],
+   "events": [
+    "window:chi:pontruekanfalse",
+    "chi:top"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-right-窓内ポン",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した",
+    "ponBtn:押した"
+   ],
+   "events": [
+    "window:chi:pontruekanfalse",
+    "pon:bottom:5m,5m"
+   ],
+   "bottomMelds": [
+    "pon:5m,5m"
+   ],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-right-窓後ポン",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した",
+    "ponBtn:無効"
+   ],
+   "events": [
+    "window:chi:pontruekanfalse",
+    "chi:top"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-right-窓内スルーで即確定",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した",
+    "throughBtn:押した"
+   ],
+   "events": [
+    "window:chi:pontruekanfalse",
+    "chi:top"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-right-窓内カン",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": true
+   },
+   "actions": [
+    "throughBtn:押した",
+    "kanBtn:押した"
+   ],
+   "events": [
+    "window:chi:pontruekantrue",
+    "kan:bottom:5m,5m,5m"
+   ],
+   "bottomMelds": [
+    "kan:5m,5m,5m"
+   ],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-right-赤5手で窓内ポン",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した",
+    "ponBtn:押した"
+   ],
+   "events": [
+    "window:chi:pontruekanfalse",
+    "pon:bottom:5mr,5m"
+   ],
+   "bottomMelds": [
+    "pon:5mr,5m"
+   ],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-right-赤5捨てで窓内ポン",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した",
+    "ponBtn:押した"
+   ],
+   "events": [
+    "window:chi:pontruekanfalse",
+    "pon:bottom:5m,5m"
+   ],
+   "bottomMelds": [
+    "pon:5m,5m"
+   ],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-right-CPUがチーしない",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した"
+   ],
+   "events": [
+    "advance:right"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-left-スルー(チーは自分だけ)",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した"
+   ],
+   "events": [
+    "advance:left"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-left-その場でポン",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "ponBtn:押した"
+   ],
+   "events": [
+    "pon:bottom:5m,5m"
+   ],
+   "bottomMelds": [
+    "pon:5m,5m"
+   ],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-top-その場でポン",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "ponBtn:押した"
+   ],
+   "events": [
+    "pon:bottom:5m,5m"
+   ],
+   "bottomMelds": [
+    "pon:5m,5m"
+   ],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-original-邪魔ポン無効",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した"
+   ],
+   "events": [
+    "chi:left"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-mLeagueOriginal-邪魔ポン無効",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した"
+   ],
+   "events": [
+    "chi:left"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-wwStandard-邪魔ポン無効",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した"
+   ],
+   "events": [
+    "chi:left"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "J-wwPremium-邪魔ポン無効",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した"
+   ],
+   "events": [
+    "chi:left"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "W-akaNeo-自分和了",
+  "signature": {
+   "offered": {
+    "win": true,
+    "through": true,
+    "chi": false,
+    "pon": false,
+    "kan": false
+   },
+   "actions": [
+    "winBtn:押した"
+   ],
+   "events": [
+    "ron:left+bottom"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "W-akaNeo-自分スルー",
+  "signature": {
+   "offered": {
+    "win": true,
+    "through": true,
+    "chi": false,
+    "pon": false,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した"
+   ],
+   "events": [
+    "ron:left"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": true,
+   "errors": []
+  }
+ },
+ {
+  "id": "W-akaNeo-CPUだけ2人",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": false,
+    "chi": false,
+    "pon": false,
+    "kan": false
+   },
+   "actions": [],
+   "events": [
+    "ron:left+right"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "W-original-頭ハネ(自分と上家)",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": false,
+    "chi": false,
+    "pon": false,
+    "kan": false
+   },
+   "actions": [
+    "winBtn:無効"
+   ],
+   "events": [
+    "ron:left"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "W-original-頭ハネ(CPU2人)",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": false,
+    "chi": false,
+    "pon": false,
+    "kan": false
+   },
+   "actions": [],
+   "events": [
+    "ron:left"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "W-akaNeo-ダブロン時はポン無し",
+  "signature": {
+   "offered": {
+    "win": true,
+    "through": true,
+    "chi": false,
+    "pon": false,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した"
+   ],
+   "events": [
+    "ron:left"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": true,
+   "errors": []
+  }
+ },
+ {
+  "id": "S-他家打牌-自分和了",
+  "signature": {
+   "offered": {
+    "win": true,
+    "through": true,
+    "chi": false,
+    "pon": false,
+    "kan": false
+   },
+   "actions": [
+    "winBtn:押した"
+   ],
+   "events": [
+    "sankahou"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "S-他家打牌-自分スルー",
+  "signature": {
+   "offered": {
+    "win": true,
+    "through": true,
+    "chi": false,
+    "pon": false,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した"
+   ],
+   "events": [
+    "sankahou"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "S-自分打牌-CPU3人",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": false,
+    "chi": false,
+    "pon": false,
+    "kan": false
+   },
+   "actions": [],
+   "events": [
+    "sankahou"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "R-ロン+ポンをスルー→上家チー",
+  "signature": {
+   "offered": {
+    "win": true,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した",
+    "winBtn:押せない"
+   ],
+   "events": [
+    "window:chi:pontruekanfalse",
+    "chi:left"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": true,
+   "errors": []
+  }
+ },
+ {
+  "id": "R-ロン+ポンをスルー→窓内ポン→和了",
+  "signature": {
+   "offered": {
+    "win": true,
+    "through": true,
+    "chi": false,
+    "pon": true,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した",
+    "ponBtn:押した",
+    "winBtn:押した"
+   ],
+   "events": [
+    "window:chi:pontruekanfalse",
+    "ron:bottom"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": true,
+   "errors": []
+  }
+ },
+ {
+  "id": "R-ロンだけスルー(ポン無し)→上家チー可",
+  "signature": {
+   "offered": {
+    "win": true,
+    "through": true,
+    "chi": false,
+    "pon": false,
+    "kan": false
+   },
+   "actions": [
+    "throughBtn:押した"
+   ],
+   "events": [
+    "advance:top"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": true,
+   "errors": []
+  }
+ },
+ {
+  "id": "R-CPU邪魔ポン窓-和了で取り戻す",
+  "signature": {
+   "offered": {
+    "win": true,
+    "through": true,
+    "chi": false,
+    "pon": false,
+    "kan": false
+   },
+   "actions": [
+    "winBtn:押した"
+   ],
+   "events": [
+    "window:ronOnly",
+    "ron:bottom"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "R-CPU邪魔ポン窓-放置",
+  "signature": {
+   "offered": {
+    "win": true,
+    "through": true,
+    "chi": false,
+    "pon": false,
+    "kan": false
+   },
+   "actions": [],
+   "events": [
+    "window:ronOnly",
+    "pon:right:5m,5m"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ },
+ {
+  "id": "R-CPU邪魔ポン窓-見逃し無しなら窓なし",
+  "signature": {
+   "offered": {
+    "win": false,
+    "through": false,
+    "chi": false,
+    "pon": false,
+    "kan": false
+   },
+   "actions": [],
+   "events": [
+    "pon:right:5m,5m"
+   ],
+   "bottomMelds": [],
+   "furitenBottom": false,
+   "errors": []
+  }
+ }
+]

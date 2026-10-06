@@ -1,0 +1,11 @@
+{
+  "name": "mugen-mahjong-red",
+  "private": true,
+  "description": "push 前チェック（tests/prepush_check.js）用の開発ツールだけを入れる。アプリ本体は index.html 単体で動き、これには依存しない。",
+  "scripts": {
+    "check": "node tests/prepush_check.js"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

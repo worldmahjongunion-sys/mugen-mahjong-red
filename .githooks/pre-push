@@ -1,0 +1,17 @@
+#!/bin/sh
+# push 前の自動チェック。構文確認か回帰テストのどちらかが失敗したら push を止める。
+# 有効にする設定（git clone の直後に1回）: git config core.hooksPath .githooks
+# 中身は tests/prepush_check.js
+
+zero=0000000000000000000000000000000000000000
+checked=""
+while read local_ref local_sha remote_ref remote_sha; do
+  [ "$local_sha" = "$zero" ] && continue   # ブランチの削除は確認しない
+  case " $checked " in *" $local_sha "*) continue ;; esac
+  checked="$checked $local_sha"
+  if ! node tests/prepush_check.js --rev "$local_sha" </dev/null; then
+    echo "[push前チェック] push を中止しました（$local_ref）" >&2
+    exit 1
+  fi
+done
+exit 0
