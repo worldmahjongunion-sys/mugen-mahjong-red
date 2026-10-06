@@ -1,0 +1,2 @@
+# フックは改行が LF でないと動かない
+.githooks/* text eol=lf
