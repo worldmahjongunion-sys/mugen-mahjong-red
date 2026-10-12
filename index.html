@@ -1752,6 +1752,93 @@
     });
   })();
 
+  // ==================== 成績の記録と月別集計（集める→整える→貯める） ====================
+  // 集める：半荘が終わるたびに、最終結果を1半荘1行でMATCH_LOG_KEYへ足す（recordMatchResult）。
+  // 整える：壊れた行・重複した行を捨て、月(端末の時刻)とルール名をそろえる（cleanMatchLog）。
+  // 貯める：月×ルールごとに集計した表をMONTHLY_STATS_KEYへ入れ直す（runMonthlyStatsBatch）。
+  // 集計は表紙を出すたびに記録の全件からまとめて作り直す方式（バッチ）。何度走らせても同じ
+  // 結果になり、集計のやり方を後から変えても記録さえ残っていれば作り直せる。
+  // 日をまたいで残す必要があるので、どちらも消えないlocalStorageに置く
+  const MATCH_LOG_KEY = "mugenMahjongRedMatchLog";
+  const MONTHLY_STATS_KEY = "mugenMahjongRedMonthlyStats";
+  function loadMatchLog(){
+    try {
+      const parsed = JSON.parse(localStorage.getItem(MATCH_LOG_KEY));
+      return Array.isArray(parsed) ? parsed : [];
+    } catch(e){ return []; }
+  }
+  // 自分(bottom)から見た1半荘ぶんの結果を記録へ足す。rank・rawDiff・umaは最終順位画面と同じ値
+  function recordMatchResult(reason, ranked, umaBySeat){
+    const rawDiff = scores.bottom - ruleConfig.returnPoints;
+    const entry = {
+      id: matchStartTime + "-" + CURRENT_RULE_ID,
+      endedAt: Date.now(),
+      ruleId: CURRENT_RULE_ID,
+      endReason: reason.type,
+      hands: handsPlayedCount,
+      elapsedMs: Date.now() - matchStartTime,
+      rank: ranked.indexOf("bottom") + 1,
+      score: scores.bottom,
+      total: rawDiff + umaBySeat.bottom
+    };
+    const log = loadMatchLog();
+    log.push(entry);
+    try { localStorage.setItem(MATCH_LOG_KEY, JSON.stringify(log)); } catch(e){}
+  }
+  // 集計に使える行だけを、形をそろえて返す。同じ半荘(id)が2回入っていたら後の1行だけ残す
+  function cleanMatchLog(log){
+    const byId = new Map();
+    log.forEach(e => {
+      if(!e || typeof e !== "object") return;
+      const endedAt = Number(e.endedAt);
+      const rank = Number(e.rank);
+      const total = Number(e.total);
+      const hands = Number(e.hands);
+      const rule = RULESETS.find(r => r.id === e.ruleId);
+      if(!rule || !Number.isFinite(endedAt) || endedAt <= 0) return;
+      if(![1, 2, 3, 4].includes(rank) || !Number.isFinite(total) || !(hands >= 1)) return;
+      const d = new Date(endedAt);
+      const month = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+      byId.set(String(e.id || endedAt), { month, ruleId: rule.id, ruleLabel: rule.label, rank, total, hands });
+    });
+    return Array.from(byId.values());
+  }
+  // 整えた行を月×ルールごとにまとめる。並びは月の新しい順、同じ月の中はRULESETSの順
+  function aggregateMonthlyStats(rows){
+    const groups = new Map();
+    rows.forEach(r => {
+      const key = r.month + "|" + r.ruleId;
+      if(!groups.has(key)){
+        groups.set(key, { month: r.month, ruleId: r.ruleId, ruleLabel: r.ruleLabel, matches: 0, rankCounts: [0, 0, 0, 0], rankSum: 0, totalSum: 0, handsSum: 0 });
+      }
+      const g = groups.get(key);
+      g.matches++;
+      g.rankCounts[r.rank - 1]++;
+      g.rankSum += r.rank;
+      g.totalSum += r.total;
+      g.handsSum += r.hands;
+    });
+    const ruleOrder = id => RULESETS.findIndex(r => r.id === id);
+    return Array.from(groups.values())
+      .sort((a, b) => a.month === b.month ? ruleOrder(a.ruleId) - ruleOrder(b.ruleId) : (a.month < b.month ? 1 : -1))
+      .map(g => ({
+        month: g.month, ruleId: g.ruleId, ruleLabel: g.ruleLabel,
+        matches: g.matches, rankCounts: g.rankCounts,
+        avgRank: Math.round(g.rankSum / g.matches * 100) / 100,
+        topRate: Math.round(g.rankCounts[0] / g.matches * 1000) / 10,
+        avgTotal: Math.round(g.totalSum / g.matches / 100) * 100,
+        avgHands: Math.round(g.handsSum / g.matches * 10) / 10
+      }));
+  }
+  function runMonthlyStatsBatch(){
+    const log = loadMatchLog();
+    const rows = cleanMatchLog(log);
+    const stats = { updatedAt: Date.now(), sourceCount: log.length, usedCount: rows.length, rows: aggregateMonthlyStats(rows) };
+    try { localStorage.setItem(MONTHLY_STATS_KEY, JSON.stringify(stats)); } catch(e){}
+    return stats;
+  }
+  if(!pendingRuleId) runMonthlyStatsBatch();
+
   let DEALER_SEAT = savedMatchState ? savedMatchState.dealerSeat : pickAndAdvanceStartDealerSeat(); // 親（局ごとにNEXT_SEATで交代しうる）
   // 起家（＝東1局の親）は半荘を通じて固定。DEALER_SEATと違い連荘・親交代でも一切動かない
   const STARTING_DEALER_SEAT = savedMatchState ? savedMatchState.startingDealerSeat : DEALER_SEAT;
@@ -3857,6 +3944,7 @@
     if(actions) actions.style.display = "none";
     const titleScreen = document.getElementById("titleScreen");
     if(titleScreen) titleScreen.style.display = "flex";
+    runMonthlyStatsBatch(); // リロードせずに表紙を出す経路なので、ここでも集計し直す
   }
   // 次局の状態を保存してリロードする（通常時の「次局へ」・検証中の「次へ」の共通処理）
   function goToNextKyoku(next){
@@ -5860,6 +5948,7 @@
   // （合計＝(素点-40,000)+順位点）
   function showFinalStandings(reason){
     const { ranked, umaBySeat } = computeUmaBySeat(scores);
+    recordMatchResult(reason, ranked, umaBySeat);
     announceMatchEnd(reason, ranked);
     const elapsedText = formatElapsedText(Date.now() - matchStartTime); // 音声化はしないが画面には残す
     const rows = ranked.map((s, i) => {
