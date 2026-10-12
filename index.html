@@ -1113,6 +1113,112 @@
     padding:6px 14px;
     display:none;
   }
+  /* 表紙の「成績」ボタン。ルールのボタンより目立たせない(枠を薄く、字を小さく、太字にしない) */
+  .title-screen-stats-btn{
+    width:100%;
+    max-width:520px;
+    padding:0.7em 0.8em;
+    font-size:14px;
+    color:rgba(243,239,227,0.8);
+    background:transparent;
+    border:1px solid rgba(243,239,227,0.35);
+    border-radius:8px;
+    cursor:pointer;
+  }
+  .title-screen-stats-btn:active{
+    background:rgba(0,0,0,0.25);
+  }
+  /* ==================== 成績画面(#statsScreen) ====================
+     表紙の手前に重ねる全画面オーバーレイ。月別成績表(MONTHLY_STATS_KEY)を見るだけの画面 */
+  #statsScreen{
+    display:none;
+    position:fixed;
+    inset:0;
+    z-index:510;
+    background:radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-dark)100%);
+    color:var(--text-light);
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-start;
+    gap:10px;
+    padding:4dvh 16px 24px;
+    overflow-y:auto;
+  }
+  .stats-heading{
+    font-size:clamp(20px, 4.5dvh, 30px);
+    font-weight:bold;
+    color:var(--gold);
+    letter-spacing:0.05em;
+    margin:0;
+  }
+  .stats-body{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    width:100%;
+    max-width:520px;
+  }
+  .stats-month{
+    margin:8px 0 0;
+    font-size:16px;
+    font-weight:bold;
+    color:var(--gold);
+    border-bottom:1px solid rgba(243,239,227,0.3);
+    padding-bottom:4px;
+  }
+  .stats-card{
+    background:rgba(0,0,0,0.25);
+    border:1px solid var(--gold);
+    border-radius:8px;
+    padding:10px 12px;
+    font-size:14px;
+    line-height:1.7;
+  }
+  .stats-card-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:8px;
+    font-weight:bold;
+  }
+  .stats-card-head .stats-matches{
+    flex-shrink:0;
+    color:var(--gold);
+  }
+  .stats-card-line{
+    display:flex;
+    flex-wrap:wrap;
+    gap:0 1em;
+  }
+  .stats-empty{
+    margin:6dvh 0;
+    text-align:center;
+    font-size:14px;
+    line-height:1.8;
+    opacity:0.9;
+  }
+  .stats-note{
+    margin:6px 0 0;
+    text-align:center;
+    font-size:12px;
+    line-height:1.7;
+    opacity:0.75;
+  }
+  .stats-back-btn{
+    width:100%;
+    max-width:520px;
+    padding:1em 0.8em;
+    font-size:16px;
+    font-weight:bold;
+    color:var(--text-light);
+    background:rgba(0,0,0,0.25);
+    border:1px solid var(--gold);
+    border-radius:8px;
+    cursor:pointer;
+  }
+  .stats-back-btn:active{
+    background:rgba(0,0,0,0.4);
+  }
 </style>
 </head>
 <body>
@@ -1123,6 +1229,15 @@
   <p class="title-screen-catch">現役麻雀プロが開発したAI麻雀<br>10種類の麻雀ルールに対応</p>
   <div class="title-screen-rules" id="titleScreenRules"></div>
   <div class="title-screen-message" id="titleScreenMessage"></div>
+  <button type="button" class="title-screen-stats-btn" id="statsOpenBtn">成績</button>
+</div>
+
+<!-- 成績画面。表紙の「成績」ボタンでJSがdisplay:flexにする（中身は月別成績表からJSで生成） -->
+<div id="statsScreen">
+  <h2 class="stats-heading">成績</h2>
+  <div class="stats-body" id="statsBody"></div>
+  <p class="stats-note" id="statsNote"></p>
+  <button type="button" class="stats-back-btn" id="statsBackBtn">表紙に戻る</button>
 </div>
 
 <div class="board">
@@ -1838,6 +1953,66 @@
     return stats;
   }
   if(!pendingRuleId) runMonthlyStatsBatch();
+
+  // ==================== 成績画面(#statsScreen) ====================
+  // 表紙の「成績」ボタンで開く、見るだけの画面。貯めてある月別成績表をそのまま読んで並べる
+  // （表が無い・壊れている時だけ、その場で集計し直す）
+  function loadMonthlyStats(){
+    try {
+      const parsed = JSON.parse(localStorage.getItem(MONTHLY_STATS_KEY));
+      return parsed && Array.isArray(parsed.rows) ? parsed : null;
+    } catch(e){ return null; }
+  }
+  function renderStatsScreen(){
+    const stats = loadMonthlyStats() || runMonthlyStatsBatch();
+    const body = document.getElementById("statsBody");
+    const note = document.getElementById("statsNote");
+    const el = (tag, className, text) => {
+      const node = document.createElement(tag);
+      if(className) node.className = className;
+      if(text !== undefined) node.textContent = text;
+      return node;
+    };
+    body.textContent = "";
+    if(stats.rows.length === 0){
+      const empty = el("p", "stats-empty");
+      empty.append("まだ記録がありません。", document.createElement("br"), "半荘を最後まで打つと、ここに成績が出ます。");
+      body.appendChild(empty);
+    }
+    let lastMonth = null;
+    stats.rows.forEach(r => {
+      if(r.month !== lastMonth){
+        const [y, m] = r.month.split("-");
+        body.appendChild(el("h3", "stats-month", y + "年" + Number(m) + "月"));
+        lastMonth = r.month;
+      }
+      const card = el("div", "stats-card");
+      const head = el("div", "stats-card-head");
+      head.append(el("span", "", r.ruleLabel), el("span", "stats-matches", r.matches + "半荘"));
+      const ranks = el("div", "stats-card-line");
+      r.rankCounts.forEach((c, i) => ranks.appendChild(el("span", "", (i + 1) + "位 " + c)));
+      const rates = el("div", "stats-card-line");
+      rates.append(el("span", "", "平均順位 " + r.avgRank.toFixed(2)), el("span", "", "トップ率 " + r.topRate + "%"));
+      const sign = r.avgTotal > 0 ? "＋" : (r.avgTotal < 0 ? "－" : "±");
+      const total = el("div", "", "平均合計 " + sign + Math.abs(r.avgTotal).toLocaleString() + "点");
+      card.append(head, ranks, rates, total);
+      body.appendChild(card);
+    });
+    note.textContent = "";
+    note.append("この端末・このブラウザで打った半荘だけを集計しています", document.createElement("br"), "記録されている半荘：" + stats.usedCount + "半荘");
+  }
+  (function initStatsScreen(){
+    const screen = document.getElementById("statsScreen");
+    const openBtn = document.getElementById("statsOpenBtn");
+    const backBtn = document.getElementById("statsBackBtn");
+    if(!screen || !openBtn || !backBtn) return;
+    openBtn.addEventListener("click", () => {
+      renderStatsScreen();
+      screen.style.display = "flex";
+      screen.scrollTop = 0;
+    });
+    backBtn.addEventListener("click", () => { screen.style.display = "none"; });
+  })();
 
   let DEALER_SEAT = savedMatchState ? savedMatchState.dealerSeat : pickAndAdvanceStartDealerSeat(); // 親（局ごとにNEXT_SEATで交代しうる）
   // 起家（＝東1局の親）は半荘を通じて固定。DEALER_SEATと違い連荘・親交代でも一切動かない
