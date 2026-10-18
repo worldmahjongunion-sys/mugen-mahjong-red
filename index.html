@@ -1005,9 +1005,22 @@
   }
   /* 邪魔ポンの猶予窓（3秒間）を、ボタンの点滅だけに頼らず文字でもはっきり知らせるための表示。
      #callPromptは元々ボタン用の入れ物だが現状未使用のため、この告知バナー専用に流用する。
-     見落とし防止のため、ボタンのnadapon-glowと同じ赤・同じ点滅速度で強調する */
+     見落とし防止のため、ボタンのnadapon-glowと同じ赤・同じ点滅速度で強調する。
+     以前は.status-areaの中で場所を取っていたため、告知が出る・消えるたびに卓の高さが変わり、
+     卓全体が上下にずれてちらついて見えていた（PCで約5px、スマホ縦で約17px）。
+     position:absoluteで場所を取らないようにし、上下左右の指定はせず元の位置(.status-areaの上端・
+     中央寄せ)に置いたうえで、translateY(-100%)で自分の高さぶん上へずらして、ボタン行を隠さずに
+     その真上へ重ねる（見た目の位置は以前とほぼ同じ）。.status-areaにposition:relativeを付けると
+     .result-stackの基準(.board)まで変わってしまうため、上下左右の指定を使わないこの方法にしている。
+     告知の下の手牌を押せなくならないよう、pointer-events:noneにしておく */
   .call-prompt.nadapon-banner{
     display:block;
+    position:absolute;
+    transform:translateY(-100%);
+    margin-bottom:0;
+    z-index:30;
+    pointer-events:none;
+    white-space:nowrap;
     text-align:center;
     font-size:13px;
     font-weight:bold;
