@@ -1248,7 +1248,6 @@
     .top-left-stack .result-actions{ position:absolute; top:calc(100% + 4px); left:0; }
     .table-area{ order:1; }
     .status-area{ order:2; }
-    .button-row{ order:3; }
 
     /* 卓の中の段(山・捨て牌・中央)は、狭いと押しつぶされて重なって見えていた。縦向きでは縮ませず、
        はみ出すぶんはfitTileSize()が気づいて牌を小さくする */
@@ -1276,6 +1275,29 @@
     .result-stack:has(> .final-overlay:not([style*="none"])){ background:rgba(0,0,0,0.6); pointer-events:auto; }
     .result-box{ width:100%; max-width:420px; font-size:14px; line-height:1.5; }
     .final-overlay{ width:100%; max-width:420px; }
+
+    /* 自分の手牌・鳴き牌と操作ボタンは、JS(applyPortraitLayout)が卓の外の下段(#portraitDock)へ
+       [操作ボタン][鳴き牌][手牌] の順に移す。手牌は14枚(ツモ牌の間隔込み)が画面の横幅いっぱいになる大きさ。
+       鳴いた後も手牌はツモ牌の置き場を空けて並ぶため、鳴き牌は同じ列には入りきらない。手牌のすぐ上の行に、
+       右寄せ・8割の大きさで置く。
+       --hand-wは手牌1枚の幅：画面幅 − 左右の余白12px − 牌の間隔2px×13 − ツモ牌の間隔6px を14で割る */
+    #portraitDock{ order:3; display:flex; flex-direction:column; gap:6px; flex-shrink:0; padding-bottom:2px;
+      --hand-w:calc((100vw - 12px - 13 * 2px - 6px) / 14); }
+    .portrait-hand-line{ display:flex; flex-direction:column; gap:3px; width:100%; }
+    #portraitDock #handMine{ --tile-w:var(--hand-w); --tile-h:calc(var(--hand-w) / 0.73);
+      min-width:0; gap:2px; justify-content:flex-start; }
+    #portraitDock #handMine .tile.drawn{ margin-left:6px; }
+    /* カンの4枚目は鳴き牌の上に積むため、鳴きが0組の時からその高さ(8割の牌の高さ＋幅)を確保しておく
+       （初めて鳴いた瞬間に行が高くなると、卓が縮んで動いてしまうため） */
+    #portraitDock #meldsBottom{ --tile-w:calc(var(--hand-w) * 0.8); --tile-h:calc(var(--hand-w) * 0.8 / 0.73);
+      height:auto; min-height:calc(var(--hand-w) * 0.8 / 0.73 + var(--hand-w) * 0.8);
+      align-items:flex-end; justify-content:flex-end; gap:3px; }
+
+    /* 山の表示は縦向きでは省き、そのぶん卓の牌を大きくする（残り枚数は中央の数字、ドラは上の帯で分かる） */
+    .wall-ring > .ring-top, .wall-ring > .ring-left, .wall-ring > .ring-right, .wall-ring > .ring-bottom{ display:none; }
+    /* CPUの鳴き牌の置き場は、6割の大きさ(JSのPORTRAIT_CPU_MELD_SCALE)に合わせて厚みも6割にする */
+    .hand-ring > .ring-top .meld-row{ height:calc((var(--tile-h) + var(--tile-w)) * 0.6); }
+    .hand-ring > .ring-left .meld-row, .hand-ring > .ring-right .meld-row{ width:calc((var(--tile-h) + var(--tile-w)) * 0.6); }
   }
 </style>
 </head>
@@ -2843,14 +2865,22 @@
   // fitTileSize側でこの関数を呼び直せば追従する
   function fitMeldRowScale(name){
     const scaleVar = "--meld-scale-" + name;
-    document.documentElement.style.setProperty(scaleVar, "1");
+    // スマホ縦向きでは、CPUの鳴き牌は6割の大きさを基準にする（置き場の厚みもCSS側で6割にしてある）
+    const base = (isPortraitLayout() && name !== "bottom") ? PORTRAIT_CPU_MELD_SCALE : 1;
+    document.documentElement.style.setProperty(scaleVar, String(base));
     const row = meldElByName[name];
     const maxLen = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--table-width"));
     if(!maxLen) return; // 初回fitTileSize()より前はまだ--table-width未設定のため何もしない
     const isHorizontal = (name === "top" || name === "bottom");
     const natural = isHorizontal ? row.scrollWidth : row.scrollHeight;
-    const scale = natural > maxLen ? (maxLen / natural) : 1;
+    const scale = natural > maxLen ? (base * maxLen / natural) : base;
     document.documentElement.style.setProperty(scaleVar, String(scale));
+  }
+
+  // スマホ縦向き（縦長・幅600px以下）かどうか。CSSの@media（同じ条件）と必ず揃えること
+  const PORTRAIT_CPU_MELD_SCALE = 0.6;
+  function isPortraitLayout(){
+    return window.matchMedia("(orientation: portrait) and (max-width: 600px)").matches;
   }
 
   // 案内表示欄は廃止した。呼び出し箇所は多いため関数自体は残し、何もしないだけにしてある。
@@ -6949,11 +6979,48 @@
     ["top", "bottom", "left", "right"].forEach(fitMeldRowScale);
   }
 
+  // --- スマホ縦向きだけ、自分の手牌・鳴き牌と操作ボタンを卓の外の下段(#portraitDock)へ移す ---
+  // 縦向きでは卓の幅が画面の幅で決まるため、手牌が卓の一部のままだと手牌まで小さくなる。
+  // 下段に移すと、手牌は画面の横幅いっぱいの大きさで並べられ、卓は手牌抜きで測れる。
+  // 局表示(#roundText)は中央の箱へ移す。見た目の指定はCSSの@media(同じ条件)側が持つ。
+  // 各要素はidや変数で参照されているだけなので、置き場所を移しても描画処理はそのまま動く
+  const portraitDock = document.createElement("div");
+  portraitDock.id = "portraitDock";
+  const portraitHandLine = document.createElement("div");
+  portraitHandLine.className = "portrait-hand-line";
+  portraitDock.appendChild(portraitHandLine);
+  const portraitMoves = ["handMine", "meldsBottom", "buttonRow", "roundText"].map(id => {
+    const el = document.getElementById(id);
+    return { el, parent: el.parentNode, next: el.nextSibling }; // 横向きに戻す時の元の場所
+  });
+  function applyPortraitLayout(){
+    const [hand, meldsRow, buttons, round] = portraitMoves.map(m => m.el);
+    if(isPortraitLayout()){
+      document.querySelector(".board").appendChild(portraitDock);
+      portraitDock.insertBefore(buttons, portraitHandLine);
+      portraitHandLine.appendChild(meldsRow);
+      portraitHandLine.appendChild(hand);
+      document.querySelector(".center-info .center-mid").insertBefore(round, document.getElementById("wallCount"));
+    } else {
+      portraitMoves.forEach(m => m.parent.insertBefore(m.el, m.next));
+      portraitDock.remove();
+    }
+  }
+  applyPortraitLayout();
+  let portraitLayoutApplied = isPortraitLayout();
+
   fitTileSize();
   let resizeTimer = null;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => { fitTileSize(); }, 150);
+    resizeTimer = setTimeout(() => {
+      // 縦向き⇔横向きが切り替わった時だけ、手牌・ボタンの置き場所を移し替えてから測り直す
+      if(isPortraitLayout() !== portraitLayoutApplied){
+        applyPortraitLayout();
+        portraitLayoutApplied = isPortraitLayout();
+      }
+      fitTileSize();
+    }, 150);
   });
 </script>
 
