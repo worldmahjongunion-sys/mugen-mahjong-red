@@ -212,8 +212,8 @@
       ".  b  .";
     gap:2px;
   }
-  /* 手牌と山の間隔＝牌の高さ1個分は、鳴き面子の行(.meld-row)自身の厚みで確保する
-     （鳴き面子が0組でも.meld-rowは常にvar(--tile-h)ぶんの厚みを持つため）。
+  /* 手牌と山の間隔（牌の高さ＋カン用に牌の横幅）は、鳴き面子の行(.meld-row)自身の厚みで確保する
+     （鳴き面子が0組でも.meld-rowは常にvar(--tile-h)+var(--tile-w)ぶんの厚みを持つため）。
      ここでgapを別途空けると隙間が二重になるので0にする（4辺とも）。 */
   .ring.hand-ring{ gap:0; }
   /* grid-template-areasで"minmax(0,...)"にした行・列でも、そこに置かれるアイテム自身が
@@ -675,7 +675,7 @@
      DOM順（.ring-top/bottom/left/rightの直下）は中央に近い側が来るようにしてある：
      top=[手牌,鳴き]（鳴きが下＝中央側）／bottom=[鳴き,手牌]（鳴きが上＝中央側）／
      left=[手牌,鳴き]（鳴きが右＝中央側）／right=[手牌,鳴き]（鳴きが左＝中央側）。
-     鳴きが0組でも.meld-rowはtile-hぶんの厚みを常に確保するため、鳴いた瞬間に
+     鳴きが0組でも.meld-rowはtile-h+tile-w(カン用)ぶんの厚みを常に確保するため、鳴いた瞬間に
      この行の高さ・幅が変わって中央BOXが揺れることはない。
      .ring-top/bottom/left/rightの既存のalign-items:centerにより、手牌に対して自動的に中央揃えになる。 */
   .meld-row{
@@ -683,24 +683,19 @@
     flex-shrink:0;
     gap:3px; /* 鳴き牌の組同士の間隔＝手牌の牌の間隔と同じ */
   }
+  /* カン（暗槓・大明槓・加槓）で積んだ4枚目は、buildKanGroup()がposition:absoluteで
+     卓中央側へちょうど牌1枚の横幅ぶん(--tile-w)はみ出す形で積む。そのはみ出しぶんも
+     含めて、鳴き0組の時から常に「牌の高さ＋牌の横幅」の厚みを確保しておく。
+     以前はカンがある席だけ.has-kanクラスで厚みを増やしていたが、初めてカンが入った瞬間に
+     卓の大きさが変わり、fitTileSize()で牌が1〜2px縮む・卓全体が動くちらつきになっていた。
+     そのぶん牌は常に1〜2px小さくなる（白石さん了承済み） */
   .ring-top .meld-row, .ring-bottom .meld-row{
     flex-direction:row;
-    height:var(--tile-h); /* 鳴き0組でも常にこの高さを確保 */
+    height:calc(var(--tile-h) + var(--tile-w)); /* 鳴き0組でも常にこの高さを確保 */
   }
   .ring-left .meld-row, .ring-right .meld-row{
     flex-direction:column;
-    width:var(--tile-h); /* 鳴き0組でも常にこの幅を確保 */
-  }
-  /* カン（暗槓・大明槓・加槓）で積んだ4枚目は、buildKanGroup()がposition:absoluteで
-     卓中央側へちょうど牌1枚の横幅ぶん(--tile-w)はみ出す形で積む。.meld-rowの厚みは
-     はみ出しぶんを見込んでいないため、王牌と重なっていた。カンがある席だけ、
-     JS(renderMelds)が付ける.has-kanクラスで厚みを牌の横幅ぶん増やして回避する。
-     カンの無い席はこのクラスが付かないため、従来どおりvar(--tile-h)のまま動かない */
-  .ring-top .meld-row.has-kan, .ring-bottom .meld-row.has-kan{
-    height:calc(var(--tile-h) + var(--tile-w));
-  }
-  .ring-left .meld-row.has-kan, .ring-right .meld-row.has-kan{
-    width:calc(var(--tile-h) + var(--tile-w));
+    width:calc(var(--tile-h) + var(--tile-w)); /* 鳴き0組でも常にこの幅を確保 */
   }
 
   .meld-row .tile{
@@ -2652,10 +2647,7 @@
     const scaleVar = "--meld-scale-" + name;
     el.style.flexDirection = flexDir;
     el.innerHTML = "";
-    // カン（暗槓・大明槓・加槓）が1組でもあれば、積んだ4枚目が王牌側にはみ出さないよう
-    // .meld-rowの厚みを牌の横幅ぶん増やす（CSSの.has-kan参照）。無ければ従来どおり
-    const hasKan = melds[name].some(m => m.type === "ankan" || m.type === "kan");
-    el.classList.toggle("has-kan", hasKan);
+    // カンで積んだ4枚目のぶんの厚みは、.meld-rowが最初から常に確保している（CSS参照）
     // 終局時のみ、副露面子の牌にもあたり牌ハイライトを適用する（見えている牌全部が対象のため）
     const atariKeys = gameEnded ? otherSeatsWaitKeys(name) : null;
     function markAtari(t, tEl){ if(atariKeys) applyAtariHighlight(tEl, t, atariKeys); }
