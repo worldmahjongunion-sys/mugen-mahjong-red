@@ -1625,6 +1625,28 @@
     return div;
   }
 
+  // 牌の絵（通常34種＋赤5の3種＝37種）を、局の始め（＝ページ読み込み。局ごとにlocation.reload()で
+  // 作り直す方式のため、ここが毎局の始めになる）に前もって読み込んでおく。読み込んでいないと、
+  // その局で初めて表に出る絵（CPUが鳴いて伏せていた牌が表になる時など）が、1コマ白く抜けて
+  // ちらついて見えていた。読み込んだImageはこの配列で持ち続け、途中で捨てられないようにする
+  const preloadedTileImages = [];
+  (function preloadTileImages(){
+    const names = new Set();
+    ["man", "pin", "sou"].forEach(suit => {
+      for(let n = 1; n <= 9; n++) names.add(tileImageName(suit, n, false));
+      names.add(tileImageName(suit, 5, true));
+    });
+    for(let n = 1; n <= 4; n++) names.add(tileImageName("wind", n, false));
+    for(let n = 1; n <= 3; n++) names.add(tileImageName("dragon", n, false));
+    names.forEach(name => {
+      const img = new Image();
+      img.src = `images/tiles/${name}.png`;
+      // 絵の展開（デコード）まで先に済ませておく。古いブラウザや失敗時は何もしない
+      if(img.decode) img.decode().catch(() => {});
+      preloadedTileImages.push(img);
+    });
+  })();
+
   // ==================== STEP2: 牌山生成・配牌 ====================
 
   function tileClass(suit, num){
