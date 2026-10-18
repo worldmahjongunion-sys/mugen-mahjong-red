@@ -1293,6 +1293,32 @@
       height:auto; min-height:calc(var(--hand-w) * 0.8 / 0.73 + var(--hand-w) * 0.8);
       align-items:flex-end; justify-content:flex-end; gap:3px; }
 
+    /* 和了結果(showPortraitResult)：大きな見出し・役と飜数・4人の持ち点と増減・OK */
+    .pr-title{ font-size:15px; color:#ccc; text-align:center; }
+    .pr-head{ text-align:center; color:var(--gold); font-weight:bold; margin:2px 0 10px; line-height:1.15; }
+    .pr-head .pr-limit{ font-size:30px; margin-right:8px; }
+    .pr-head .pr-points{ font-size:40px; font-variant-numeric:tabular-nums; }
+    .pr-head .pr-points small{ font-size:20px; margin-left:2px; }
+    .pr-head .pr-split{ display:block; font-size:13px; color:#ccc; font-weight:normal; margin-top:4px; }
+    .pr-yaku{ border-top:1px solid rgba(255,255,255,0.2); border-bottom:1px solid rgba(255,255,255,0.2); padding:6px 4px; margin-bottom:8px; }
+    .pr-yaku-row{ display:flex; justify-content:space-between; gap:12px; font-size:15px; text-align:left; }
+    .pr-yaku-row .pr-han{ color:var(--gold); font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .pr-yaku-row.pr-sum{ border-top:1px dashed rgba(255,255,255,0.25); margin-top:4px; padding-top:4px; font-weight:bold; }
+    .pr-player{ display:grid; grid-template-columns:auto 1fr auto auto; gap:0 10px; align-items:center; font-size:15px; padding:3px 4px; text-align:left; }
+    .pr-player.pr-win{ background:rgba(216,180,90,0.12); border-radius:6px; }
+    .pr-wind{ display:inline-block; width:1.5em; text-align:center; background:var(--tile-bg); color:#222; border-radius:4px; font-size:12px; font-weight:bold; }
+    .pr-score{ text-align:right; font-variant-numeric:tabular-nums; font-weight:bold; }
+    .pr-diff{ text-align:right; min-width:5.5em; font-variant-numeric:tabular-nums; font-weight:bold; }
+    .pr-diff.plus{ color:#5BC7E8; } .pr-diff.minus{ color:#FF6B6B; } .pr-diff.zero{ color:#999; }
+    /* 「この局をリピート」は指で押しやすい大きさにし、OKの押し間違いを防ぐため上下に離す */
+    .pr-btns{ display:flex; flex-direction:column; align-items:center; margin-top:12px; }
+    .pr-ok{ width:100%; height:52px; font-size:20px; font-weight:bold; color:#052014; background:var(--gold); border:none; border-radius:10px; box-shadow:0 3px 0 rgba(0,0,0,0.35); }
+    .pr-repeat{ margin-top:22px; width:70%; height:44px; font-size:15px; font-weight:bold; color:var(--gold); background:transparent; border:1px solid var(--gold); border-radius:10px; }
+    /* 帯の下に残る「ホームページに戻る」を結果の枠で隠さないよう、そのぶん枠を下げる */
+    .result-stack:has(#resultBox:not([style*="none"]) .pr-ok){ padding-top:92px; }
+    .board:has(#resultBox:not([style*="none"]) .pr-ok) #repeatBtn,
+    .board:has(#resultBox:not([style*="none"]) .pr-ok) #nextKyokuBtn{ display:none; }
+
     /* 山の表示は縦向きでは省き、そのぶん卓の牌を大きくする（残り枚数は中央の数字、ドラは上の帯で分かる） */
     .wall-ring > .ring-top, .wall-ring > .ring-left, .wall-ring > .ring-right, .wall-ring > .ring-bottom{ display:none; }
     /* CPUの鳴き牌の置き場は、6割の大きさ(JSのPORTRAIT_CPU_MELD_SCALE)に合わせて厚みも6割にする */
@@ -6471,6 +6497,62 @@
       `<div class="result-title">${title}</div>` +
       rowsHtml + extraHtml +
       totalHtml;
+
+    // スマホ縦向きでは、同じ中身を「大きな見出し＋役と飜数＋4人の増減＋OK」の形に組み直す
+    if(isPortraitLayout()){
+      const extraPoints = (collectedKyotaku || 0) + (honbaBonusTotal || 0) + (bonusTotal || 0);
+      showPortraitResult(box, seat, result, title, totalGain, totalGain - extraPoints, paymentsBySeat);
+    }
+  }
+
+  // --- スマホ縦向き専用の和了結果（単独の和了だけ。ダブロン・流局は元の表示を画面幅に収めるだけ） ---
+  // 役の行は buildYakuRows()/row() が作った今の表示(box内)から読み直して使い、点数の計算はし直さない。
+  // 見出しは、満貫などの名前がある点数表のルール(lookup)では名前、1翻ごとに決まるルールでは「4飜」の形
+  const PORTRAIT_LIMIT_NAMES = [[36000, 24000, "三倍満"], [24000, 16000, "倍満"], [18000, 12000, "跳満"], [12000, 8000, "満貫"]];
+  function portraitResultHeadline(seat, result, basePoints){
+    if(result.han >= 13) return "役満";
+    if(ruleConfig.scoreTableMode === "lookup"){
+      const isDealer = seat === DEALER_SEAT;
+      const hit = PORTRAIT_LIMIT_NAMES.find(([dealerPts, childPts]) => basePoints === (isDealer ? dealerPts : childPts));
+      if(hit) return hit[2];
+    }
+    return result.han ? result.han + "飜" : "";
+  }
+  // basePoints: 供託・本場・赤牌ボーナスを除いた和了点（満貫などの名前を当てるためだけに使う）
+  function showPortraitResult(box, seat, result, title, totalGain, basePoints, paymentsBySeat){
+    const rows = [...box.querySelectorAll(".result-row:not(.total-row)")].map(r => {
+      const han = r.querySelector(".col-han").textContent;
+      const pts = r.querySelector(".col-pts").textContent;
+      return `<div class="pr-yaku-row"><span>${r.querySelector(".col-name").innerHTML}</span>` +
+        `<span class="pr-han">${han || (pts ? Number(pts).toLocaleString() + "点" : "")}</span></div>`;
+    }).join("");
+    const splitEl = box.querySelector(".result-row.total-row .col-name");
+    const splitText = splitEl ? splitEl.textContent : "";
+    const sumRow = (result.han && result.han < 13) ? `<div class="pr-yaku-row pr-sum"><span>合計</span><span class="pr-han">${result.han}飜</span></div>` : "";
+    const players = ["bottom", "right", "top", "left"].map(s => {
+      const diff = s === seat ? totalGain : -(paymentsBySeat[s] || 0);
+      const cls = diff > 0 ? "plus" : (diff < 0 ? "minus" : "zero");
+      const sign = diff > 0 ? "+" : (diff < 0 ? "−" : "±");
+      return `<div class="pr-player${s === seat ? " pr-win" : ""}">` +
+        `<span class="pr-wind">${WIND_CHAR[SEAT_WIND[s]]}</span><span>${seatLabel[s]}</span>` +
+        `<span class="pr-score">${scores[s].toLocaleString()}</span>` +
+        `<span class="pr-diff ${cls}">${sign}${Math.abs(diff).toLocaleString()}</span></div>`;
+    }).join("");
+    const headline = portraitResultHeadline(seat, result, basePoints);
+    box.innerHTML =
+      `<div class="pr-title">${title}</div>` +
+      `<div class="pr-head">${headline ? `<span class="pr-limit">${headline}</span>` : ""}` +
+      `<span class="pr-points">${totalGain.toLocaleString()}<small>点</small></span>` +
+      (splitText ? `<span class="pr-split">${splitText}</span>` : "") + `</div>` +
+      `<div class="pr-yaku">${rows}${sumRow}</div>` +
+      `<div class="pr-players">${players}</div>` +
+      `<div class="pr-btns"><button type="button" class="pr-ok">OK</button>` +
+      `<button type="button" class="pr-repeat">この局をリピート</button></div>`;
+    // 「OK」「この局をリピート」は、帯の下の操作ボタン(次局へ/次へ/新しい半荘へ・リピート/リプレイ)を
+    // 押したのと同じ動きにする（ボタンの中身はshowNormal/Verify/FinalResultActionsが場面ごとに切り替える）。
+    // 帯の下の同じ2つは、この表示が出ている間だけCSSで隠す
+    box.querySelector(".pr-ok").onclick = () => document.getElementById("nextKyokuBtn").click();
+    box.querySelector(".pr-repeat").onclick = () => document.getElementById("repeatBtn").click();
   }
 
   // ダブロン用：和了者ごとにbuildYakuRowsで縦に積み、供託・本場・不足時の注記は
