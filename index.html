@@ -6865,8 +6865,13 @@
     ring.style.maxWidth = "none";
     ring.style.maxHeight = "none";
 
+    // 名札の枠(stabilizeCenterInfoCells)は牌の大きさで寸法が変わり、卓の大きさにも効く。
+    // 以前は測り終わった後にだけ整えていたため、ページを開いた時の大きさが実は収まらず、
+    // その局の最初の鳴きで測り直された瞬間に牌が1px縮んで卓全体が動いていた。
+    // 大きさを試すたびに名札の枠を整えてから測る
     function fits(px){
       document.documentElement.style.setProperty("--tile-h", px + "px");
+      stabilizeCenterInfoCells();
       return ring.scrollWidth <= area.clientWidth && ring.scrollHeight <= area.clientHeight;
     }
 
