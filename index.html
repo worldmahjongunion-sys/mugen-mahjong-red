@@ -1227,6 +1227,56 @@
   .stats-back-btn:active{
     background:rgba(0,0,0,0.4);
   }
+
+  /* ==================== スマホ縦向き（縦長・幅600px以下）だけの見た目 ====================
+     PC・横向きには一切効かない。ここより上の指定はPC・横向きの見た目のまま残し、
+     縦向きで変えたいものだけをこの中で上書きする */
+  @media (orientation: portrait) and (max-width: 600px){
+    .board{ gap:4px; }
+
+    /* 左上の枠(局・供託・ドラ)は、画面に浮かせると卓に重なるため、卓の上の細い帯にして場所を取る。
+       結果画面の暗い幕(.result-stack, z-index:200)より上に置き、その下の操作ボタン行も押せるようにする */
+    .top-left-stack{ position:relative; top:auto; left:auto; order:0; flex-direction:row; align-items:center; width:100%; flex-shrink:0; z-index:250; }
+    .top-left-info{ display:flex; flex-direction:row; align-items:center; justify-content:space-between; width:100%;
+      padding:3px 10px; font-size:12px; border-radius:8px; }
+    .top-left-info .round-kyotaku-row{ gap:8px; }
+    .top-left-info .dora-row{ flex-direction:row; align-items:center; gap:12px; }
+    .top-left-info .dora-item{ flex-direction:row; align-items:center; gap:5px; }
+    .top-left-info .dora-tile{ width:18px; height:25px; }
+    .top-left-info .dora-label{ font-size:11px; }
+    /* 操作ボタン行(リピート・次局へ等)は帯の高さを変えないよう、帯のすぐ下に浮かせる */
+    .top-left-stack .result-actions{ position:absolute; top:calc(100% + 4px); left:0; }
+    .table-area{ order:1; }
+    .status-area{ order:2; }
+    .button-row{ order:3; }
+
+    /* 卓の中の段(山・捨て牌・中央)は、狭いと押しつぶされて重なって見えていた。縦向きでは縮ませず、
+       はみ出すぶんはfitTileSize()が気づいて牌を小さくする */
+    .ring:not(.center-info){ grid-template-columns:auto max-content auto; grid-template-rows:auto max-content auto; }
+    .ring:not(.center-info) > .ring-center{ min-width:max-content; min-height:max-content; }
+
+    /* 中央の箱：名札と風の印は牌の大きさに連動しない固定の大きさなので、縦向きでは小さく固定する。
+       「捨て牌6枚ぶんの最小幅」は上の.ring{min-width:0}に負けて効いていなかったため、ここで効かせる */
+    .ring.center-info{ min-width:calc(var(--tile-w) * 7 + 10px); min-height:calc(var(--tile-w) * 7 + 10px); padding:3px; gap:1px; border-radius:8px; }
+    .nameplate{ font-size:10px; padding:1px 4px; gap:2px; border-radius:6px; }
+    .nameplate .dealer-mark{ padding:0 2px; }
+    .nameplate .wind-mark{ width:14px; height:14px; font-size:10px; border-radius:3px; }
+    .center-info .center-mid{ gap:0; }
+    .center-info .round{ font-size:10px; line-height:1.2; }
+    .wall-count-num{ font-size:16px; }
+    .wall-count-label{ font-size:8px; }
+
+    /* 操作ボタン：11個を1列だと1個30px幅で右が切れていたため、6列×2段にして押しやすい高さにする */
+    .button-row{ grid-template-columns:repeat(6, 1fr); grid-auto-rows:46px; height:auto; max-width:none; gap:5px; overflow:visible; }
+    .row-btn{ font-size:13px; padding:0 2px; border-radius:8px; }
+
+    /* 和了・流局の結果：右上の小さな枠をやめ、画面の幅に収めて真ん中に出す。後ろの卓は暗くする */
+    .result-stack{ position:fixed; inset:0; align-items:center; justify-content:safe center; padding:12px; pointer-events:none; overflow-y:auto; }
+    .result-stack:has(> .result-box:not([style*="none"])),
+    .result-stack:has(> .final-overlay:not([style*="none"])){ background:rgba(0,0,0,0.6); pointer-events:auto; }
+    .result-box{ width:100%; max-width:420px; font-size:14px; line-height:1.5; }
+    .final-overlay{ width:100%; max-width:420px; }
+  }
 </style>
 </head>
 <body>
