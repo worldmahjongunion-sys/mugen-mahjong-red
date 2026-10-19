@@ -1330,7 +1330,8 @@
     .hand-ring > .ring-top .meld-row .tile, .hand-ring > .ring-left .meld-row .tile, .hand-ring > .ring-right .meld-row .tile,
     .hand-ring > .ring-top .meld-row .tile-back:not(.rot), .hand-ring > .ring-left .meld-row .tile-back:not(.rot), .hand-ring > .ring-right .meld-row .tile-back:not(.rot),
     .hand-ring > .ring-top .meld-row .tile-back.rot::before, .hand-ring > .ring-left .meld-row .tile-back.rot::before, .hand-ring > .ring-right .meld-row .tile-back.rot::before{
-      border-radius:1px 1px 1.5px 1.5px; border-bottom-width:1.5px; box-shadow:0 1px 0 rgba(0,0,0,0.25);
+      border-radius:1px 1px 1.5px 1.5px; border-bottom-width:1.5px;
+      /* box-shadowはここで変えない（赤5の赤い縁・リーチドラの赤枠もbox-shadowで描いており、消えてしまうため） */
     }
   }
 </style>
