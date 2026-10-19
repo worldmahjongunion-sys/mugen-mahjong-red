@@ -1333,6 +1333,21 @@
       border-radius:1px 1px 1.5px 1.5px; border-bottom-width:1.5px;
       /* box-shadowはここで変えない（赤5の赤い縁・リーチドラの赤枠もbox-shadowで描いており、消えてしまうため） */
     }
+    /* 捨て牌・自分の手牌・自分の鳴き牌・他家の手牌も、上の他家の鳴き牌と同じ「見た目の四角さ」にする。
+       他家の鳴き牌(幅11.8px・高さ16.2pxで角1px/1.5px・下のふち1.5px)と同じ比率を、それぞれの牌の
+       --tile-w/--tile-h（手牌・自分の鳴き牌は#portraitDock側で別の値になっている）に掛けて求める。
+       下のふちは、手牌のように大きい牌でも今の2.5pxより太くしない */
+    .discard-grid .tile,
+    .hand-ring > .ring-top #handTop .tile, .hand-ring > .ring-left #handLeft .tile, .hand-ring > .ring-right #handRight .tile,
+    #portraitDock #handMine .tile, #portraitDock #meldsBottom .tile,
+    #portraitDock #meldsBottom .tile-back:not(.rot), #portraitDock #meldsBottom .tile-back.rot::before{
+      border-radius:calc(var(--tile-w) * 0.085) calc(var(--tile-w) * 0.085) calc(var(--tile-w) * 0.127) calc(var(--tile-w) * 0.127);
+      border-bottom-width:min(2.5px, calc(var(--tile-h) * 0.093));
+    }
+    /* 他家の伏せた手牌（上から見た薄い帯）は下のふちが無いので、角だけ同じ比率にする */
+    .tile-top{ border-radius:calc(var(--tile-w) * 0.085); }
+    /* 上の帯のドラ表示牌（幅18px・高さ25pxの固定）も同じ比率 */
+    .top-left-info .tile.dora-tile{ border-radius:1.5px 1.5px 2.3px 2.3px; border-bottom-width:2.3px; }
   }
 </style>
 </head>
