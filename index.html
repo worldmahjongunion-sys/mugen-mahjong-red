@@ -1321,9 +1321,17 @@
 
     /* 山の表示は縦向きでは省き、そのぶん卓の牌を大きくする（残り枚数は中央の数字、ドラは上の帯で分かる） */
     .wall-ring > .ring-top, .wall-ring > .ring-left, .wall-ring > .ring-right, .wall-ring > .ring-bottom{ display:none; }
-    /* CPUの鳴き牌の置き場は、6割の大きさ(JSのPORTRAIT_CPU_MELD_SCALE)に合わせて厚みも6割にする */
-    .hand-ring > .ring-top .meld-row{ height:calc((var(--tile-h) + var(--tile-w)) * 0.6); }
-    .hand-ring > .ring-left .meld-row, .hand-ring > .ring-right .meld-row{ width:calc((var(--tile-h) + var(--tile-w)) * 0.6); }
+    /* CPUの鳴き牌の置き場は、9割の大きさ(JSのPORTRAIT_CPU_MELD_SCALE)に合わせて厚みも9割にする。
+       1.0にすると左右の置き場が広がり、幅360pxで卓の牌がさらに1px小さくなるため0.9にしている */
+    .hand-ring > .ring-top .meld-row{ height:calc((var(--tile-h) + var(--tile-w)) * 0.9); }
+    .hand-ring > .ring-left .meld-row, .hand-ring > .ring-right .meld-row{ width:calc((var(--tile-h) + var(--tile-w)) * 0.9); }
+    /* 小さい牌では、角の丸み(3〜4px)と下の厚み(2.5px)が牌の大きさに対して目立ち、丸く見える。
+       CPUの鳴き牌だけ角と下の厚みを細くして、四角くくっきり見せる */
+    .hand-ring > .ring-top .meld-row .tile, .hand-ring > .ring-left .meld-row .tile, .hand-ring > .ring-right .meld-row .tile,
+    .hand-ring > .ring-top .meld-row .tile-back:not(.rot), .hand-ring > .ring-left .meld-row .tile-back:not(.rot), .hand-ring > .ring-right .meld-row .tile-back:not(.rot),
+    .hand-ring > .ring-top .meld-row .tile-back.rot::before, .hand-ring > .ring-left .meld-row .tile-back.rot::before, .hand-ring > .ring-right .meld-row .tile-back.rot::before{
+      border-radius:1px 1px 1.5px 1.5px; border-bottom-width:1.5px; box-shadow:0 1px 0 rgba(0,0,0,0.25);
+    }
   }
 </style>
 </head>
@@ -2891,7 +2899,8 @@
   // fitTileSize側でこの関数を呼び直せば追従する
   function fitMeldRowScale(name){
     const scaleVar = "--meld-scale-" + name;
-    // スマホ縦向きでは、CPUの鳴き牌は6割の大きさを基準にする（置き場の厚みもCSS側で6割にしてある）
+    // スマホ縦向きでは、CPUの鳴き牌は9割の大きさを基準にする（置き場の厚みもCSS側で9割にしてある）。
+    // 縮小(transform)ではなく、牌の箱そのものの幅・高さ(applyMeldRotation)を変えている
     const base = (isPortraitLayout() && name !== "bottom") ? PORTRAIT_CPU_MELD_SCALE : 1;
     document.documentElement.style.setProperty(scaleVar, String(base));
     const row = meldElByName[name];
@@ -2904,7 +2913,7 @@
   }
 
   // スマホ縦向き（縦長・幅600px以下）かどうか。CSSの@media（同じ条件）と必ず揃えること
-  const PORTRAIT_CPU_MELD_SCALE = 0.6;
+  const PORTRAIT_CPU_MELD_SCALE = 0.9;
   function isPortraitLayout(){
     return window.matchMedia("(orientation: portrait) and (max-width: 600px)").matches;
   }
