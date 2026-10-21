@@ -260,6 +260,11 @@
      山の内部と同じ1pxの間隔にする（他家の11枚と合わせて自分の山も表示枚数11枚になる） */
   .wall-bottom-group{ display:flex; flex-direction:row; gap:1px; align-items:center; }
   .wall-gap.horizontal{ display:flex; gap:1px; }
+  /* auto14(全自動卓風)：親の前の辺だけ、自摸山・空き・王牌7山を1本の山として並べる */
+  .wall-dealer-group{ display:flex; gap:1px; align-items:center; }
+  .wall-dealer-group.horizontal{ flex-direction:row; }
+  .wall-dealer-group.vertical{ flex-direction:column; }
+  .wall-gap.vertical{ display:flex; flex-direction:column; gap:1px; }
   /* 王牌のうち表向きの2枚（ドラ表示牌・リーチドラ表示牌）は、周りの伏せ牌と同じ枠サイズで表示する */
   .wall-pile .tile.wall-indicator{ width:var(--tile-w); height:var(--tile-h); border-radius:3px; }
   /* リーチドラ表示牌は、左上パネルの表示（.riichi-dora-tile）と同じ赤枠を付けて区別する */
@@ -1885,6 +1890,10 @@
   //   chiitoitsuStandardYakuStack: 七対子に断幺九・混一色・清一色・混老頭を重ねるか(標準の麻雀どおり)。
   //     falseは七対子にこれらを付けない(赤入り無限NEOの従来の挙動)
   //   tenchihouEnabled: 天和・地和(役満)を採用するか。MCR系以外はtrue(人和は採用しない)
+  //   deadWallLayout: 王牌の形。"legacy8"=自分の前に固定・8枚(嶺上牌4+表ドラ1+リーチドラ1+予備2、
+  //     リーチドラは表向き)。"auto14"=全自動卓風に、局ごとの親の前の山の端に7山14枚
+  //     (左から1・2山目=嶺上牌、3山目の上=表ドラ表示牌・下=裏ドラ表示牌、4〜7山目=カンドラと
+  //     その下の裏ドラ)。auto14の裏ドラは伏せたままで、リーチして和了した人だけが数える
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
   // 七対子の4枚使いの形だけを外す
@@ -1901,6 +1910,7 @@
   ];
   const RULESETS = [
     { id:"akaNeo", label:"赤入り無限ルールNEO", status:"ready", ruleConfig:{
+      deadWallLayout:"legacy8",
       disabledYaku:[], // 独自役も全部使う
       chiitoitsuStandardYakuStack:false,
       tenchihouEnabled:true,
@@ -1918,6 +1928,7 @@
       scoreTableMode:"linear", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
     { id:"original", label:"無限ルールOriginal", status:"ready", ruleConfig:{
+      deadWallLayout:"legacy8",
       disabledYaku:CUSTOM_YAKU_NAMES,
       chiitoitsuStandardYakuStack:true,
       tenchihouEnabled:true,
@@ -1935,9 +1946,10 @@
       scoreTableMode:"linear", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
     // Mリーグ NEOを作るときは disabledYaku:CUSTOM_YAKU_NAMES と chiitoitsuStandardYakuStack:true、
-    // tenchihouEnabled:true を入れる(独自役は使わない)
+    // tenchihouEnabled:true、deadWallLayout:"auto14" を入れる(独自役は使わない)
     { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null }, // 少牌+オールマイティー牌は別スコープ
     { id:"mLeagueOriginal", label:"Mリーグ Original", status:"ready", ruleConfig:{
+      deadWallLayout:"auto14",
       disabledYaku:CUSTOM_YAKU_NAMES,
       chiitoitsuStandardYakuStack:true,
       tenchihouEnabled:true,
@@ -1957,6 +1969,7 @@
       scoreTableMode:"lookup", scoreTableKiriage:true, yakumanMultiplierEnabled:true, countedYakumanCapped:true
     } },
     { id:"wwPremium", label:"麻雀共同体WW プレミアム", status:"ready", ruleConfig:{
+      deadWallLayout:"auto14",
       disabledYaku:CUSTOM_YAKU_NAMES,
       chiitoitsuStandardYakuStack:true,
       tenchihouEnabled:true,
@@ -1974,6 +1987,7 @@
       scoreTableMode:"lookup", scoreTableKiriage:false, yakumanMultiplierEnabled:false, countedYakumanCapped:false // 切り上げ満貫無し(子7700・親11600の実数)
     } },
     { id:"wwStandard", label:"麻雀共同体WW スタンダード", status:"ready", ruleConfig:{
+      deadWallLayout:"auto14",
       disabledYaku:CUSTOM_YAKU_NAMES,
       chiitoitsuStandardYakuStack:true,
       tenchihouEnabled:true,
@@ -1994,7 +2008,7 @@
     { id:"sanninNeo", label:"無限ルールNEO(3人打ち)", status:"comingSoon", ruleConfig:null },
     { id:"zanLeague", label:"ザンリーグルール", status:"comingSoon", ruleConfig:null },
     // MCR系を作るときは、独自役のうち組合龍だけ使う: disabledYaku:["組合同順"](MCR独自の役は別途)。
-    // 天和・地和は採用しない: tenchihouEnabled:false
+    // 天和・地和は採用しない: tenchihouEnabled:false。王牌の形は必要に応じて deadWallLayout で選ぶ
     { id:"mcrNeo", label:"MCR-NEO", status:"comingSoon", ruleConfig:null },
     { id:"mcrFukushiki", label:"複式MCR", status:"comingSoon", ruleConfig:null }
   ];
@@ -2226,8 +2240,15 @@
   // [10]〜[13]嶺上牌4枚）。補充しないため、山からの生きたツモ回数・海底牌のタイミングは
   // wall.lengthを都度動的に見ている既存ロジックのままで自動的に追随する（王牌枚数のハードコード無し）
   // rinshanAvailable()・updateRinshanVisual()が「王牌のうち何枚が嶺上牌用の予備か」を
-  // 判定するのに使う基準値。deadWallはpop()で縮んでいくため、開始時点の枚数を控えておく
-  const DEAD_WALL_INITIAL_SIZE = ruleConfig.kanDoraEnabled ? 14 : 8;
+  // 判定するのに使う基準値。deadWallはpop()で縮んでいくため、開始時点の枚数を控えておく。
+  // ruleConfig.deadWallLayout:"auto14"のルール(全自動卓風)は、カンドラの有無によらず14枚
+  // (並びは上の14枚の内訳と同じ。王牌の7山との対応はbuildAutoDeadWallDom()の説明を参照)
+  const IS_AUTO_DEAD_WALL = ruleConfig.deadWallLayout === "auto14";
+  const DEAD_WALL_INITIAL_SIZE = (IS_AUTO_DEAD_WALL || ruleConfig.kanDoraEnabled) ? 14 : 8;
+  // auto14のルールでは、riichiDoraIndicatorsは伏せたままの裏ドラ表示牌として扱う。画面にも
+  // 出さず、手牌の色分け・CPUの読み(見えている牌・ドラの種類)にも使わない。数えるのは
+  // リーチして和了した人の和了時だけ(addDoraYaku)で、役名も「裏ドラ」にする
+  const URA_DORA_HIDDEN = IS_AUTO_DEAD_WALL;
   const deadWall = wall.splice(0, DEAD_WALL_INITIAL_SIZE);
   // ドラ表示牌・リーチドラ表示牌はここで確定させる（実際に卓へ表向きで見せる処理・演出は
   // 従来通り下の方(paintTile呼び出し)で行うが、値そのものはrenderMyHand等の初回描画より前に
@@ -2243,6 +2264,10 @@
     if(kanIndex >= 4) return;
     doraIndicators.push(deadWall[2 + kanIndex]);
     riichiDoraIndicators.push(deadWall[6 + kanIndex]);
+    if(IS_AUTO_DEAD_WALL){
+      updateAutoDeadWallVisual(); // 4山目から順にカンドラを表にする
+      renderTopLeftKanDora();
+    }
   }
 
   // 自分・CPU3人へ配牌（13枚ずつ。山は既にシャッフル済みのため、誰が親でも配る順序自体は無関係）
@@ -2365,14 +2390,79 @@
   // 対面・上家・下家はそれぞれ22枚。開門位置（自摸山の右端＝自分の親の第一自摸位置）から
   // 実際の卓の並びどおりに、自分→上家→対面→下家の順で生きたツモが進むごとに山が減っていく
   // （実際のwall.lengthから逆算する。専用カウンタは持たない）
-  const WALL_PILE_ORDER = ["bottom", "left", "top", "right"];
-  const WALL_PILE_SIZE = { bottom:10, left:22, top:22, right:22 };
+  // auto14のルールでは、親の山から始めて上家の山へ(自分→上家→対面→下家と同じ回り方で)進む。
+  // 親の前は自摸山2山(4枚)・空き2山・王牌7山の11山、他の3人は自摸山11山(22枚)にする
+  const WALL_PILE_ORDER = IS_AUTO_DEAD_WALL
+    ? [DEALER_SEAT, KAMICHA[DEALER_SEAT], KAMICHA[KAMICHA[DEALER_SEAT]], KAMICHA[KAMICHA[KAMICHA[DEALER_SEAT]]]]
+    : ["bottom", "left", "top", "right"];
+  const WALL_PILE_SIZE = IS_AUTO_DEAD_WALL
+    ? Object.fromEntries(["bottom", "left", "top", "right"].map(s => [s, s === DEALER_SEAT ? LIVE_WALL_TOTAL - 22 * 3 : 22]))
+    : { bottom:10, left:22, top:22, right:22 };
   const WALL_PILE_EL_ID = { bottom:"wallBottomLive", left:"wallLeft", top:"wallTop", right:"wallRight" };
   // 各山のどちら側（DOM順の先頭 or 末尾）から減っていくか。
   // 自分の前は開門位置（王牌側＝DOM末尾側）から、上家は自分に近い側（下端＝DOM末尾側）から、
   // 対面は上家に近い側（左端＝DOM先頭側）から、下家は対面に近い側（上端＝DOM先頭側）から減り、
   // 下家の最後（DOM末尾）が王牌の左端に戻ってつながる
   const WALL_PILE_REVERSE = { bottom:true, left:true, top:false, right:false };
+
+  // auto14：山の4辺(.wall-ring直下のring-*)を、親の席に合わせて作り直す。どの辺も、前の人の山に
+  // つながる側(WALL_PILE_REVERSEがtrueならDOM末尾側、falseなら先頭側)から減っていく。
+  // 親の辺は、その側から順に「王牌7山・空き2山・自摸山」と並べる(親から見て左から自摸山・空き・
+  // 王牌になる)。王牌は空きの側から1山目(嶺上牌)・2山目(嶺上牌)・3山目(表ドラ/裏ドラ)・
+  // 4〜7山目(カンドラ/その裏ドラ)。deadWallとの対応は、[0]表ドラ [1]裏ドラ [2+k]カンドラ
+  // [6+k]その裏ドラ [10]〜[13]嶺上牌(末尾からpop。1山目の上→下→2山目の上→下の順に減らす)
+  const AUTO_DEAD_WALL_STACKS = 7;
+  function buildAutoDeadWallDom(){
+    const ring = document.querySelector(".wall-ring");
+    ["top", "left", "right", "bottom"].forEach(side => {
+      const holder = ring.querySelector(":scope > .ring-" + side);
+      const dir = (side === "left" || side === "right") ? "vertical" : "horizontal";
+      const backCls = dir === "vertical" ? "tile-back rot" : "tile-back";
+      const pile = (id, n) => `<div class="wall-pile ${dir}" id="${id}">` + `<div class="${backCls}"></div>`.repeat(n) + `</div>`;
+      if(side !== DEALER_SEAT){
+        holder.innerHTML = pile(WALL_PILE_EL_ID[side], 11);
+        return;
+      }
+      const liveStacks = WALL_PILE_SIZE[side] / 2;
+      const gapStacks = Math.max(0, 11 - AUTO_DEAD_WALL_STACKS - liveStacks);
+      const gap = `<div class="wall-gap ${dir}" aria-hidden="true">` + `<div class="${backCls}" style="visibility:hidden;"></div>`.repeat(gapStacks) + `</div>`;
+      const live = pile(WALL_PILE_EL_ID[side], liveStacks);
+      const dead = pile("wallDead", AUTO_DEAD_WALL_STACKS);
+      const parts = WALL_PILE_REVERSE[side] ? [live, gap, dead] : [dead, gap, live];
+      holder.innerHTML = `<div class="wall-dealer-group ${dir}">` + parts.join("") + `</div>`;
+    });
+  }
+  if(IS_AUTO_DEAD_WALL) buildAutoDeadWallDom();
+
+  // auto14：王牌7山の見た目。n山目(1始まり)のDOM要素は、空きの側から数える
+  function autoDeadWallStackIndex(n){
+    return WALL_PILE_REVERSE[DEALER_SEAT] ? n - 1 : AUTO_DEAD_WALL_STACKS - n;
+  }
+  // 嶺上牌(1・2山目)は使った分だけ暗く→消し、3山目(表ドラ)と表になったカンドラ(4山目〜)は表向き、
+  // それ以外は伏せる。表向きの牌は親の捨て牌と同じ向きにする
+  function updateAutoDeadWallVisual(){
+    const el = document.getElementById("wallDead");
+    if(!el) return;
+    const dir = (DEALER_SEAT === "left" || DEALER_SEAT === "right") ? "vertical" : "horizontal";
+    const backCls = dir === "vertical" ? "tile-back rot" : "tile-back";
+    const rinshanUsed = DEAD_WALL_INITIAL_SIZE - deadWall.length; // 0〜4
+    const nodes = [];
+    for(let n = 1; n <= AUTO_DEAD_WALL_STACKS; n++){
+      const faceIdx = n - 3; // 3山目=表ドラ(0)、4山目=1回目のカンドラ(1)…
+      let node;
+      if(faceIdx >= 0 && faceIdx < doraIndicators.length){
+        const t = doraIndicators[faceIdx];
+        node = tileEl(t.suit, t.num, tileClass(t.suit, t.num) + " wall-indicator", t.red);
+        applyMeldRotation(node, DISCARD_ROTATION[DEALER_SEAT]);
+      } else {
+        node = document.createElement("div");
+        node.className = backCls;
+        if(n <= 2) applyStackVisual(node, Math.max(0, Math.min(2, rinshanUsed - (n - 1) * 2)));
+      }
+      nodes[autoDeadWallStackIndex(n)] = node;
+    }
+    el.replaceChildren(...nodes);
+  }
 
   function wallPileRemaining(pileName){
     const drawnTotal = LIVE_WALL_TOTAL - wall.length;
@@ -2416,6 +2506,7 @@
   // 8→4まで減るので、それに合わせて表示2枚を「上段消費で少し暗く→下段も消費で非表示」にする
   // （表ドラ・リーチドラの2枚は対象外＝常に表示のまま）
   function updateRinshanVisual(){
+    if(IS_AUTO_DEAD_WALL){ updateAutoDeadWallVisual(); return; }
     const el = document.getElementById("wallDead");
     const rinshanUsed = DEAD_WALL_INITIAL_SIZE - deadWall.length; // 0〜4（物理枚数）
     Array.from(el.children).slice(0, 2).forEach((tile, idx) => {
@@ -2454,7 +2545,7 @@
   function currentDoraKeys(){
     return {
       doraKey: new Set(doraIndicators.map(ind => tileKey(nextTileForDora(ind)))),
-      riichiDoraKey: new Set(riichiDoraIndicators.map(ind => tileKey(nextTileForDora(ind))))
+      riichiDoraKey: URA_DORA_HIDDEN ? new Set() : new Set(riichiDoraIndicators.map(ind => tileKey(nextTileForDora(ind))))
     };
   }
   // 手牌用の牌要素に、表ドラ(薄いピンク背景)・リーチドラ(赤い線で囲む)の見た目を付ける。
@@ -4136,6 +4227,7 @@
     const snap = {
       wall: cloneTileArrayRef(wall, map),
       deadWall: cloneTileArrayRef(deadWall, map),
+      doraIndicatorCount: doraIndicators.length,
       hands: {}, discards: {}, discardShadows: {}, discardHistory: {}, melds: {},
       lastDrawnCpu: {}, riichiDeclareTile: {}, riichiValidDiscards: {},
       callDecisionLog: callDecisionLog.slice(),
@@ -4175,6 +4267,21 @@
     const seats = ["bottom", "top", "left", "right"];
     replaceArrayContents(wall, cloneTileArrayRef(snap.wall, map));
     replaceArrayContents(deadWall, cloneTileArrayRef(snap.deadWall, map));
+    // カンドラ(revealNextKanDora)で増えた表示牌も、スナップショットの時点の枚数に戻す。
+    // 王牌は末尾(嶺上牌)からしか減らないので、[0]〜[9]の位置は変わらない
+    {
+      const count = snap.doraIndicatorCount || 1;
+      replaceArrayContents(doraIndicators, [deadWall[0]]);
+      replaceArrayContents(riichiDoraIndicators, [deadWall[1]]);
+      for(let k = 0; k < count - 1; k++){
+        doraIndicators.push(deadWall[2 + k]);
+        riichiDoraIndicators.push(deadWall[6 + k]);
+      }
+      if(IS_AUTO_DEAD_WALL){
+        updateAutoDeadWallVisual();
+        renderTopLeftKanDora();
+      }
+    }
     replaceArrayContents(callDecisionLog, snap.callDecisionLog.slice());
     seats.forEach(s => {
       replaceArrayContents(hands[s], cloneTileArrayRef(snap.hands[s], map));
@@ -5413,7 +5520,7 @@
     // ruleConfig.uraDoraEnabled:falseのルール(WWプレミアム等)ではリーチドラ(裏ドラ相当)自体が無い
     if(riichiDeclared[seat] && ruleConfig.uraDoraEnabled){
       const riichiDora = countRiichiDoraDetail(allTiles);
-      if(riichiDora > 0) yaku.push({ name:"リーチドラ", han:riichiDora });
+      if(riichiDora > 0) yaku.push({ name: URA_DORA_HIDDEN ? "裏ドラ" : "リーチドラ", han:riichiDora });
       total += riichiDora;
     }
     return total;
@@ -6016,7 +6123,7 @@
       });
     });
     doraIndicators.forEach(add);
-    riichiDoraIndicators.forEach(add);
+    if(!URA_DORA_HIDDEN) riichiDoraIndicators.forEach(add); // 伏せた裏ドラ表示牌は見えていない
     return visible;
   }
 
@@ -6038,7 +6145,7 @@
   function getDoraKindSet(){
     const set = new Set();
     doraIndicators.forEach(ind => set.add(tileKey(nextTileForDora(ind))));
-    riichiDoraIndicators.forEach(ind => set.add(tileKey(nextTileForDora(ind))));
+    if(!URA_DORA_HIDDEN) riichiDoraIndicators.forEach(ind => set.add(tileKey(nextTileForDora(ind))));
     return set;
   }
 
@@ -6676,7 +6783,7 @@
       // ドラ・リーチドラはハウスルール上、他の役と違って「翻を稼ぐための役」ではなく
       // 定額ボーナスの性格が強いので、表示上も他の役（飜数の少ない順）とは分けて末尾にまとめる
       // （赤牌ボーナスも同じ理由で、常にそのさらに後ろの行に表示する）
-      const DORA_YAKU_NAMES = new Set(["ドラ", "リーチドラ"]);
+      const DORA_YAKU_NAMES = new Set(["ドラ", "リーチドラ", "裏ドラ"]);
       // 役満は固定額（親48,000点・子32,000点）で、飜×単位の線形計算に乗らない。
       // ドラの飜がhan>=13の判定に加わっただけの場合も含め、役満成立時はドラが実際の点数に
       // 一切寄与しないため、ドラの行自体を出さない（点数欄だけ空欄にすると「本来は点数が
@@ -7223,7 +7330,9 @@
 
   // 指定したid要素に牌の見た目を描き込む（既存のtileEl()を流用し、classとinnerHTMLだけ移す）
   function paintTile(elId, tile, extraClass){
-    const el = document.getElementById(elId);
+    paintTileInto(document.getElementById(elId), tile, extraClass);
+  }
+  function paintTileInto(el, tile, extraClass){
     const temp = tileEl(tile.suit, tile.num, tileClass(tile.suit, tile.num) + " " + extraClass, tile.red);
     el.className = temp.className;
     el.innerHTML = temp.innerHTML;
@@ -7234,11 +7343,35 @@
   // kanDoraEnabledルールでカンが増えても、この固定UI枠は最初の1枚目だけを表示し続ける
   // （得点計算(countDoraDetail等)は追加分もすべて合算するため正しく動くが、王牌演出の見た目は
   // 最小限にとどめる、という追記11の実装方針に合わせた割り切り）
-  paintTile("doraIndicatorTile", doraIndicators[0], "wall-indicator");
-  paintTile("riichiDoraIndicatorTile", riichiDoraIndicators[0], "wall-indicator riichi-dora-tile");
+  if(IS_AUTO_DEAD_WALL){
+    // auto14：王牌7山(3山目の上だけ表向き)。左上の枠はリーチドラ欄を出さず、表ドラとカンドラだけにする
+    updateAutoDeadWallVisual();
+    document.getElementById("riichiDoraActualTile").closest(".dora-item").style.display = "none";
+  } else {
+    paintTile("doraIndicatorTile", doraIndicators[0], "wall-indicator");
+    paintTile("riichiDoraIndicatorTile", riichiDoraIndicators[0], "wall-indicator riichi-dora-tile");
+  }
   // 局表示の横には、表示牌そのものではなく実際のドラ（次の牌）を出す
   paintTile("doraActualTile", nextTileForDora(doraIndicators[0]), "dora-tile");
-  paintTile("riichiDoraActualTile", nextTileForDora(riichiDoraIndicators[0]), "dora-tile riichi-dora-tile");
+  if(!URA_DORA_HIDDEN) paintTile("riichiDoraActualTile", nextTileForDora(riichiDoraIndicators[0]), "dora-tile riichi-dora-tile");
+
+  // auto14：表になったカンドラを、左上の枠の表ドラの右に「カンドラ」として並べる(カンのたび・リピート時に描き直す)
+  function renderTopLeftKanDora(){
+    const row = document.querySelector(".top-left-info .dora-row");
+    if(!row) return;
+    row.querySelectorAll(".kan-dora-item").forEach(e => e.remove());
+    doraIndicators.slice(1).forEach(ind => {
+      const item = document.createElement("div");
+      item.className = "dora-item kan-dora-item";
+      const tile = document.createElement("div");
+      paintTileInto(tile, nextTileForDora(ind), "dora-tile");
+      const label = document.createElement("div");
+      label.className = "dora-label";
+      label.textContent = "カンドラ";
+      item.append(tile, label);
+      row.appendChild(item);
+    });
+  }
 
   updateWallCount();
   renderScores();
