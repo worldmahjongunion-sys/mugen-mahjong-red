@@ -6798,7 +6798,9 @@
         const namePart = y.name === "リーチドラ" ? `<span class="bonus-red-text">${displayNameOf(y.name)}</span>` : displayNameOf(y.name);
         const displayName = isDoraRow ? (namePart + "×" + y.han) : namePart;
         const hanText = isYakuman ? "役満" : (y.han + "飜");
-        const pts = isYakuman ? "" : y.han * pointsPerHan;
+        // 役ごとの点数は、翻×単位の線形計算(無限ルール)でだけ意味があるので出す。符計算・固定点数表の
+        // ルールでは役の行は役名と翻数だけにし、点数は最後の合計の行にまとめる
+        const pts = (isYakuman || ruleConfig.scoreTableMode !== "linear") ? "" : y.han * pointsPerHan;
         rowsHtml += row(displayName, hanText, pts);
       });
       // 符計算のルールは「30符3飜」の行を足す（名の付いた役満は今までどおり出さない）
