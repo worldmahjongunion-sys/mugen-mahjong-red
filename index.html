@@ -1952,7 +1952,8 @@
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
       ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:false, // 追記11で確定: WWも4枚使いは無し
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:true,
-      scoreTableMode:"lookup", scoreTableKiriage:true, yakumanMultiplierEnabled:false, countedYakumanCapped:false
+      // 符計算あり(切り上げ満貫あり)。名の付いた役満は固定額、役の合計だけで13翻以上は三倍満止め(数え役満なし)
+      scoreTableMode:"fu", scoreTableKiriage:true, yakumanMultiplierEnabled:false, countedYakumanCapped:true
     } },
     { id:"sanninNeo", label:"無限ルールNEO(3人打ち)", status:"comingSoon", ruleConfig:null },
     { id:"zanLeague", label:"ザンリーグルール", status:"comingSoon", ruleConfig:null },
@@ -5415,6 +5416,92 @@
     return table[Math.min(Math.max(effectiveHan, 1), 13)];
   }
 
+  // ==================== 符計算(ruleConfig.scoreTableMode:"fu"のルール。WWスタンダード) ====================
+  // 么九牌(1・9・字牌)か。刻子・槓子の符が中張牌の2倍になる
+  function isYaochuTile(t){
+    return t.suit === "wind" || t.suit === "dragon" || t.num === 1 || t.num === 9;
+  }
+  // 順子のどこで和了牌が入ったかの待ちの符。嵌張(真ん中)・辺張(12の3、89の7)は2符、両面は0符
+  // （isRyanmenWaitと同じ考え方。順子のtilesは数字の小さい順に並んでいる）
+  function sequenceWaitFu(set, winTile){
+    const nums = set.tiles.map(t => t.num);
+    const idx = nums.indexOf(winTile.num);
+    if(idx === 1) return 2;
+    if(idx === 0 && nums[0] + 2 === 9) return 2;
+    if(idx === 2 && nums[0] === 1) return 2;
+    return 0;
+  }
+  // 標準形(組合龍・組合同順も含む)の符を、10符単位に切り上げて返す。
+  // decomp.sets：手の中(門前)の面子。鳴き面子・暗槓はmeldsToSets(seat)から読む。
+  // 和了牌が「どの面子(または雀頭)を完成させたか」の読み方ごとに符を出し、いちばん高い符を使う。
+  // ロンで完成した刻子は明刻、それ以外の手の中の刻子は暗刻として数える。
+  // threadSets：組合龍・組合同順の筋。順子として扱い、筋を埋めた和了は平和の判定と同じく両面(0符)
+  function calcFu(seat, decomp, pairTile, isTsumo, winTile, yaku, threadSets){
+    // 平和はツモ20符・ロン30符で固定(ツモ符を足さない)
+    if(yaku.some(y => y.name === "平和")) return isTsumo ? 20 : 30;
+    const closedHand = melds[seat].every(m => m.type === "ankan");
+    const sameTile = (a, b) => !!a && !!b && a.suit === b.suit && a.num === b.num;
+    let fixedFu = 20;                         // 副底
+    if(closedHand && !isTsumo) fixedFu += 10; // 門前ロン
+    if(isTsumo) fixedFu += 2;                 // ツモ(嶺上開花も含む)
+    // 鳴き面子・暗槓：明刻2/4、明槓8/16、暗槓16/32（中張牌/么九牌）
+    meldsToSets(seat).forEach(set => {
+      if(set.type === "sequence") return;
+      const yaochu = isYaochuTile(set.tiles[0]);
+      if(set.type === "kan") fixedFu += (set.open ? 8 : 16) * (yaochu ? 2 : 1);
+      else fixedFu += yaochu ? 4 : 2;
+    });
+    // 雀頭：三元牌・自風・場風は2符（連風牌も2符）
+    if(pairTile.suit === "dragon" || (pairTile.suit === "wind" && (pairTile.num === SEAT_WIND[seat] || pairTile.num === ROUND_WIND))) fixedFu += 2;
+
+    const concealedSets = decomp ? decomp.sets : [];
+    // 読み方：{ ronTripletIdx: ロンで完成した刻子の添字(無ければ-1), waitFu }
+    const readings = [];
+    if(winTile){
+      concealedSets.forEach((set, i) => {
+        if(!set.tiles.some(t => sameTile(t, winTile))) return;
+        if(set.type === "triplet") readings.push({ ronTripletIdx: isTsumo ? -1 : i, waitFu: 0 }); // 双碰
+        else if(set.type === "sequence") readings.push({ ronTripletIdx: -1, waitFu: sequenceWaitFu(set, winTile) });
+      });
+      (threadSets || []).forEach(set => {
+        if(set.tiles.some(t => sameTile(t, winTile))) readings.push({ ronTripletIdx: -1, waitFu: 0 });
+      });
+      if(sameTile(pairTile, winTile)) readings.push({ ronTripletIdx: -1, waitFu: 2 }); // 単騎
+    }
+    if(readings.length === 0) readings.push({ ronTripletIdx: -1, waitFu: 0 });
+
+    let bestFu = 0;
+    readings.forEach(r => {
+      let fu = fixedFu + r.waitFu;
+      concealedSets.forEach((set, i) => {
+        if(set.type !== "triplet") return;
+        const tripletFu = isYaochuTile(set.tiles[0]) ? 4 : 2; // 明刻の符。暗刻はその2倍
+        fu += i === r.ronTripletIdx ? tripletFu : tripletFu * 2;
+      });
+      bestFu = Math.max(bestFu, fu);
+    });
+    const fu = Math.ceil(bestFu / 10) * 10;
+    // 鳴いた手で20符(食い平和形)になったら30符にする
+    return (!closedHand && fu === 20) ? 30 : fu;
+  }
+  // 基本点(子のロンは×4、親のロンは×6、ツモは親が×2・子が×1を支払う)。
+  // 符×2^(翻+2)。切り上げ満貫ありなら1920(30符4翻・60符3翻)を満貫に切り上げる。
+  // 5翻以上・2000超えは満貫、6〜7翻は跳満、8〜10翻は倍満、11〜12翻は三倍満。
+  // 13翻以上はresolveScoreHanAndMultiplierに従う(名の付いた役満は役満、無ければ三倍満止め)
+  function fuBasePoints(result){
+    const { effectiveHan, multiplier } = resolveScoreHanAndMultiplier(result);
+    if(effectiveHan >= 13) return 8000 * multiplier;
+    if(effectiveHan >= 11) return 6000;
+    if(effectiveHan >= 8) return 4000;
+    if(effectiveHan >= 6) return 3000;
+    if(effectiveHan >= 5) return 2000;
+    const base = result.fu * Math.pow(2, effectiveHan + 2);
+    if(ruleConfig.scoreTableKiriage && base === 1920) return 2000;
+    return Math.min(base, 2000);
+  }
+  // 結果画面の「30符3飜」の行に添える点数の名前（満貫に届かなければ無し）
+  const FU_LIMIT_NAMES = { 2000:"満貫", 3000:"跳満", 4000:"倍満", 6000:"三倍満" };
+
   // 手牌が和了形になっているか判定し、役があれば結果を返す（役なしはnull）
   function attemptWin(seat, extraTile, isTsumo){
     const concealed = hands[seat].slice();
@@ -5498,7 +5585,9 @@
       han += addDoraYaku(yaku, concealed, seat);
       const akaCount = countAka(concealed);
       const base = calcBasePoints(han);
-      return { seat, yaku, han, base, isTsumo, akaCount };
+      const result = { seat, yaku, han, base, isTsumo, akaCount };
+      if(ruleConfig.scoreTableMode === "fu") result.fu = 25; // 七対子は25符固定(切り上げない)
+      return result;
     }
 
     // 同じ牌の並びでも複数の分解が成立することがある
@@ -5520,7 +5609,9 @@
       let han = yaku.reduce((sum, y) => sum + y.han, 0);
       han += addDoraYaku(yaku, allTiles, seat);
       const base = calcBasePoints(han);
-      return { seat, yaku, han, base, isTsumo, akaCount };
+      const result = { seat, yaku, han, base, isTsumo, akaCount };
+      if(ruleConfig.scoreTableMode === "fu") result.fu = calcFu(seat, decomp, pairTile, isTsumo, winTile, yaku);
+      return result;
     }
 
     function buildZuheLongResult(){
@@ -5537,7 +5628,10 @@
       let han = yaku.reduce((sum, y) => sum + y.han, 0);
       han += addDoraYaku(yaku, allTiles, seat);
       const base = calcBasePoints(han);
-      return { seat, yaku, han, base, isTsumo, akaCount };
+      const result = { seat, yaku, han, base, isTsumo, akaCount };
+      // 筋は順子として扱う（手の中の残りの面子はpseudoDecomp.sets）
+      if(ruleConfig.scoreTableMode === "fu") result.fu = calcFu(seat, pseudoDecomp, pairTile, isTsumo, winTile, yaku, zDecomp.threadSets);
+      return result;
     }
 
     function buildZuheTongshunResult(){
@@ -5554,12 +5648,25 @@
       let han = yaku.reduce((sum, y) => sum + y.han, 0);
       han += addDoraYaku(yaku, allTiles, seat);
       const base = calcBasePoints(han);
-      return { seat, yaku, han, base, isTsumo, akaCount };
+      const result = { seat, yaku, han, base, isTsumo, akaCount };
+      // 筋は順子として扱う（手の中の残りの面子はpseudoDecomp.sets）
+      if(ruleConfig.scoreTableMode === "fu") result.fu = calcFu(seat, pseudoDecomp, pairTile, isTsumo, winTile, yaku, zDecomp.threadSets);
+      return result;
     }
 
     const standardResults = findAllDecompositions(concealed).map(buildStandardResult).filter(Boolean);
     const candidates = [buildKokushiResult(), buildChiitoitsuResult(), ...standardResults, buildZuheLongResult(), buildZuheTongshunResult()].filter(Boolean);
     if(candidates.length === 0) return null;
+    // 符計算のルールは、符も含めた基本点がいちばん高い読み方を選ぶ（同じなら翻、さらに同じなら符の大きい方）。
+    // 役無し(yakunashi)は、役のある読み方より常に下にする
+    if(ruleConfig.scoreTableMode === "fu"){
+      const rank = r => r.yakunashi ? [-1, 0, 0] : [fuBasePoints(r), r.han, r.fu || 0];
+      return candidates.reduce((best, r) => {
+        const a = rank(r), b = rank(best);
+        const i = a.findIndex((v, k) => v !== b[k]);
+        return (i >= 0 && a[i] > b[i]) ? r : best;
+      });
+    }
     return candidates.reduce((best, r) => (r.han > best.han ? r : best));
   }
 
@@ -6035,6 +6142,12 @@
       const akaBonus = result.akaCount * 2000;
       return { seat: winnerSeat, nominalGain: base + akaBonus + honbaBonus, akaBonus, honbaBonus };
     }
+    // ruleConfig.scoreTableMode:"fu"のルール(WWスタンダード)：基本点×4(親は×6)を100点単位に切り上げる
+    if(ruleConfig.scoreTableMode === "fu"){
+      const base = Math.ceil(fuBasePoints(result) * (isDealer ? 6 : 4) / 100) * 100;
+      const akaBonus = result.akaCount * 2000;
+      return { seat: winnerSeat, nominalGain: base + akaBonus + honbaBonus, akaBonus, honbaBonus };
+    }
     if(result.han >= 13){
       // 旧settleYakumanRon：役満は固定点数（親48,000点・子32,000点）
       const base = isDealer ? 48000 : 32000;
@@ -6063,6 +6176,10 @@
       const { effectiveHan, multiplier } = resolveScoreHanAndMultiplier(result);
       const row = lookupScoreRow(effectiveHan);
       baseBySeat = s => (isDealer ? row[4] : (s === DEALER_SEAT ? row[3] : row[2])) * multiplier;
+    } else if(ruleConfig.scoreTableMode === "fu"){
+      // 親のツモは3人とも基本点×2、子のツモは親が×2・子が×1（それぞれ100点単位に切り上げる）
+      const base = fuBasePoints(result);
+      baseBySeat = s => Math.ceil(base * ((isDealer || s === DEALER_SEAT) ? 2 : 1) / 100) * 100;
     } else if(result.han >= 13){
       baseBySeat = s => isDealer ? 16000 : (s === DEALER_SEAT ? 16000 : 8000); // 旧settleYakumanTsumo
     } else {
@@ -6436,6 +6553,18 @@
       `</div>`;
   }
 
+  // 符計算のルールの「30符3飜」「40符4飜 満貫」「13飜 三倍満」(役の合計だけで13翻以上の三倍満止め)。
+  // それ以外のルール・役無し・名の付いた役満は空
+  function fuSummaryText(result){
+    if(ruleConfig.scoreTableMode !== "fu" || result.yakunashi || result.fu == null) return "";
+    if(result.han >= 13){
+      const { effectiveHan } = resolveScoreHanAndMultiplier(result);
+      return effectiveHan >= 13 ? "" : result.han + "飜 三倍満";
+    }
+    const limit = FU_LIMIT_NAMES[fuBasePoints(result)];
+    return result.fu + "符" + result.han + "飜" + (limit ? " " + limit : "");
+  }
+
   // 和了者1人分の見出し＋役一覧（役・飜・点数の行）を組み立てる。単独用のshowResult・
   // 複数用のshowMultiResultの両方から呼ぶ（ダブロン対応で切り出し）。供託・本場・合計行は
   // ここに含めず、呼び出し側でまとめて付け足す
@@ -6480,6 +6609,9 @@
         const pts = isYakuman ? "" : y.han * pointsPerHan;
         rowsHtml += row(displayName, hanText, pts);
       });
+      // 符計算のルールは「30符3飜」の行を足す（名の付いた役満は今までどおり出さない）
+      const fuRowText = fuSummaryText(result);
+      if(fuRowText) rowsHtml += row(fuRowText, "", "", "fu-row");
       if(bonusTotal > 0){
         rowsHtml += row("<span class=\"bonus-red-text\">赤</span>×" + result.akaCount + (isTsumo ? "(自摸)" : ""), "", bonusTotal);
       }
@@ -6535,6 +6667,12 @@
   // 見出しは、満貫などの名前がある点数表のルール(lookup)では名前、1翻ごとに決まるルールでは「4飜」の形
   const PORTRAIT_LIMIT_NAMES = [[36000, 24000, "三倍満"], [24000, 16000, "倍満"], [18000, 12000, "跳満"], [12000, 8000, "満貫"]];
   function portraitResultHeadline(seat, result, basePoints){
+    // 符計算のルールは「30符3飜」（満貫以上は「満貫」などの名前、三倍満止めは「三倍満」）
+    if(ruleConfig.scoreTableMode === "fu" && !result.yakunashi && result.fu != null){
+      const basic = fuBasePoints(result);
+      if(result.han >= 13 && basic >= 8000) return "役満";
+      return FU_LIMIT_NAMES[basic] || (result.fu + "符" + result.han + "飜");
+    }
     if(result.han >= 13) return "役満";
     if(ruleConfig.scoreTableMode === "lookup"){
       const isDealer = seat === DEALER_SEAT;
@@ -6545,7 +6683,7 @@
   }
   // basePoints: 供託・本場・赤牌ボーナスを除いた和了点（満貫などの名前を当てるためだけに使う）
   function showPortraitResult(box, seat, result, title, totalGain, basePoints, paymentsBySeat){
-    const rows = [...box.querySelectorAll(".result-row:not(.total-row)")].map(r => {
+    const rows = [...box.querySelectorAll(".result-row:not(.total-row):not(.fu-row)")].map(r => {
       const han = r.querySelector(".col-han").textContent;
       const pts = r.querySelector(".col-pts").textContent;
       return `<div class="pr-yaku-row"><span>${r.querySelector(".col-name").innerHTML}</span>` +
