@@ -1038,6 +1038,24 @@
     padding:4px 10px;
     animation:nadaponPulse 0.8s ease-in-out infinite;
   }
+  /* MCR：和了の形でも8点に届かない時の告知(showUnderMinNotice)。邪魔ポンの告知と同じ場所・同じ形で、点滅はしない */
+  .call-prompt.under-min-banner{
+    display:block;
+    position:absolute;
+    transform:translateY(-100%);
+    margin-bottom:0;
+    z-index:30;
+    pointer-events:none;
+    white-space:nowrap;
+    text-align:center;
+    font-size:13px;
+    font-weight:bold;
+    color:var(--gold);
+    background:rgba(5,20,12,0.9);
+    border:1px solid var(--gold);
+    border-radius:8px;
+    padding:4px 10px;
+  }
   .call-prompt .action-btn{
     background:#E7C766;
   }
@@ -1901,7 +1919,17 @@
   //   deadWallLayout: 王牌の形。"legacy8"=自分の前に固定・8枚(嶺上牌4+表ドラ1+リーチドラ1+予備2、
   //     リーチドラは表向き)。"auto14"=全自動卓風に、局ごとの親の前の山の端に7山14枚
   //     (左から1・2山目=嶺上牌、3山目の上=表ドラ表示牌・下=裏ドラ表示牌、4〜7山目=カンドラと
-  //     その下の裏ドラ)。auto14の裏ドラは伏せたままで、リーチして和了した人だけが数える
+  //     その下の裏ドラ)。auto14の裏ドラは伏せたままで、リーチして和了した人だけが数える。
+  //     "none"=王牌なし(MCR)。牌山136枚すべてをツモ山にし、カンの補充は山の末尾から取る
+  // 以下はMCR系で加えた設定。日本式のルールは書かずに、RULE_CONFIG_DEFAULTSの値(今までの挙動)を使う
+  //   riichiEnabled/doraEnabled/furitenEnabled: リーチ(と供託)・ドラ・フリテンがあるか
+  //   renchanEnabled: 親の和了で連荘するか。falseは和了・流局とも親が次の席へ回る
+  //   totalKyoku: 何局で終わるか。8=東8局または南4局、16=東南西北の各4局(一荘戦)
+  //   minWinPoints/maxWinPoints: scoreTableMode:"mcr"の和了に必要な点(8点縛り)と、和了点の上限
+  const RULE_CONFIG_DEFAULTS = {
+    riichiEnabled:true, doraEnabled:true, furitenEnabled:true, renchanEnabled:true,
+    totalKyoku:8, minWinPoints:0, maxWinPoints:null
+  };
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
   // 七対子の4枚使いの形だけを外す
@@ -2015,9 +2043,29 @@
     } },
     { id:"sanninNeo", label:"無限ルールNEO(3人打ち)", status:"comingSoon", ruleConfig:null },
     { id:"zanLeague", label:"ザンリーグルール", status:"comingSoon", ruleConfig:null },
-    // MCR系を作るときは、独自役のうち組合龍だけ使う: disabledYaku:["組合同順"](MCR独自の役は別途)。
-    // 天和・地和は採用しない: tenchihouEnabled:false。王牌の形は必要に応じて deadWallLayout で選ぶ
-    { id:"mcrNeo", label:"MCR-NEO", status:"comingSoon", ruleConfig:null },
+    // MCR-NEO(国際公式麻雀ベース)。段階実装中のため表紙からはまだ選べない(status:"comingSoon")。
+    // 役・点は日本式の判定(computeYaku)を使わず、scoreTableMode:"mcr"の関数群(mcrEvaluate)で数える。
+    // 天和・地和なし、王牌なし、リーチ・ドラ・赤・フリテン・本場・連荘なし、東南西北の16局で終わる
+    { id:"mcrNeo", label:"MCR-NEO", status:"comingSoon", ruleConfig:{
+      deadWallLayout:"none",
+      disabledYaku:[], // MCRの役は日本式の判定を通らないので関係しない
+      chiitoitsuStandardYakuStack:false,
+      tenchihouEnabled:false,
+      akaDoraEnabled:false,
+      startingPoints:0, returnPoints:0,
+      umaMode:"mcrUki", fixedUmaTable:null, // 浮き(0点以上)の人数でMCR_UMA_TABLE_BY_UKIを引く
+      honbaRonBonus:0, honbaTsumoBonusPerSeat:0,
+      earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false,
+      yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
+      tenpaiRenchanEnabled:false, honbaResetOnDealerChange:true, honbaResetOnChildWin:true,
+      southRoundEnabled:true, renchanAtFinalKyokuEnabled:false,
+      notenPenaltyMode:"none", notenPenaltyPool:null,
+      ippatsuOnTsumoEnabled:false, chiitoitsuFourTileEnabled:true,
+      ippatsuEnabled:false, uraDoraEnabled:false, kanDoraEnabled:false,
+      scoreTableMode:"mcr", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false,
+      riichiEnabled:false, doraEnabled:false, furitenEnabled:false, renchanEnabled:false,
+      totalKyoku:16, minWinPoints:8, maxWinPoints:88
+    } },
     { id:"mcrFukushiki", label:"複式MCR", status:"comingSoon", ruleConfig:null }
   ];
   const DEFAULT_RULE_ID = "akaNeo";
@@ -2040,7 +2088,7 @@
   const pendingRuleId = (savedMatchState && savedMatchState.ruleId) || loadSelectedRuleId();
   const CURRENT_RULE_ID = pendingRuleId || DEFAULT_RULE_ID;
   const CURRENT_RULESET = RULESETS.find(r => r.id === CURRENT_RULE_ID) || RULESETS[0];
-  const ruleConfig = CURRENT_RULESET.ruleConfig || RULESETS[0].ruleConfig;
+  const ruleConfig = Object.assign({}, RULE_CONFIG_DEFAULTS, CURRENT_RULESET.ruleConfig || RULESETS[0].ruleConfig);
 
   // まだ何も選ばれていない(＝真っさらな初回訪問、または「ホームページに戻る」直後)時だけ表紙を出す。
   // 対局そのものはこの下でいつも通り組み立てるが(値は選択待ちの間は捨てる前提のダミー)、
@@ -2252,7 +2300,9 @@
   // ruleConfig.deadWallLayout:"auto14"のルール(全自動卓風)は、カンドラの有無によらず14枚
   // (並びは上の14枚の内訳と同じ。王牌の7山との対応はbuildAutoDeadWallDom()の説明を参照)
   const IS_AUTO_DEAD_WALL = ruleConfig.deadWallLayout === "auto14";
-  const DEAD_WALL_INITIAL_SIZE = (IS_AUTO_DEAD_WALL || ruleConfig.kanDoraEnabled) ? 14 : 8;
+  // deadWallLayout:"none"(MCR)：王牌を取らない。嶺上牌はdrawRinshanTile()が山(wall)の末尾から取る
+  const NO_DEAD_WALL = ruleConfig.deadWallLayout === "none";
+  const DEAD_WALL_INITIAL_SIZE = NO_DEAD_WALL ? 0 : ((IS_AUTO_DEAD_WALL || ruleConfig.kanDoraEnabled) ? 14 : 8);
   // auto14のルールでは、riichiDoraIndicatorsは伏せたままの裏ドラ表示牌として扱う。画面にも
   // 出さず、手牌の色分け・CPUの読み(見えている牌・ドラの種類)にも使わない。数えるのは
   // リーチして和了した人の和了時だけ(addDoraYaku)で、役名も「裏ドラ」にする
@@ -2266,8 +2316,9 @@
   // 従来通り下の方(paintTile呼び出し)で行うが、値そのものはrenderMyHand等の初回描画より前に
   // 必要になる(手牌のドラ色分け表示用)ため、宣言だけこの時点まで前倒しする）。
   // 単一値ではなく配列にし、カンのたびにrevealNextKanDora()が予備領域から1枚ずつ追加する
-  const doraIndicators = [deadWall[0]];
-  const riichiDoraIndicators = [deadWall[1]];
+  // ruleConfig.doraEnabled:falseのルール(MCR)は表示牌を持たない(数える処理は空の配列で0になる)
+  const doraIndicators = ruleConfig.doraEnabled ? [deadWall[0]] : [];
+  const riichiDoraIndicators = ruleConfig.doraEnabled ? [deadWall[1]] : [];
   // カンが成立するたびに呼ぶ。kanDoraEnabled:falseなら何もしない。予備4組(カン最大4回ぶん)を
   // 使い切ったら(通常到達しないが念のため)それ以上は追加しない
   function revealNextKanDora(){
@@ -2404,10 +2455,12 @@
   // （実際のwall.lengthから逆算する。専用カウンタは持たない）
   // auto14のルールでは、親の山から始めて上家の山へ(自分→上家→対面→下家と同じ回り方で)進む。
   // 親の前は自摸山2山(4枚)・空き2山・王牌7山の11山、他の3人は自摸山11山(22枚)にする
-  const WALL_PILE_ORDER = IS_AUTO_DEAD_WALL
+  // 王牌なし(NO_DEAD_WALL)も同じ回り方・同じ4辺の作り方にする(王牌の山が0山で、親の前は自摸山9山・空き2山)
+  const AUTO_WALL_RING = IS_AUTO_DEAD_WALL || NO_DEAD_WALL;
+  const WALL_PILE_ORDER = AUTO_WALL_RING
     ? [DEALER_SEAT, KAMICHA[DEALER_SEAT], KAMICHA[KAMICHA[DEALER_SEAT]], KAMICHA[KAMICHA[KAMICHA[DEALER_SEAT]]]]
     : ["bottom", "left", "top", "right"];
-  const WALL_PILE_SIZE = IS_AUTO_DEAD_WALL
+  const WALL_PILE_SIZE = AUTO_WALL_RING
     ? Object.fromEntries(["bottom", "left", "top", "right"].map(s => [s, s === DEALER_SEAT ? LIVE_WALL_TOTAL - 22 * 3 : 22]))
     : { bottom:10, left:22, top:22, right:22 };
   const WALL_PILE_EL_ID = { bottom:"wallBottomLive", left:"wallLeft", top:"wallTop", right:"wallRight" };
@@ -2423,7 +2476,7 @@
   // 王牌になる)。王牌は空きの側から1山目(嶺上牌)・2山目(嶺上牌)・3山目(表ドラ/裏ドラ)・
   // 4〜7山目(カンドラ/その裏ドラ)。deadWallとの対応は、[0]表ドラ [1]裏ドラ [2+k]カンドラ
   // [6+k]その裏ドラ [10]〜[13]嶺上牌(末尾からpop。1山目の上→下→2山目の上→下の順に減らす)
-  const AUTO_DEAD_WALL_STACKS = 7;
+  const AUTO_DEAD_WALL_STACKS = NO_DEAD_WALL ? 0 : 7;
   function buildAutoDeadWallDom(){
     const ring = document.querySelector(".wall-ring");
     ["top", "left", "right", "bottom"].forEach(side => {
@@ -2444,7 +2497,7 @@
       holder.innerHTML = `<div class="wall-dealer-group ${dir}">` + parts.join("") + `</div>`;
     });
   }
-  if(IS_AUTO_DEAD_WALL) buildAutoDeadWallDom();
+  if(AUTO_WALL_RING) buildAutoDeadWallDom();
 
   // auto14：王牌7山の見た目。n山目(1始まり)のDOM要素は、空きの側から数える
   function autoDeadWallStackIndex(n){
@@ -2486,18 +2539,29 @@
     el.replaceChildren(...nodes);
   }
 
+  // 卓の上のカンの数(大明槓・暗槓・加槓)。王牌なしのルールで、山の末尾から取った嶺上牌の枚数になる
+  function kanCountOnTable(){
+    return ["bottom", "right", "top", "left"].reduce((n, s) => n + melds[s].filter(m => m.type === "kan" || m.type === "ankan").length, 0);
+  }
+
+  // その山から何枚減ったか。front=通常のツモ(開門位置の側から)、back=王牌なしのルールで
+  // 嶺上牌として山の末尾(最後の山の終わりの側)から取った分
+  function wallPileConsumption(pileName){
+    const tailDrawn = NO_DEAD_WALL ? kanCountOnTable() : 0;
+    const frontDrawn = LIVE_WALL_TOTAL - wall.length - tailDrawn;
+    const idx = WALL_PILE_ORDER.indexOf(pileName);
+    const size = WALL_PILE_SIZE[pileName];
+    const preceding = WALL_PILE_ORDER.slice(0, idx).reduce((a, n) => a + WALL_PILE_SIZE[n], 0);
+    const following = WALL_PILE_ORDER.slice(idx + 1).reduce((a, n) => a + WALL_PILE_SIZE[n], 0);
+    return {
+      front: Math.max(0, Math.min(size, frontDrawn - preceding)),
+      back: Math.max(0, Math.min(size, tailDrawn - following))
+    };
+  }
+
   function wallPileRemaining(pileName){
-    const drawnTotal = LIVE_WALL_TOTAL - wall.length;
-    let precedingSum = 0;
-    for(const name of WALL_PILE_ORDER){
-      const size = WALL_PILE_SIZE[name];
-      if(name === pileName){
-        const drawnFromThis = Math.max(0, Math.min(size, drawnTotal - precedingSum));
-        return size - drawnFromThis;
-      }
-      precedingSum += size;
-    }
-    return 0;
+    const c = wallPileConsumption(pileName);
+    return Math.max(0, WALL_PILE_SIZE[pileName] - c.front - c.back);
   }
 
   // 山の見た目を更新：開門位置に近い側から、残り枚数ぶんだけ隠す
@@ -2513,13 +2577,13 @@
       const el = document.getElementById(WALL_PILE_EL_ID[name]);
       const size = WALL_PILE_SIZE[name]; // 物理枚数（10 / 22）
       const displayCount = size / 2;     // 表示枚数（1枚が2枚分）
-      const remaining = wallPileRemaining(name);
-      const drawnFromThis = size - remaining;
+      const { front, back } = wallPileConsumption(name);
       const reverse = WALL_PILE_REVERSE[name];
       Array.from(el.children).forEach((tile, domIdx) => {
         const depletionIdx = reverse ? (displayCount - 1 - domIdx) : domIdx;
-        const consumed = Math.max(0, Math.min(2, drawnFromThis - depletionIdx * 2));
-        applyStackVisual(tile, consumed);
+        const fromFront = Math.max(0, Math.min(2, front - depletionIdx * 2));
+        const fromBack = Math.max(0, Math.min(2, back - (displayCount - 1 - depletionIdx) * 2));
+        applyStackVisual(tile, Math.min(2, fromFront + fromBack));
       });
     });
   }
@@ -2528,6 +2592,7 @@
   // 8→4まで減るので、それに合わせて表示2枚を「上段消費で少し暗く→下段も消費で非表示」にする
   // （表ドラ・リーチドラの2枚は対象外＝常に表示のまま）
   function updateRinshanVisual(){
+    if(NO_DEAD_WALL){ updateWallCount(); return; } // 山の末尾から取ったので、山の残りの見た目と枚数を直す
     if(IS_AUTO_DEAD_WALL){ updateAutoDeadWallVisual(); return; }
     const el = document.getElementById("wallDead");
     const rinshanUsed = DEAD_WALL_INITIAL_SIZE - deadWall.length; // 0〜4（物理枚数）
@@ -3100,7 +3165,9 @@
   // 補充が無いため嶺上牌は最大4枚＝カンは通算4回まで
   // 嶺上牌は常に末尾4枚。王牌の開始枚数(DEAD_WALL_INITIAL_SIZE)から4を引いた分より
   // deadWallが減っていなければ、まだ嶺上牌が残っている
-  function rinshanAvailable(){ return deadWall.length > DEAD_WALL_INITIAL_SIZE - 4; }
+  function rinshanAvailable(){ return NO_DEAD_WALL ? wall.length > 0 : deadWall.length > DEAD_WALL_INITIAL_SIZE - 4; }
+  // 嶺上牌を1枚取る。王牌なし(NO_DEAD_WALL)のルールは山の末尾から取る(4回までの制限もない)
+  function drawRinshanTile(){ return NO_DEAD_WALL ? wall.pop() : deadWall.pop(); }
   function findChiShapes(hand, tile){
     if(tile.suit !== "man" && tile.suit !== "pin" && tile.suit !== "sou") return [];
     const has = n => hand.some(t => t.suit === tile.suit && t.num === n);
@@ -3175,6 +3242,9 @@
   function handleDiscard(discarderSeat, tile){
     rinshanDraw = null; // 打牌したので、嶺上牌のツモではなくなる
     if(gameEnded) return;
+    // MCR：他家の捨て牌で自分の和了の形になっても、8点に届かなければロンできないことを知らせる
+    // (自分の打牌では消す。次の打牌か自分のツモまで出したままにする)
+    if(ruleConfig.scoreTableMode === "mcr") showUnderMinNotice(discarderSeat !== "bottom" && isUnderMinWinPoints("bottom", tile, false));
     playSfx(SFX.discard); // 自分・CPU問わず、打牌のたび毎回鳴らす
 
     // ダブロン対応：放銃者の下家から時計回りに見て、ロン可能な全員を集める。
@@ -3674,7 +3744,7 @@
 
     // カンをしたら王牌から嶺上牌を1枚ツモる（山からの補充はしない）
     if(type === "kan"){
-      const rinshan = deadWall.pop();
+      const rinshan = drawRinshanTile();
       revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
       updateRinshanVisual();
       hand.push(rinshan);
@@ -3861,7 +3931,7 @@
     renderMelds(seat);
 
     // 嶺上牌をツモる（山からの補充はしない）
-    const rinshan = deadWall.pop();
+    const rinshan = drawRinshanTile();
     revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
     updateRinshanVisual();
     hand.push(rinshan);
@@ -3912,6 +3982,7 @@
     }
 
     setTurnIndicator("あなたの番です（牌をタップして捨ててください）");
+    showUnderMinNotice(isUnderMinWinPoints("bottom", null, true));
     updateSelfKanOpportunity(drawn);
     renderMyHand(true);
     updateActionButtons();
@@ -4078,7 +4149,7 @@
     renderMelds("bottom");
 
     // 嶺上牌をツモる（山からの補充はしない）
-    const rinshan = deadWall.pop();
+    const rinshan = drawRinshanTile();
     revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
     updateRinshanVisual();
     myHandTiles.push(rinshan);
@@ -4141,7 +4212,7 @@
     renderMelds("bottom");
 
     // 嶺上牌をツモる（山からの補充はしない）
-    const rinshan = deadWall.pop();
+    const rinshan = drawRinshanTile();
     revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
     updateRinshanVisual();
     myHandTiles.push(rinshan);
@@ -4181,7 +4252,7 @@
     ? { ...savedMatchState.scores }
     : { bottom: ruleConfig.startingPoints, top: ruleConfig.startingPoints, left: ruleConfig.startingPoints, right: ruleConfig.startingPoints };
   // 半荘（8局固定・東場2周）の進行状態。savedMatchStateが無ければ東1局・0本場・自分が親から開始
-  let kyokuNumber = savedMatchState ? savedMatchState.kyokuNumber : 1; // 1〜8（連番。東1〜8局として表示。無限Original・WWスタンダードは5〜8を南1〜4局として表示）
+  let kyokuNumber = savedMatchState ? savedMatchState.kyokuNumber : 1; // 1〜8（連番。東1〜8局として表示。無限Original・WWスタンダードは5〜8を南1〜4局として表示）。totalKyoku:16のルール(MCR)は1〜16で、4局ごとに東南西北
   let honba = savedMatchState ? savedMatchState.honba : 0;
 
   // ==================== 検証(リピート)モード ====================
@@ -4280,7 +4351,7 @@
     replaceArrayContents(deadWall, cloneTileArrayRef(snap.deadWall, map));
     // カンドラ(revealNextKanDora)で増えた表示牌も、スナップショットの時点の枚数に戻す。
     // 王牌は末尾(嶺上牌)からしか減らないので、[0]〜[9]の位置は変わらない
-    {
+    if(ruleConfig.doraEnabled){
       const count = snap.doraIndicatorCount || 1;
       replaceArrayContents(doraIndicators, [deadWall[0]]);
       replaceArrayContents(riichiDoraIndicators, [deadWall[1]]);
@@ -4513,7 +4584,9 @@
   // 南場に入っているか。southRoundEnabledのルール(無限Original・WWスタンダード)だけ、5局目以降を南1〜4局として扱う。
   // それ以外のルールは東場を2周する半荘(東5〜8局＝裏東場)のため、南入はしない
   function isSouthRound(){ return ruleConfig.southRoundEnabled && kyokuNumber > 4; }
-  const ROUND_WIND = isSouthRound() ? 2 : 1; // 場風。南場は南、それ以外は東
+  // 場風。16局のルール(MCR)は4局ごとに東→南→西→北、南場に入るルールは5局目から南、それ以外は東
+  function roundWindOf(k){ return ruleConfig.totalKyoku === 16 ? Math.ceil(k / 4) : ((ruleConfig.southRoundEnabled && k > 4) ? 2 : 1); }
+  const ROUND_WIND = roundWindOf(kyokuNumber);
   // 自風は親を基準に東→南→西→北の順で決まる（NEXT_SEATの手番順＝親交代順と同じ並び）
   function computeSeatWind(dealerSeat){
     const winds = {};
@@ -4589,7 +4662,9 @@
   }
 
   function updateKyotakuDisplay(){
-    document.getElementById("kyotakuCount").textContent = "供託 " + riichiSticks + "本";
+    const el = document.getElementById("kyotakuCount");
+    el.textContent = "供託 " + riichiSticks + "本";
+    if(!ruleConfig.riichiEnabled) el.style.visibility = "hidden"; // リーチのないルールは供託もない(場所だけ残す)
   }
 
   // 局表示（「東n局 m本場」）・各家の自風マーク・起家（＝その局の親）マークを、
@@ -4610,8 +4685,11 @@
   // 今は南4局で終わるので西・北には入らないが、色だけ決めておく
   const DEALER_MARK_COLOR_BY_ROUND_WIND = { 1:"blue", 2:"red", 3:"white", 4:"black" };
   function renderMatchHeader(){
-    const roundLabel = isSouthRound() ? "南" + (kyokuNumber - 4) : "東" + kyokuNumber;
-    document.getElementById("roundText").textContent = roundLabel + "局 " + honba + "本場";
+    const roundLabel = ruleConfig.totalKyoku === 16
+      ? WIND_CHAR[ROUND_WIND] + ((kyokuNumber - 1) % 4 + 1)
+      : (isSouthRound() ? "南" + (kyokuNumber - 4) : "東" + kyokuNumber);
+    // 連荘のないルール(MCR)は本場もないので「◯本場」を出さない
+    document.getElementById("roundText").textContent = roundLabel + "局" + (ruleConfig.renchanEnabled ? " " + honba + "本場" : "");
     // 起家マークの色。南場に入るルール(無限Original・WWスタンダード)は場風で決める(東=青/南=赤/西=白/北=黒)。
     // それ以外のルールは親が一巡(東1〜4局＝表東場)しても南場にはせず、そのまま東5〜8局(裏東場)を
     // 続けるので、表/裏で決める(表東場=青、裏東場=緑)
@@ -5870,6 +5948,8 @@
     const standardResults = findAllDecompositions(concealed).map(buildStandardResult).filter(Boolean);
     const candidates = [buildKokushiResult(), buildChiitoitsuResult(), ...standardResults, buildZuheLongResult(), buildZuheTongshunResult()].filter(Boolean);
     if(candidates.length === 0) return null;
+    // MCRは日本式の役・翻を使わず、mcrEvaluateで点を数える(段階1は和了の形の判定だけ日本式のものを借りる)
+    if(ruleConfig.scoreTableMode === "mcr") return mcrEvaluate(seat, concealed, winTile, isTsumo);
     // 天和・地和：国士無双・七対子・標準形(組合龍・組合同順も)のどの読み方にも、名の付いた役満として加える。
     // 門前のツモなので門前清自摸和が必ず付き、役無しの読み方はここには来ない
     const tenchihouName = tenchihouYakuName(seat, extraTile, isTsumo);
@@ -5901,7 +5981,29 @@
   function attemptLegalWin(seat, extraTile, isTsumo){
     const result = attemptWin(seat, extraTile, isTsumo);
     if(result && result.yakunashi && !ruleConfig.yakunashiWinEnabled) return null;
+    if(result && result.mcr && result.points < ruleConfig.minWinPoints) return null; // 8点縛り
     return result;
+  }
+
+  // MCR：和了の形にはなっているが、和了に必要な点(minWinPoints)に届かないか
+  function isUnderMinWinPoints(seat, extraTile, isTsumo){
+    if(ruleConfig.scoreTableMode !== "mcr") return false;
+    const result = attemptWin(seat, extraTile, isTsumo);
+    return !!result && result.points < ruleConfig.minWinPoints;
+  }
+
+  // ==================== MCR(国際公式麻雀)の点数計算 ====================
+  // 日本式の役判定(computeYaku)とは別の関数群。結果は { yaku:[{name, points}], points, rawPoints, capped, mcr:true }。
+  // 段階1は枠だけ：和了の形になっていれば「無番和 8点」とする仮の判定(段階2〜5で公式の役に置き換える)
+  function mcrEvaluate(seat, concealed, winTile, isTsumo){
+    return mcrBuildResult(seat, [{ name:"無番和", points:8 }], isTsumo);
+  }
+  // 役の合計に上限(maxWinPoints=88)をかけて結果を作る。capped=上限で切った時true
+  function mcrBuildResult(seat, yaku, isTsumo){
+    const rawPoints = yaku.reduce((sum, y) => sum + y.points, 0);
+    const max = ruleConfig.maxWinPoints;
+    const points = max != null ? Math.min(rawPoints, max) : rawPoints;
+    return { seat, yaku, points, rawPoints, capped: points < rawPoints, han: 0, isTsumo, akaCount: 0, mcr: true };
   }
 
   // 待ち一覧：34種類の牌を1枚ずつ仮に加えてみて、和了の形になる（役なし和了も可の本ルールでは
@@ -5954,6 +6056,7 @@
   // フリテン判定：今の待ちのどれか1つでも、過去に自分で捨てていれば（鳴かれて消えていても）フリテン。
   // 同巡内フリテン・リーチ後の永続フリテンも合わせて見る
   function isFuriten(seat){
+    if(!ruleConfig.furitenEnabled) return false; // フリテンのないルール(MCR)
     if(furitenRiichi[seat] || furitenTemp[seat]) return true;
     const waitKeys = getWaits(seat).map(tileKey); // discardHistoryは文字列キーなので同じ形式に揃える
     return waitKeys.some(k => discardHistory[seat].includes(k));
@@ -5993,6 +6096,7 @@
 
   // リーチ可能か：門前・聴牌・未リーチの3条件のみ（このアプリのハウスルールでは持ち点・山残りは問わない）
   function canDeclareRiichi(seat){
+    if(!ruleConfig.riichiEnabled) return false;
     return riichiValidDiscardTypes(seat).length > 0;
   }
 
@@ -6291,7 +6395,7 @@
     console.log("[CPU打牌AI]", seat, "沈み=" + behind, "最小シャンテン=" + bestShanten,
       "候補=" + bestCandidates.map(c => c.kind + (c.tile.red ? "(赤)" : "") + ":sh" + c.shanten + "/uk" + c.ukeire + "/val" + c.value).join(", "),
       "→選択=" + chosen.kind + (chosen.tile.red ? "(赤)" : ""));
-    const willRiichi = bestShanten === 0 && !riichiDeclared[seat] && isClosedHand(seat)
+    const willRiichi = ruleConfig.riichiEnabled && bestShanten === 0 && !riichiDeclared[seat] && isClosedHand(seat)
       && scores[seat] >= 1000 && confirmTenpaiAfterDiscard(seat, chosen.tile);
     return { tile: chosen.tile, declareRiichi: willRiichi };
   }
@@ -6347,6 +6451,8 @@
   // 従来のfinalizeWinと同じ。honbaCountはこの局開始時点の本場数
   function computeRonAmount(winnerSeat, loserSeat, result, honbaCount){
     const isDealer = winnerSeat === DEALER_SEAT;
+    // scoreTableMode:"mcr"：放銃者が「和了点＋8点」を払う(他の2人の各8点はfinalizeRonで足す)
+    if(ruleConfig.scoreTableMode === "mcr") return { seat: winnerSeat, nominalGain: result.points + 8, akaBonus: 0, honbaBonus: 0 };
     const honbaBonus = honbaCount > 0 ? honbaCount * ruleConfig.honbaRonBonus : 0; // 旧applyHonbaBonusのロン分岐
     if(result.yakunashi){
       // 旧settleYakunashiのロン分岐：子1,000点・親1,500点を基準に、ドラは同単位で加算。
@@ -6391,7 +6497,9 @@
     const others = ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat);
     const honbaPerSeat = honbaCount > 0 ? honbaCount * ruleConfig.honbaTsumoBonusPerSeat : 0; // 旧applyHonbaBonusのツモ分岐
     let baseBySeat;
-    if(result.yakunashi){
+    if(ruleConfig.scoreTableMode === "mcr"){
+      baseBySeat = () => result.points + 8; // MCRのツモ：3人とも「和了点＋8点」
+    } else if(result.yakunashi){
       // 旧settleYakunashiのツモ分岐：親子を問わず500点(+ドラ1につき500点)オールを3人から。
       // 赤牌（1枚1,000点）もこのshareに含む
       const share = 500 * (1 + result.indicatorDoraCount) + result.akaCount * 1000;
@@ -6464,8 +6572,8 @@
     // 「裏入」は裏東場に入るルールだけ。南場に入るルール(無限Original・WWスタンダード)では鳴らさない。
     // ラス前・オーラスは局の連番(7・8)で決まるので、南3局・南4局でもそのまま鳴る
     if(kyokuNumber === 5){ if(!ruleConfig.southRoundEnabled) speakZundamon("ura"); }
-    else if(kyokuNumber === 7) speakZundamon("lastBefore");
-    else if(kyokuNumber === 8) speakZundamon("owarasu");
+    else if(kyokuNumber === ruleConfig.totalKyoku - 1) speakZundamon("lastBefore");
+    else if(kyokuNumber === ruleConfig.totalKyoku) speakZundamon("owarasu");
   }
 
   // 「12局45分15秒」のように画面表示用の文言を組み立てる（1時間以上かかった場合だけ時間も含める）。
@@ -6547,13 +6655,14 @@
       const overSeat = seats.find(s => currentScores[s] > 70000);
       if(overSeat) return { type:"over70000", seat:overSeat };
     }
-    if(finishedKyokuNumber >= 8 && !(ruleConfig.renchanAtFinalKyokuEnabled && renchan)) return { type:"final" };
+    if(finishedKyokuNumber >= ruleConfig.totalKyoku && !(ruleConfig.renchanAtFinalKyokuEnabled && renchan)) return { type:"final" };
     return null;
   }
 
   function finalReasonText(reason){
     if(reason.type === "bust") return seatLabel[reason.seat] + "の持ち点がマイナスになったため終了（トビ）";
     if(reason.type === "over70000") return seatLabel[reason.seat] + "が70,000点を超えたため終了";
+    if(ruleConfig.totalKyoku === 16) return "北4局が終了したため終了";
     return (ruleConfig.southRoundEnabled ? "南4局" : "東8局") + "が終了したため終了";
   }
 
@@ -6566,12 +6675,35 @@
     3: [12000, 8000, 4000, -24000]
   };
   const OKA_ONLY_TABLE = [20000, 0, 0, 0];
+  // MCR(umaMode:"mcrUki")の順位点。浮き＝最終持ち点が0点以上の人の数で引く([1着,2着,3着,4着])。
+  // 4人浮きは全員0点の同点なので、折半すると全員0になる。0人浮きは起きない(持ち点の合計が0のため)
+  const MCR_UMA_TABLE_BY_UKI = {
+    1: [60, -10, -20, -30],
+    2: [40, 20, -20, -40],
+    3: [30, 20, 10, -60],
+    4: [0, 0, 0, 0]
+  };
 
   // 最終素点から各家の順位点を計算する。同点の場合は同順位グループとして扱い、
   // そのグループが占める順位ぶんの順位点（オカ含む）を合計してグループ人数で均等に折半する
   function computeUmaBySeat(finalScores){
     const seats = ["bottom", "right", "top", "left"]; // 同点時：あなた→下家→対面→上家の順を優先
     const ranked = seats.slice().sort((a, b) => finalScores[b] - finalScores[a]);
+    // MCR：浮き人数で表を選び、同点は占める順位の順位点を合計して人数で割る(表の値なら端数は出ない)
+    if(ruleConfig.umaMode === "mcrUki"){
+      const table = MCR_UMA_TABLE_BY_UKI[seats.filter(s => finalScores[s] >= 0).length] || MCR_UMA_TABLE_BY_UKI[4];
+      const umaBySeat = {};
+      let i = 0;
+      while(i < ranked.length){
+        let j = i;
+        while(j + 1 < ranked.length && finalScores[ranked[j + 1]] === finalScores[ranked[i]]) j++;
+        const groupSeats = ranked.slice(i, j + 1);
+        const split = Math.round(table.slice(i, j + 1).reduce((a, b) => a + b, 0) / groupSeats.length);
+        groupSeats.forEach(s => { umaBySeat[s] = split; });
+        i = j + 1;
+      }
+      return { ranked, umaBySeat };
+    }
     // Original等umaMode:"fixed"のルールは、浮き人数による切り替え・オカを一切行わず、
     // 常に固定の着順ウマ(fixedUmaTable)だけを使う
     if(ruleConfig.umaMode === "fixed"){
@@ -6639,7 +6771,7 @@
       `<div class="final-title">対局終了</div>` +
       `<div class="final-reason">${finalReasonText(reason)}／${handsPlayedCount}局 ${elapsedText}</div>` +
       `<div class="final-rank-row final-rank-header">` +
-      `<span></span><span></span><span>素点(${ruleConfig.returnPoints.toLocaleString()}基準)</span><span>順位点</span><span>合計</span></div>` +
+      `<span></span><span></span><span>${ruleConfig.umaMode === "mcrUki" ? "素点" : "素点(" + ruleConfig.returnPoints.toLocaleString() + "基準)"}</span><span>順位点</span><span>合計</span></div>` +
       rows;
     document.getElementById("finalOverlay").style.display = "flex";
   }
@@ -6687,6 +6819,7 @@
   // notenPenaltyMode:"pool"(Original): 場3,000点の固定プールを、テンパイ人数で均等に
   // 受け取り、ノーテン人数で均等に支払う
   function computeNotenPenaltyAmounts(tenpaiSeats, notenSeats){
+    if(ruleConfig.notenPenaltyMode === "none") return { gainEach: 0, lossEach: 0 }; // ノーテン料のないルール(MCR)
     if(ruleConfig.notenPenaltyMode === "pool"){
       const pool = ruleConfig.notenPenaltyPool;
       return { gainEach: pool / tenpaiSeats.length, lossEach: pool / notenSeats.length };
@@ -6730,7 +6863,7 @@
     settleRyuukyoku(tenpaiSeats, notenSeats);
     renderScores();
     // テンパイ料が実際に動いた時だけ点棒の音を鳴らす（全員テンパイ・全員ノーテンは移動なし）
-    if(tenpaiSeats.length > 0 && notenSeats.length > 0) playRandomPoints();
+    if(tenpaiSeats.length > 0 && notenSeats.length > 0 && ruleConfig.notenPenaltyMode !== "none") playRandomPoints();
     showRyuukyokuResult(tenpaiSeats, notenSeats);
     setTurnIndicator("");
     hideCallPrompt();
@@ -6779,6 +6912,11 @@
 
   // 符計算のルールの「30符3飜」「40符4飜 満貫」「13飜 三倍満」(役の合計だけで13翻以上の三倍満止め)。
   // それ以外のルール・役無し・名の付いた役満は空
+  // MCRの合計の行の文言
+  function mcrTotalText(result){
+    return result.capped ? result.points + "点(上限)" : "合計 " + result.points + "点";
+  }
+
   function fuSummaryText(result){
     if(ruleConfig.scoreTableMode !== "fu" || result.yakunashi || result.fu == null) return "";
     if(result.han >= 13){
@@ -6798,6 +6936,12 @@
     const isDealer = seat === DEALER_SEAT;
 
     let rowsHtml = "";
+    if(result.mcr){
+      // MCR：役名と点を並べ、最後に合計の行(上限で切った時は「88点(上限)」)
+      result.yaku.forEach(y => { rowsHtml += row(displayNameOf(y.name), y.points + "点", ""); });
+      rowsHtml += row(mcrTotalText(result), "", "", "fu-row");
+      return { title, rowsHtml };
+    }
     if(result.yakunashi){
       const unitRate = isDealer ? 1500 : 1000;
       const doraCount = result.indicatorDoraCount;
@@ -6918,7 +7062,9 @@
     }).join("");
     const splitEl = box.querySelector(".result-row.total-row .col-name");
     const splitText = splitEl ? splitEl.textContent : "";
-    const sumRow = (result.han && result.han < 13) ? `<div class="pr-yaku-row pr-sum"><span>合計</span><span class="pr-han">${result.han}飜</span></div>` : "";
+    const sumRow = result.mcr
+      ? `<div class="pr-yaku-row pr-sum"><span>合計</span><span class="pr-han">${result.capped ? result.points + "点(上限)" : result.points + "点"}</span></div>`
+      : ((result.han && result.han < 13) ? `<div class="pr-yaku-row pr-sum"><span>合計</span><span class="pr-han">${result.han}飜</span></div>` : "");
     const players = ["bottom", "right", "top", "left"].map(s => {
       const diff = s === seat ? totalGain : -(paymentsBySeat[s] || 0);
       const cls = diff > 0 ? "plus" : (diff < 0 ? "minus" : "zero");
@@ -7025,7 +7171,7 @@
     renderMyHand(false);
     revealAllHands(); // 和了時も4人全員の手牌を公開する
     fitTileSize(); // 公開した牌の実寸に合わせて再計算し、自分の手牌がボタン行と被らないようにする
-    proceedOrEndMatch(winnerSeat === DEALER_SEAT, [winnerSeat], bustSeatThisHand); // 親の和了＝連荘、それ以外＝親交代
+    proceedOrEndMatch(ruleConfig.renchanEnabled && winnerSeat === DEALER_SEAT, [winnerSeat], bustSeatThisHand); // 親の和了＝連荘、それ以外＝親交代(連荘のないルールは常に親交代)
   }
 
   // ロンの精算（単独・複数どちらも）。winnersは[{seat, result}]（単独ロンなら要素1件）。
@@ -7094,6 +7240,10 @@
     });
     scores[loserSeat] -= actualTotal;
     const bustSeatThisHand = isShort ? loserSeat : null; // ロンは放銃者が単一なので、不足時の飛びは常にこの席
+    // MCR：放銃者以外の2人も、和了者に8点ずつ払う(頭ハネで和了者は1人)
+    if(ruleConfig.scoreTableMode === "mcr"){
+      seats.filter(s => s !== loserSeat && s !== winners[0].seat).forEach(s => { scores[s] -= 8; scores[winners[0].seat] += 8; });
+    }
 
     const paymentsBySeat = {};
     seats.forEach(s => { paymentsBySeat[s] = scoresBefore[s] - scores[s]; });
@@ -7117,7 +7267,7 @@
     renderMyHand(false);
     revealAllHands(); // 和了時も4人全員の手牌を公開する
     fitTileSize(); // 公開した牌の実寸に合わせて再計算し、自分の手牌がボタン行と被らないようにする
-    const renchan = winners.some(w => w.seat === DEALER_SEAT); // 親が和了者に含まれれば連荘
+    const renchan = ruleConfig.renchanEnabled && winners.some(w => w.seat === DEALER_SEAT); // 親が和了者に含まれれば連荘(連荘のないルールは常に親交代)
     proceedOrEndMatch(renchan, winners.map(w => w.seat), bustSeatThisHand);
   }
 
@@ -7308,11 +7458,22 @@
   // 以前は案内表示欄(setTurnIndicator)がこの瞬間のメッセージを出していたが、その表示欄自体が
   // 別の経緯で廃止(no-op化)されており、ボタンの点滅だけが唯一の合図になっていた。実戦で
   // 「ポンボタンが光らなかった(＝気づかないまま猶予窓が終わっていた)」と報告があったため追加
+  // MCR：和了の形なのに8点に届かない時の告知。邪魔ポンの告知と同じ#callPromptを使う
+  // (MCRは邪魔ポンのないルールなので重ならない。念のため邪魔ポンの猶予中は何もしない)
+  function showUnderMinNotice(on){
+    const el = document.getElementById("callPrompt");
+    if(ruleConfig.scoreTableMode !== "mcr" || !el || nadaponWindow) return;
+    el.classList.toggle("under-min-banner", on);
+    el.textContent = on ? "8点未満のため和了できません" : "";
+    el.style.display = on ? "block" : "none";
+  }
+
   function updateNadaponBanner(){
     const el = document.getElementById("callPrompt");
     if(!el) return;
     const w = nadaponWindow;
     if(!w){
+      if(el.classList.contains("under-min-banner")) return; // MCRの8点未満の告知(showUnderMinNotice)は消さない
       el.style.display = "none";
       el.classList.remove("nadapon-banner");
       el.textContent = "";
@@ -7379,6 +7540,10 @@
   // kanDoraEnabledルールでカンが増えても、この固定UI枠は最初の1枚目だけを表示し続ける
   // （得点計算(countDoraDetail等)は追加分もすべて合算するため正しく動くが、王牌演出の見た目は
   // 最小限にとどめる、という追記11の実装方針に合わせた割り切り）
+  if(!ruleConfig.doraEnabled){
+    // ドラのないルール(MCR)：左上のドラの枠ごと出さない
+    document.querySelector(".top-left-info .dora-row").style.display = "none";
+  } else {
   if(IS_AUTO_DEAD_WALL){
     // auto14：王牌7山(3山目の上だけ表向き)。左上の枠はリーチドラ欄を出さず、表ドラとカンドラだけにする
     updateAutoDeadWallVisual();
@@ -7390,6 +7555,7 @@
   // 局表示の横には、表示牌そのものではなく実際のドラ（次の牌）を出す
   paintTile("doraActualTile", nextTileForDora(doraIndicators[0]), "dora-tile");
   if(!URA_DORA_HIDDEN) paintTile("riichiDoraActualTile", nextTileForDora(riichiDoraIndicators[0]), "dora-tile riichi-dora-tile");
+  }
 
   // auto14：表になったカンドラを、左上の枠の表ドラの右に「カンドラ」として並べる(カンのたび・リピート時に描き直す)
   // 和了後(uraDoraRevealed)は、その右に裏ドラ(表ドラ・カンドラそれぞれの下の牌が示すドラ)も「裏ドラ」「カン裏」として並べる
