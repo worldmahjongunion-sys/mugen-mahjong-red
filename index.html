@@ -265,6 +265,13 @@
   .wall-dealer-group.horizontal{ flex-direction:row; }
   .wall-dealer-group.vertical{ flex-direction:column; }
   .wall-gap.vertical{ display:flex; flex-direction:column; gap:1px; }
+  /* 和了後にめくった裏ドラ表示牌は、その山の外側(親の手牌の側)に並べる */
+  .wall-open-stack{ position:relative; display:flex; }
+  .wall-open-stack > .tile.wall-ura-indicator{ position:absolute; }
+  .wall-open-stack.ura-bottom > .wall-ura-indicator{ left:0; top:calc(100% + 3px); }
+  .wall-open-stack.ura-top > .wall-ura-indicator{ left:0; bottom:calc(100% + 3px); }
+  .wall-open-stack.ura-left > .wall-ura-indicator{ top:0; right:calc(100% + 3px); }
+  .wall-open-stack.ura-right > .wall-ura-indicator{ top:0; left:calc(100% + 3px); }
   /* 王牌のうち表向きの2枚（ドラ表示牌・リーチドラ表示牌）は、周りの伏せ牌と同じ枠サイズで表示する */
   .wall-pile .tile.wall-indicator{ width:var(--tile-w); height:var(--tile-h); border-radius:3px; }
   /* リーチドラ表示牌は、左上パネルの表示（.riichi-dora-tile）と同じ赤枠を付けて区別する */
@@ -1245,7 +1252,8 @@
     .top-left-info{ display:flex; flex-direction:row; align-items:center; justify-content:space-between; width:100%;
       padding:3px 10px; font-size:12px; border-radius:8px; }
     .top-left-info .round-kyotaku-row{ gap:8px; }
-    .top-left-info .dora-row{ flex-direction:row; align-items:center; gap:12px; }
+    .top-left-info .dora-row{ flex-direction:row; align-items:center; gap:12px; flex-wrap:wrap; row-gap:4px; } /* 和了後に裏ドラ・カンドラが並んでも横にはみ出さない */
+    .top-left-info .kyotaku-row{ white-space:nowrap; } /* ドラ欄が2段に折り返す時も「供託 0本」は1行のまま */
     .top-left-info .dora-item{ flex-direction:row; align-items:center; gap:5px; }
     .top-left-info .dora-tile{ width:18px; height:25px; }
     .top-left-info .dora-label{ font-size:11px; }
@@ -2249,6 +2257,10 @@
   // 出さず、手牌の色分け・CPUの読み(見えている牌・ドラの種類)にも使わない。数えるのは
   // リーチして和了した人の和了時だけ(addDoraYaku)で、役名も「裏ドラ」にする
   const URA_DORA_HIDDEN = IS_AUTO_DEAD_WALL;
+  // auto14：和了が成立したら(リーチの有無・裏ドラが乗るかに関係なく)、結果画面の間は裏ドラ表示牌を
+  // 見せる(王牌でめくり、左上の枠にも並べる)。表示だけで、点数の数え方は変えない。
+  // 次の局はページの読み直しで、リピートはapplyGameStateSnapshotでfalseに戻る
+  let uraDoraRevealed = false;
   const deadWall = wall.splice(0, DEAD_WALL_INITIAL_SIZE);
   // ドラ表示牌・リーチドラ表示牌はここで確定させる（実際に卓へ表向きで見せる処理・演出は
   // 従来通り下の方(paintTile呼び出し)で行うが、値そのものはrenderMyHand等の初回描画より前に
@@ -2454,6 +2466,16 @@
         const t = doraIndicators[faceIdx];
         node = tileEl(t.suit, t.num, tileClass(t.suit, t.num) + " wall-indicator", t.red);
         applyMeldRotation(node, DISCARD_ROTATION[DEALER_SEAT]);
+        // 和了後：その山の下の牌(裏ドラ表示牌)をめくり、山の外側(親の手牌の側)に並べて見せる
+        const u = riichiDoraIndicators[faceIdx];
+        if(uraDoraRevealed && u){
+          const uraEl = tileEl(u.suit, u.num, tileClass(u.suit, u.num) + " wall-indicator wall-ura-indicator", u.red);
+          applyMeldRotation(uraEl, DISCARD_ROTATION[DEALER_SEAT]);
+          const wrap = document.createElement("div");
+          wrap.className = "wall-open-stack ura-" + DEALER_SEAT;
+          wrap.append(node, uraEl);
+          node = wrap;
+        }
       } else {
         node = document.createElement("div");
         node.className = backCls;
@@ -4278,6 +4300,7 @@
         riichiDoraIndicators.push(deadWall[6 + k]);
       }
       if(IS_AUTO_DEAD_WALL){
+        uraDoraRevealed = false; // 配牌直後などに戻すので、和了後にめくった裏ドラも伏せ直す
         updateAutoDeadWallVisual();
         renderTopLeftKanDora();
       }
@@ -6819,6 +6842,7 @@
   // collectedKyotaku: この和了で供託から受け取った額（0なら「リーチ供託」の行を出さない）
   // honbaCount/honbaBonusTotal: 「◯本場」の内訳行を出すための値（0なら行を出さない）
   function showResult(seat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat, collectedKyotaku, honbaCount, honbaBonusTotal){
+    revealUraDoraForWin();
     const box = document.getElementById("resultBox");
     box.style.display = "block";
     const { title, rowsHtml } = buildYakuRows(seat, result, loserSeat, bonusTotal);
@@ -6915,6 +6939,7 @@
   // ダブロン用：和了者ごとにbuildYakuRowsで縦に積み、供託・本場・不足時の注記は
   // 全ブロックの下に1回だけ表示する（設計⑤）
   function showMultiResult(winners, claims, loserSeat, finalAmounts, collectedKyotakuTotal, honbaCount, honbaBonusTotal, isShort){
+    revealUraDoraForWin();
     const box = document.getElementById("resultBox");
     box.style.display = "block";
     const blocksHtml = winners.map(w => {
@@ -7358,21 +7383,32 @@
   if(!URA_DORA_HIDDEN) paintTile("riichiDoraActualTile", nextTileForDora(riichiDoraIndicators[0]), "dora-tile riichi-dora-tile");
 
   // auto14：表になったカンドラを、左上の枠の表ドラの右に「カンドラ」として並べる(カンのたび・リピート時に描き直す)
+  // 和了後(uraDoraRevealed)は、その右に裏ドラ(表ドラ・カンドラそれぞれの下の牌が示すドラ)も「裏ドラ」として並べる
   function renderTopLeftKanDora(){
     const row = document.querySelector(".top-left-info .dora-row");
     if(!row) return;
-    row.querySelectorAll(".kan-dora-item").forEach(e => e.remove());
-    doraIndicators.slice(1).forEach(ind => {
+    row.querySelectorAll(".kan-dora-item, .ura-dora-item").forEach(e => e.remove());
+    const addItem = (ind, cls, text) => {
       const item = document.createElement("div");
-      item.className = "dora-item kan-dora-item";
+      item.className = "dora-item " + cls;
       const tile = document.createElement("div");
       paintTileInto(tile, nextTileForDora(ind), "dora-tile");
       const label = document.createElement("div");
       label.className = "dora-label";
-      label.textContent = "カンドラ";
+      label.textContent = text;
       item.append(tile, label);
       row.appendChild(item);
-    });
+    };
+    doraIndicators.slice(1).forEach(ind => addItem(ind, "kan-dora-item", "カンドラ"));
+    if(uraDoraRevealed) riichiDoraIndicators.slice(0, doraIndicators.length).forEach(ind => addItem(ind, "ura-dora-item", "裏ドラ"));
+  }
+
+  // 和了の結果画面を出す時に呼ぶ(showResult・showMultiResult)。auto14のルールだけ、裏ドラ表示牌を見せる
+  function revealUraDoraForWin(){
+    if(!IS_AUTO_DEAD_WALL || uraDoraRevealed) return;
+    uraDoraRevealed = true;
+    updateAutoDeadWallVisual();
+    renderTopLeftKanDora();
   }
 
   updateWallCount();
