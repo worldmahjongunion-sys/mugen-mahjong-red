@@ -1039,6 +1039,29 @@
     animation:nadaponPulse 0.8s ease-in-out infinite;
   }
   /* MCR：和了の形でも8点に届かない時の告知(showUnderMinNotice)。邪魔ポンの告知と同じ場所・同じ形で、点滅はしない */
+  /* MCR：CPUの名前(席替えのあるルールだけJSが足す) */
+  .nameplate .player-name{ font-size:0.72em; color:#E8E2CF; }
+  /* MCR：席替えがあった局の頭の告知(showSeatChangeNotice)。数秒で消える */
+  .seat-change-notice{
+    position:fixed;
+    left:50%;
+    top:38%;
+    transform:translate(-50%, -50%);
+    z-index:60;
+    pointer-events:none;
+    text-align:center;
+    font-size:14px;
+    line-height:1.6;
+    color:#fff;
+    background:rgba(5,20,12,0.92);
+    border:1px solid var(--gold);
+    border-radius:10px;
+    padding:10px 18px;
+    white-space:nowrap;
+    transition:opacity 0.8s;
+  }
+  .seat-change-notice .seat-change-title{ font-weight:bold; font-size:16px; color:var(--gold); }
+  .seat-change-notice.fade{ opacity:0; }
   .call-prompt.under-min-banner{
     display:block;
     position:absolute;
@@ -1926,9 +1949,10 @@
   //   renchanEnabled: 親の和了で連荘するか。falseは和了・流局とも親が次の席へ回る
   //   totalKyoku: 何局で終わるか。8=東8局または南4局、16=東南西北の各4局(一荘戦)
   //   minWinPoints/maxWinPoints: scoreTableMode:"mcr"の和了に必要な点(8点縛り)と、和了点の上限
+  //   seatChangeEnabled: 場風が変わるたび(4局ごと)にSEAT_CHANGE_TABLEで席替えをするか(MCR)
   const RULE_CONFIG_DEFAULTS = {
     riichiEnabled:true, doraEnabled:true, furitenEnabled:true, renchanEnabled:true,
-    totalKyoku:8, minWinPoints:0, maxWinPoints:null
+    totalKyoku:8, minWinPoints:0, maxWinPoints:null, seatChangeEnabled:false
   };
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
@@ -2064,7 +2088,7 @@
       ippatsuEnabled:false, uraDoraEnabled:false, kanDoraEnabled:false,
       scoreTableMode:"mcr", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false,
       riichiEnabled:false, doraEnabled:false, furitenEnabled:false, renchanEnabled:false,
-      totalKyoku:16, minWinPoints:8, maxWinPoints:88
+      totalKyoku:16, minWinPoints:8, maxWinPoints:88, seatChangeEnabled:true
     } },
     { id:"mcrFukushiki", label:"複式MCR", status:"comingSoon", ruleConfig:null }
   ];
@@ -2443,6 +2467,42 @@
   // 手番の順番（あなた→下家→対面→上家→あなた…）と、各自の上家（鳴き元がこの人ならチー可）
   const NEXT_SEAT = { bottom:"right", right:"top", top:"left", left:"bottom" };
   const KAMICHA = { bottom:"left", right:"bottom", top:"right", left:"top" };
+
+  // ==================== 席替え(seatChangeEnabled：MCR) ====================
+  // P1〜P4＝東場で東・南・西・北の席にいた人(添字0〜3)。各場で東・南・西・北の席に座る人を並べた表。
+  // 南場・北場は前の場から東↔南・西↔北を入れ替え、西場は東→西・南→北・西→南・北→東へ動く。
+  // 全員が東南西北を1回ずつ受け持ち、親も4回ずつになる。表を差し替える時はここだけ直せばよい
+  const SEAT_CHANGE_TABLE = {
+    1: [0, 1, 2, 3], // 東場
+    2: [1, 0, 3, 2], // 南場
+    3: [2, 3, 1, 0], // 西場
+    4: [3, 2, 0, 1]  // 北場
+  };
+  // 自分はいつも画面の下。CPUは東場の席(下家・対面・上家)の順にCPU-A・B・Cと呼ぶ
+  const INITIAL_SEAT_PLAYERS = { bottom:"me", right:"A", top:"B", left:"C" };
+  const PLAYER_NAME = { me:"自家", A:"CPU-A", B:"CPU-B", C:"CPU-C" };
+  const POSITION_LABEL = { right:"下家", top:"対面", left:"上家", bottom:"自家" }; // 画面上の位置(名前を付けても変わらない)
+  // round(1〜4＝東南西北)の場の、画面の各位置に座る人(seatPlayers)と、その場の最初の親の位置(dealerSeat)
+  function seatingForRound(startingDealerSeat, round){
+    const players = [];
+    let seat = startingDealerSeat;
+    for(let i = 0; i < 4; i++){ players.push(INITIAL_SEAT_PLAYERS[seat]); seat = NEXT_SEAT[seat]; }
+    const byWind = SEAT_CHANGE_TABLE[round].map(i => players[i]); // [東の席, 南の席, 西の席, 北の席]
+    let w = byWind.indexOf("me");
+    const seatPlayers = {};
+    let dealerSeat = "bottom";
+    seat = "bottom";
+    for(let i = 0; i < 4; i++){ // 下家は自分の次の風の席(手番・親はNEXT_SEATの順に回る)
+      seatPlayers[seat] = byWind[w];
+      if(w === 0) dealerSeat = seat;
+      seat = NEXT_SEAT[seat];
+      w = (w + 1) % 4;
+    }
+    return { seatPlayers, dealerSeat };
+  }
+  const SEAT_PLAYERS = Object.assign({}, INITIAL_SEAT_PLAYERS, (ruleConfig.seatChangeEnabled && savedMatchState && savedMatchState.seatPlayers) || {});
+  // 席替えのあるルールは、CPUを位置(下家等)ではなく名前で呼ぶ(場ごとに座る位置が変わるため)
+  if(ruleConfig.seatChangeEnabled) ["right", "top", "left"].forEach(s => { seatLabel[s] = PLAYER_NAME[SEAT_PLAYERS[s]]; });
 
   function updateWallCount(){
     document.getElementById("wallCountNum").textContent = wall.length;
@@ -4510,7 +4570,7 @@
   }
   // 次局の状態を保存してリロードする（通常時の「次局へ」・検証中の「次へ」の共通処理）
   function goToNextKyoku(next){
-    saveMatchState({ scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount, ruleId: CURRENT_RULE_ID });
+    saveMatchState(buildNextMatchState(next, scores, riichiSticks));
     location.reload();
   }
 
@@ -4566,7 +4626,7 @@
     const next = real.nextMatchState;
     verifyMode = false;
     realStateBeforeVerify = null;
-    saveMatchState({ scores: real.scores, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks: real.riichiSticks, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount, ruleId: CURRENT_RULE_ID });
+    saveMatchState(buildNextMatchState(next, real.scores, real.riichiSticks));
     location.reload();
   }
 
@@ -4697,11 +4757,22 @@
     const markColor = ruleConfig.southRoundEnabled
       ? DEALER_MARK_COLORS[DEALER_MARK_COLOR_BY_ROUND_WIND[ROUND_WIND]]
       : DEALER_MARK_COLORS[isSecondLap ? DEALER_MARK_COLOR_BY_LAP.second : DEALER_MARK_COLOR_BY_LAP.first];
+    // 席替えのあるルールは、その場の最初の親(東の席に座った人)に起家マークを付ける
+    const markSeat = ruleConfig.seatChangeEnabled ? seatingForRound(STARTING_DEALER_SEAT, ROUND_WIND).dealerSeat : STARTING_DEALER_SEAT;
     Object.keys(nameplateElByName).forEach(seat => {
       const plate = nameplateElByName[seat];
       plate.querySelector(".wind-mark").textContent = WIND_CHAR[SEAT_WIND[seat]];
+      if(ruleConfig.seatChangeEnabled && seat !== "bottom"){ // CPUの名前(方角の後ろ)
+        let nameEl = plate.querySelector(".player-name");
+        if(!nameEl){
+          nameEl = document.createElement("span");
+          nameEl.className = "player-name";
+          plate.querySelector(".wind-mark").after(nameEl);
+        }
+        nameEl.textContent = PLAYER_NAME[SEAT_PLAYERS[seat]];
+      }
       const dealerMarkEl = plate.querySelector(".dealer-mark");
-      dealerMarkEl.style.display = (seat === STARTING_DEALER_SEAT) ? "" : "none";
+      dealerMarkEl.style.display = (seat === markSeat) ? "" : "none";
       dealerMarkEl.classList.toggle("second-lap", isSecondLap);
       dealerMarkEl.style.background = markColor.bg;
       dealerMarkEl.style.color = markColor.fg;
@@ -6659,6 +6730,56 @@
     return null;
   }
 
+  // 次局で場風が変わるなら、表どおりに席替えする。next.dealerSeatをその場の最初の親(東の席)にし、
+  // next.seatMove(新しい位置→今の位置)で持ち点を、next.seatPlayersで名前を、次局へ持ち越す
+  function addSeatChangeToNext(next){
+    next.seatPlayers = Object.assign({}, SEAT_PLAYERS);
+    const round = roundWindOf(next.kyokuNumber);
+    if(next.kyokuNumber > ruleConfig.totalKyoku || round === roundWindOf(kyokuNumber)) return next;
+    const seating = seatingForRound(STARTING_DEALER_SEAT, round);
+    const nowSeatOf = {};
+    Object.keys(SEAT_PLAYERS).forEach(s => { nowSeatOf[SEAT_PLAYERS[s]] = s; });
+    next.seatMove = {};
+    Object.keys(seating.seatPlayers).forEach(s => { next.seatMove[s] = nowSeatOf[seating.seatPlayers[s]]; });
+    next.seatPlayers = seating.seatPlayers;
+    next.dealerSeat = seating.dealerSeat;
+    next.seatChangeRound = round;
+    return next;
+  }
+  // 次局へ保存する状態。席替えのあるルールだけ、持ち点を新しい位置へ並べ替え、席の割り当てと告知を足す
+  function buildNextMatchState(next, scoresNow, sticks){
+    const state = { scores: scoresNow, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks: sticks, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount, ruleId: CURRENT_RULE_ID };
+    if(!ruleConfig.seatChangeEnabled) return state;
+    state.seatPlayers = next.seatPlayers;
+    if(next.seatMove){
+      state.scores = {};
+      Object.keys(next.seatMove).forEach(s => { state.scores[s] = scoresNow[next.seatMove[s]]; });
+      state.seatChangeNotice = { kyokuNumber: next.kyokuNumber, round: next.seatChangeRound, seatMove: next.seatMove, seatPlayers: next.seatPlayers };
+    }
+    return state;
+  }
+
+  // 席替えがあった局の頭に、「南場から席替え」と、動いたCPUの位置(前→後)を数秒出す
+  function showSeatChangeNotice(){
+    const n = savedMatchState && savedMatchState.seatChangeNotice;
+    if(!ruleConfig.seatChangeEnabled || !n || n.kyokuNumber !== kyokuNumber) return;
+    const lines = [];
+    ["right", "top", "left"].forEach(s => {
+      if(n.seatMove[s] !== s) lines.push(PLAYER_NAME[n.seatPlayers[s]] + "　" + POSITION_LABEL[n.seatMove[s]] + " → " + POSITION_LABEL[s]);
+    });
+    const el = document.createElement("div");
+    el.id = "seatChangeNotice";
+    el.className = "seat-change-notice";
+    const title = document.createElement("div");
+    title.className = "seat-change-title";
+    title.textContent = WIND_CHAR[n.round] + "場から席替え";
+    el.appendChild(title);
+    lines.forEach(t => { const d = document.createElement("div"); d.textContent = t; el.appendChild(d); });
+    document.body.appendChild(el);
+    setTimeout(() => { el.classList.add("fade"); }, 3500);
+    setTimeout(() => { el.remove(); }, 4300);
+  }
+
   function finalReasonText(reason){
     if(reason.type === "bust") return seatLabel[reason.seat] + "の持ち点がマイナスになったため終了（トビ）";
     if(reason.type === "over70000") return seatLabel[reason.seat] + "が70,000点を超えたため終了";
@@ -6809,6 +6930,7 @@
       return;
     }
     const next = computeNextMatchState({ kyokuNumber, honba, dealerSeat: DEALER_SEAT }, renchan, seatsWon.length > 0);
+    if(ruleConfig.seatChangeEnabled) addSeatChangeToNext(next);
     lastNextMatchStateForRepeat = next; // 検証モード中の「次へ」が使う本番の次局状態
     showNormalResultActions(next);
   }
@@ -7591,6 +7713,7 @@
   renderScores();
   updateKyotakuDisplay();
   renderMatchHeader();
+  showSeatChangeNotice();
   playSfx(SFX.shuffle); // 新しい局の開始（ページ読込）ごとに牌をまぜる音を1回鳴らす
   announceKyokuMilestone(); // 裏入・ラス前・オーラスのセリフ（honba===0で該当局の最初の1回だけ）
 
