@@ -5525,7 +5525,27 @@
     return allTiles.filter(t => t.red).length;
   }
 
+  // 表示牌1枚が指す牌の枚数
+  function countDoraOfIndicator(indicator, allTiles){
+    const doraTile = nextTileForDora(indicator);
+    return allTiles.filter(t => t.suit === doraTile.suit && t.num === doraTile.num).length;
+  }
+
   function addDoraYaku(yaku, allTiles, seat){
+    // auto14のルールは、表ドラ(1枚目)とカンドラ(2枚目以降)、裏ドラとカン裏を別の行にする。
+    // 数える表示牌・合計の翻数は合算していた時と同じ
+    if(IS_AUTO_DEAD_WALL){
+      const pushSplit = (indicators, firstName, kanName) => {
+        const counts = indicators.map(ind => countDoraOfIndicator(ind, allTiles));
+        const first = counts[0] || 0, kan = counts.slice(1).reduce((a, b) => a + b, 0);
+        if(first > 0) yaku.push({ name:firstName, han:first });
+        if(kan > 0) yaku.push({ name:kanName, han:kan });
+        return first + kan;
+      };
+      let total = pushSplit(doraIndicators, "ドラ", "カンドラ");
+      if(riichiDeclared[seat] && ruleConfig.uraDoraEnabled) total += pushSplit(riichiDoraIndicators, "裏ドラ", "カン裏");
+      return total;
+    }
     const indicatorDora = countDoraDetail(allTiles);
     if(indicatorDora > 0) yaku.push({ name:"ドラ", han:indicatorDora });
     let total = indicatorDora;
@@ -6795,7 +6815,7 @@
       // ドラ・リーチドラはハウスルール上、他の役と違って「翻を稼ぐための役」ではなく
       // 定額ボーナスの性格が強いので、表示上も他の役（飜数の少ない順）とは分けて末尾にまとめる
       // （赤牌ボーナスも同じ理由で、常にそのさらに後ろの行に表示する）
-      const DORA_YAKU_NAMES = new Set(["ドラ", "リーチドラ", "裏ドラ"]);
+      const DORA_YAKU_NAMES = new Set(["ドラ", "カンドラ", "リーチドラ", "裏ドラ", "カン裏"]);
       // 役満は固定額（親48,000点・子32,000点）で、飜×単位の線形計算に乗らない。
       // ドラの飜がhan>=13の判定に加わっただけの場合も含め、役満成立時はドラが実際の点数に
       // 一切寄与しないため、ドラの行自体を出さない（点数欄だけ空欄にすると「本来は点数が
