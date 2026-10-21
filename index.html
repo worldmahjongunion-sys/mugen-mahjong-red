@@ -2828,11 +2828,6 @@
   // ぴったり接する（＝隙間なく「上に載る」）
   const KAN_STACK_SIDE = { bottom:"bottom", top:"top", left:"left", right:"right" };
 
-  // 暗槓で積む1枚（伏せ牌のまま表示する場合）専用の柄クラス。伏せ牌の柄はCSSクラス側で
-  // 向き（tile-back=正面/tile-back rot=90度）が固定されており、imgの回転では向きを変えられない。
-  // 積む1枚は通常の並び(backClassByName、baseRot基準)に対して90度違う向き(baseRot-90)で
-  // 積むため、通常の並びとは逆のクラスを使うことで柄の向きを合わせる
-  const STACKED_BACK_CLASS_BY_NAME = { top: "tile-back rot", left: "tile-back", right: "tile-back" };
 
   // 90度・270度回転の牌は、外側の箱を見た目通りの寸法(Tier A: main-h×main-w)にして、
   // 中のimgだけを回転させる（箱と見た目がズレて余分な隙間ができるのを防ぐ）。
@@ -2957,16 +2952,19 @@
       group.style.gap = "3px"; // 鳴き牌3枚の間隔＝捨て牌の間隔と同じ
 
       if(m.type === "ankan"){
-        // 暗槓：伏せ牌3枚を横一列に並べ、4枚目を横向き（90度回転）にして上に積む。
-        // 局の途中は「自分(bottom)の暗槓だけ4枚目を表向きにし、他の3枚と他家(CPU)の
-        // 暗槓は4枚とも伏せる」。局が終わった時（和了・流局＝gameEnded）は、誰の暗槓も
-        // 4枚とも表向きにして開示する
+        // 暗槓：3枚を横一列に並べ、4枚目を横向き（90度回転）にして真ん中の上に積む。
+        // 局の途中は、実際の卓と同じく「両端の2枚は伏せ、中の2枚は表向き」にして、何を槓したかを
+        // 全員(自分・CPU)の暗槓で見せる：横一列の両端を伏せ、横一列の真ん中と積んだ1枚を表向きにする。
+        // 表向きの2枚には赤牌を優先して使う(赤があれば赤が見える)。局が終わった時（和了・流局＝
+        // gameEnded）は、今までどおり誰の暗槓も4枚とも表向きにして開示する
         const revealAll = gameEnded;
         const rowBackCls = backClassByName[name] || "tile-back";
-        const rowEls = m.handTiles.slice(0, 3).map(t => {
-          if(revealAll){
-            const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
-            markAtari(t, tEl);
+        const faceTiles = [...m.handTiles.filter(t => t.red), ...m.handTiles.filter(t => !t.red)];
+        const rowEls = m.handTiles.slice(0, 3).map((t, i) => {
+          if(revealAll || i === 1){
+            const ft = revealAll ? t : faceTiles[0];
+            const tEl = tileEl(ft.suit, ft.num, tileClass(ft.suit, ft.num), ft.red);
+            markAtari(ft, tEl);
             applyMeldRotation(tEl, baseRot, scaleVar);
             return tEl;
           }
@@ -2975,18 +2973,9 @@
           applyMeldRotation(backEl, baseRot, scaleVar);
           return backEl;
         });
-        let stackedEl;
-        if(name === "bottom" || revealAll){
-          const stackedTile = m.handTiles.find(t => t.red) || m.handTiles[3];
-          stackedEl = tileEl(stackedTile.suit, stackedTile.num, tileClass(stackedTile.suit, stackedTile.num), stackedTile.red);
-          markAtari(stackedTile, stackedEl);
-        } else {
-          // 伏せ牌の柄はCSSクラス側で向きが固定(imgの回転を使わない)されているため、
-          // 通常の並び(rowBackCls)と同じクラスのまま積むと、積む向き(baseRot-90)と
-          // 合わずに縦横が入れ替わって見えてしまう。積む1枚だけは逆向きのクラスを使う
-          stackedEl = document.createElement("div");
-          stackedEl.className = STACKED_BACK_CLASS_BY_NAME[name] || "tile-back";
-        }
+        const stackedTile = revealAll ? (m.handTiles.find(t => t.red) || m.handTiles[3]) : faceTiles[1];
+        const stackedEl = tileEl(stackedTile.suit, stackedTile.num, tileClass(stackedTile.suit, stackedTile.num), stackedTile.red);
+        markAtari(stackedTile, stackedEl);
         applyMeldRotation(stackedEl, baseRot - 90, scaleVar);
         buildKanGroup(name, flexDir, rowEls, stackedEl, 1).forEach(elx => group.appendChild(elx));
         el.appendChild(group);
