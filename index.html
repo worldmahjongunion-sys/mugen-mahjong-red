@@ -7372,7 +7372,7 @@
   if(!URA_DORA_HIDDEN) paintTile("riichiDoraActualTile", nextTileForDora(riichiDoraIndicators[0]), "dora-tile riichi-dora-tile");
 
   // auto14：表になったカンドラを、左上の枠の表ドラの右に「カンドラ」として並べる(カンのたび・リピート時に描き直す)
-  // 和了後(uraDoraRevealed)は、その右に裏ドラ(表ドラ・カンドラそれぞれの下の牌が示すドラ)も「裏ドラ」として並べる
+  // 和了後(uraDoraRevealed)は、その右に裏ドラ(表ドラ・カンドラそれぞれの下の牌が示すドラ)も「裏ドラ」「カン裏」として並べる
   function renderTopLeftKanDora(){
     const row = document.querySelector(".top-left-info .dora-row");
     if(!row) return;
@@ -7389,7 +7389,8 @@
       row.appendChild(item);
     };
     doraIndicators.slice(1).forEach(ind => addItem(ind, "kan-dora-item", "カンドラ"));
-    if(uraDoraRevealed) riichiDoraIndicators.slice(0, doraIndicators.length).forEach(ind => addItem(ind, "ura-dora-item", "裏ドラ"));
+    // 表ドラの裏側は「裏ドラ」、カンドラの裏側(2枚目以降)は「カン裏」と呼び分ける
+    if(uraDoraRevealed) riichiDoraIndicators.slice(0, doraIndicators.length).forEach((ind, i) => addItem(ind, "ura-dora-item", i === 0 ? "裏ドラ" : "カン裏"));
   }
 
   // 和了の結果画面を出す時に呼ぶ(showResult・showMultiResult)。auto14のルールだけ、裏ドラ表示牌を見せる
