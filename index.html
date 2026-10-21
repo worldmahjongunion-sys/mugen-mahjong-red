@@ -1880,8 +1880,25 @@
   //   southRoundEnabled: 東4局の次を南1局にするか。falseは東5〜8局(裏東場)を続ける
   //   renchanAtFinalKyokuEnabled: 最終局で親が連荘したら終局せず続けるか(アガリ止めなし)。
   //     falseは最終局が終わった時点で連荘かどうかによらず終局する
+  //   disabledYaku: そのルールで使わない役の名前の配列。入っている役は判定の入口で検出しない
+  //     (上位役が下位役を打ち消す処理も働かず、下位の標準役が普通に付く)。空配列・未指定なら全部有効
+  // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
+  // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
+  // 七対子の4枚使いの形だけを外す
+  const CUSTOM_YAKU_NAMES = [
+    // 数の並びの系
+    "全帯三", "全帯五", "全帯七", "全中", "全小", "全大", "小于五", "大于五", "全双刻", "五門斉", "推不倒",
+    // 順子・刻子の並びの系
+    "一色三歩高", "一色四歩高", "一色三順", "一色四順", "三連刻", "四連刻", "三色三連刻", "花龍", "三風刻",
+    // 役満級の独自役
+    "三色双龍会", "一色双龍会", "連七対", "百万石", "紅孔雀", "緑一色（七対子四枚使い）",
+    // 花の系
+    "花鳥風月", "花鳥風月雪", "雪月花",
+    "組合龍", "組合同順"
+  ];
   const RULESETS = [
     { id:"akaNeo", label:"赤入り無限ルールNEO", status:"ready", ruleConfig:{
+      disabledYaku:[], // 独自役も全部使う
       akaDoraEnabled:true,
       startingPoints:35000, returnPoints:40000,
       umaMode:"ukiCount", fixedUmaTable:null,
@@ -1896,6 +1913,7 @@
       scoreTableMode:"linear", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
     { id:"original", label:"無限ルールOriginal", status:"ready", ruleConfig:{
+      disabledYaku:CUSTOM_YAKU_NAMES,
       akaDoraEnabled:false,
       startingPoints:30000, returnPoints:30000,
       umaMode:"fixed", fixedUmaTable:[10000, 0, 0, -10000],
@@ -1909,8 +1927,10 @@
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:false,
       scoreTableMode:"linear", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
+    // Mリーグ NEOを作るときは disabledYaku:CUSTOM_YAKU_NAMES を入れる(独自役は使わない)
     { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null }, // 少牌+オールマイティー牌は別スコープ
     { id:"mLeagueOriginal", label:"Mリーグ Original", status:"ready", ruleConfig:{
+      disabledYaku:CUSTOM_YAKU_NAMES,
       akaDoraEnabled:true,
       startingPoints:25000, returnPoints:30000,
       umaMode:"fixed", fixedUmaTable:[50000, 10000, -10000, -30000], // 順位ウマ+30/+10/-10/-30とオカ20,000(1着総取り)を合算した値
@@ -1927,6 +1947,7 @@
       scoreTableMode:"lookup", scoreTableKiriage:true, yakumanMultiplierEnabled:true, countedYakumanCapped:true
     } },
     { id:"wwPremium", label:"麻雀共同体WW プレミアム", status:"ready", ruleConfig:{
+      disabledYaku:CUSTOM_YAKU_NAMES,
       akaDoraEnabled:false,
       startingPoints:30000, returnPoints:30000,
       umaMode:"fixed", fixedUmaTable:[15000, 5000, -5000, -15000], // ウマ5-15、オカ無し(合計0)
@@ -1941,6 +1962,7 @@
       scoreTableMode:"lookup", scoreTableKiriage:false, yakumanMultiplierEnabled:false, countedYakumanCapped:false // 切り上げ満貫無し(子7700・親11600の実数)
     } },
     { id:"wwStandard", label:"麻雀共同体WW スタンダード", status:"ready", ruleConfig:{
+      disabledYaku:CUSTOM_YAKU_NAMES,
       akaDoraEnabled:false,
       startingPoints:30000, returnPoints:30000,
       umaMode:"fixed", fixedUmaTable:[30000, 10000, -10000, -30000], // ウマ10-30、オカ無し(合計0)
@@ -1957,6 +1979,7 @@
     } },
     { id:"sanninNeo", label:"無限ルールNEO(3人打ち)", status:"comingSoon", ruleConfig:null },
     { id:"zanLeague", label:"ザンリーグルール", status:"comingSoon", ruleConfig:null },
+    // MCR系を作るときは、独自役のうち組合龍だけ使う: disabledYaku:["組合同順"](MCR独自の役は別途)
     { id:"mcrNeo", label:"MCR-NEO", status:"comingSoon", ruleConfig:null },
     { id:"mcrFukushiki", label:"複式MCR", status:"comingSoon", ruleConfig:null }
   ];
@@ -4870,17 +4893,17 @@
     // 全帯五（チェンタイウー）：全ての面子＋雀頭に、萬子5・筒子5・索子5のいずれかが1枚以上含まれている
     // （門前2翻・鳴き1翻。必ずタンヤオ形になるため、タンヤオとは複合させない）
     const hasFive = t => (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num === 5;
-    const isChantaiwu = hasFive(pairTile) && allSets.every(s => s.tiles.some(hasFive));
+    const isChantaiwu = isYakuEnabled("全帯五") && hasFive(pairTile) && allSets.every(s => s.tiles.some(hasFive));
     if(isChantaiwu) yaku.push({ name:"全帯五", han: closedHand ? 2 : 1 });
 
     // 全双刻（チェンシュワンクー）：偶数の牌だけで成立した対々和（対々和と複合、2翻。必ずタンヤオ形になるため、タンヤオとは複合させない）
     const isEven = t => (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num % 2 === 0;
     const isToitoi = allSets.every(s => s.type === "triplet" || s.type === "kan");
-    const isChuanshuangku = isToitoi && isEven(pairTile) && allSets.every(s => isEven(s.tiles[0]));
+    const isChuanshuangku = isYakuEnabled("全双刻") && isToitoi && isEven(pairTile) && allSets.every(s => isEven(s.tiles[0]));
     if(isChuanshuangku) yaku.push({ name:"全双刻", han:2 });
 
     // 全中（チェンチュン）：4〜6の数牌だけで作る（門前3翻・鳴き2翻。タンヤオとは複合しない。全帯五とは複合する）
-    const isQuanZhong = allTiles.every(isQuanZhongTile);
+    const isQuanZhong = isYakuEnabled("全中") && allTiles.every(isQuanZhongTile);
     if(isQuanZhong) yaku.push({ name:"全中", han: closedHand ? 3 : 2 });
 
     const isSimple = t => t.num !== 1 && t.num !== 9 && t.suit !== "wind" && t.suit !== "dragon";
@@ -4907,7 +4930,7 @@
         yaku.push({ name:"大四喜", han:13 });
       } else if(windNums.size === 3 && pairTile.suit === "wind"){
         yaku.push({ name:"小四喜", han:13 });
-      } else if(windNums.size >= 3){
+      } else if(windNums.size >= 3 && isYakuEnabled("三風刻")){
         yaku.push({ name:"三風刻", han:2 });
       }
     }
@@ -4978,20 +5001,20 @@
       const hasTripletOf = (suit, num) => allSets.some(s =>
         (s.type === "triplet" || s.type === "kan") && s.tiles[0].suit === suit && (num === undefined || s.tiles[0].num === num)
       );
-      const isKachoFugetsuYuki = hasTripletOf("pin", 5) && hasTripletOf("sou", 1) && hasTripletOf("wind") &&
+      const isKachoFugetsuYuki = isYakuEnabled("花鳥風月雪") && hasTripletOf("pin", 5) && hasTripletOf("sou", 1) && hasTripletOf("wind") &&
         hasTripletOf("pin", 1) && pairTile.suit === "dragon" && pairTile.num === 1;
       if(isKachoFugetsuYuki){
         yaku.push({ name:"花鳥風月雪", han:13 });
-      } else if(hasTripletOf("pin", 5) && hasTripletOf("sou", 1) && hasTripletOf("wind") && hasTripletOf("pin", 1)){
+      } else if(isYakuEnabled("花鳥風月") && hasTripletOf("pin", 5) && hasTripletOf("sou", 1) && hasTripletOf("wind") && hasTripletOf("pin", 1)){
         yaku.push({ name:"花鳥風月", han:2 });
       }
     }
 
     // 紅孔雀：索子1・5・7・9と中の5種類だけで作る（役満、鳴きも可）
-    if(allTiles.every(isHongKongqueTile)) yaku.push({ name:"紅孔雀", han:13 });
+    if(isYakuEnabled("紅孔雀") && allTiles.every(isHongKongqueTile)) yaku.push({ name:"紅孔雀", han:13 });
 
     // 百万石：萬子の数字の合計が100以上（役満）
-    if(manNumberSum(allTiles) >= 100) yaku.push({ name:"百万石", han:13 });
+    if(isYakuEnabled("百万石") && manNumberSum(allTiles) >= 100) yaku.push({ name:"百万石", han:13 });
 
     // 一色双龍会（イーソシュワンロンフィー）：1色だけで123の順子2組・789の順子2組・雀頭を作る（役満、鳴きも可）
     let hasYisSeShuangLong = false;
@@ -5001,7 +5024,7 @@
         const seqStarts = allSets.filter(s => s.type === "sequence" && s.tiles[0].suit === suit).map(s => s.tiles[0].num);
         const has123x2 = seqStarts.filter(n => n === 1).length >= 2;
         const has789x2 = seqStarts.filter(n => n === 7).length >= 2;
-        if(has123x2 && has789x2 && pairTile.suit === suit){
+        if(isYakuEnabled("一色双龍会") && has123x2 && has789x2 && pairTile.suit === suit){
           yaku.push({ name:"一色双龍会", han:13 });
           hasYisSeShuangLong = true;
           break;
@@ -5085,7 +5108,7 @@
         if(starts.length < 4) continue;
         const sorted = starts.slice().sort((a, b) => a - b);
         const d1 = sorted[1] - sorted[0], d2 = sorted[2] - sorted[1], d3 = sorted[3] - sorted[2];
-        if(d1 === d2 && d2 === d3 && (d1 === 1 || d1 === 2)){
+        if(isYakuEnabled("一色四歩高") && d1 === d2 && d2 === d3 && (d1 === 1 || d1 === 2)){
           yaku.push({ name:"一色四歩高", han: closedHand ? 4 : 3 });
           hasIsshokuSibuko = true;
           break;
@@ -5094,7 +5117,7 @@
     }
 
     // 一色三歩高：同じ色の順子3組が、1枚ずつか2枚ずつずれた階段状になっている（門前2翻・鳴き1翻）
-    if(!hasIsshokuSibuko){
+    if(!hasIsshokuSibuko && isYakuEnabled("一色三歩高")){
       const seqStartsBySuit = { man:[], pin:[], sou:[] };
       allSets.forEach(s => {
         if(s.type !== "sequence") return;
@@ -5122,7 +5145,7 @@
     // 全帯三（チャンタイサン）：全ての面子＋雀頭に、萬子3・筒子3・索子3のいずれかが1枚以上含まれている（門前2翻・鳴き1翻、タンヤオと複合）
     {
       const hasThree = t => (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num === 3;
-      if(hasThree(pairTile) && allSets.every(s => s.tiles.some(hasThree))){
+      if(isYakuEnabled("全帯三") && hasThree(pairTile) && allSets.every(s => s.tiles.some(hasThree))){
         yaku.push({ name:"全帯三", han: closedHand ? 2 : 1 });
       }
     }
@@ -5130,7 +5153,7 @@
     // 全帯七（チャンタイチー）：全ての面子＋雀頭に、萬子7・筒子7・索子7のいずれかが1枚以上含まれている（門前2翻・鳴き1翻、タンヤオと複合）
     {
       const hasSeven = t => (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && t.num === 7;
-      if(hasSeven(pairTile) && allSets.every(s => s.tiles.some(hasSeven))){
+      if(isYakuEnabled("全帯七") && hasSeven(pairTile) && allSets.every(s => s.tiles.some(hasSeven))){
         yaku.push({ name:"全帯七", han: closedHand ? 2 : 1 });
       }
     }
@@ -5149,7 +5172,7 @@
         const s123 = suits[perm[0]], s789 = suits[perm[1]], sPair = suits[perm[2]];
         const has123x2 = seqStartsBySuit[s123].filter(n => n === 1).length >= 2;
         const has789x2 = seqStartsBySuit[s789].filter(n => n === 7).length >= 2;
-        if(has123x2 && has789x2 && pairTile.suit === sPair){
+        if(isYakuEnabled("三色双龍会") && has123x2 && has789x2 && pairTile.suit === sPair){
           yaku.push({ name:"三色双龍会", han:4 });
           hasSanshokuShuangLong = true;
           break;
@@ -5167,7 +5190,7 @@
         const k = suit + "_" + start;
         seqCountsBySuit4[k] = (seqCountsBySuit4[k] || 0) + 1;
       });
-      if(Object.values(seqCountsBySuit4).some(c => c >= 4)){
+      if(isYakuEnabled("一色四順") && Object.values(seqCountsBySuit4).some(c => c >= 4)){
         yaku.push({ name:"一色四順", han:13 });
         hasIsshokuSijun = true;
       }
@@ -5196,7 +5219,7 @@
       });
       if(bySuit.man.length === 1 && bySuit.pin.length === 1 && bySuit.sou.length === 1){
         const nums = [bySuit.man[0], bySuit.pin[0], bySuit.sou[0]].sort((a, b) => a - b);
-        if(nums[1] === nums[0] + 1 && nums[2] === nums[1] + 1){
+        if(isYakuEnabled("三色三連刻") && nums[1] === nums[0] + 1 && nums[2] === nums[1] + 1){
           yaku.push({ name:"三色三連刻", han:1 });
         }
       }
@@ -5207,7 +5230,7 @@
       outerSurenko:
       for(const suit of ["man", "pin", "sou"]){
         for(let n = 1; n <= 6; n++){
-          if(bySuitSet[suit].has(n) && bySuitSet[suit].has(n + 1) && bySuitSet[suit].has(n + 2) && bySuitSet[suit].has(n + 3)){
+          if(isYakuEnabled("四連刻") && bySuitSet[suit].has(n) && bySuitSet[suit].has(n + 1) && bySuitSet[suit].has(n + 2) && bySuitSet[suit].has(n + 3)){
             yaku.push({ name:"四連刻", han:13 });
             hasSurenko = true;
             break outerSurenko;
@@ -5216,7 +5239,7 @@
       }
 
       // 三連刻：同じ色だけで数字が3つ連続した刻子/槓子（例：111・222・333）が揃っている（2翻）
-      if(!hasSurenko){
+      if(!hasSurenko && isYakuEnabled("三連刻")){
         outerSanrenko:
         for(const suit of ["man", "pin", "sou"]){
           for(let n = 1; n <= 7; n++){
@@ -5247,7 +5270,7 @@
     }
 
     // 一色三順：同じ色で全く同じ順子が3組揃っている（例：123・123・123）（2翻）
-    if(!hasIsshokuSijun){
+    if(!hasIsshokuSijun && isYakuEnabled("一色三順")){
       const seqCountsBySuit = {};
       allSets.forEach(s => {
         if(s.type !== "sequence") return;
@@ -5277,28 +5300,28 @@
         seqStartsBySuit[suits[1]].has(perm[1]) &&
         seqStartsBySuit[suits[2]].has(perm[2])
       );
-      if(isKaryuu) yaku.push({ name:"花龍", han:1 });
+      if(isKaryuu && isYakuEnabled("花龍")) yaku.push({ name:"花龍", han:1 });
     }
 
     // 五門斉（ウーメンチー）：萬子・筒子・索子・風牌・三元牌の5種類全てを使っている（鳴いても1翻）
-    if(hasAllFiveSuits(allTiles)) yaku.push({ name:"五門斉", han:1 });
+    if(isYakuEnabled("五門斉") && hasAllFiveSuits(allTiles)) yaku.push({ name:"五門斉", han:1 });
 
     // 推不倒（トイプータオ）：白・筒子1234589・索子245689だけで作る（門前2翻・鳴き1翻）
-    if(allTiles.every(isToibudaoTile)) yaku.push({ name:"推不倒", han: closedHand ? 2 : 1 });
+    if(isYakuEnabled("推不倒") && allTiles.every(isToibudaoTile)) yaku.push({ name:"推不倒", han: closedHand ? 2 : 1 });
 
     // 全小（チェンショウ）：1〜3の数牌だけで作る（門前3翻・鳴き2翻）。小于五の上位役なので複合しない
-    const isQuanXiao = allTiles.every(isQuanXiaoTile);
+    const isQuanXiao = isYakuEnabled("全小") && allTiles.every(isQuanXiaoTile);
     if(isQuanXiao) yaku.push({ name:"全小", han: closedHand ? 3 : 2 });
 
     // 小于五（ショウユウウー）：1〜4の数牌だけで作る（門前2翻・鳴き1翻）
-    if(!isQuanXiao && allTiles.every(isXiaoYuWuTile)) yaku.push({ name:"小于五", han: closedHand ? 2 : 1 });
+    if(!isQuanXiao && isYakuEnabled("小于五") && allTiles.every(isXiaoYuWuTile)) yaku.push({ name:"小于五", han: closedHand ? 2 : 1 });
 
     // 全大（チェンダー）：7〜9の数牌だけで作る（門前3翻・鳴き2翻）。大于五の上位役なので複合しない
-    const isQuanDa = allTiles.every(isQuanDaTile);
+    const isQuanDa = isYakuEnabled("全大") && allTiles.every(isQuanDaTile);
     if(isQuanDa) yaku.push({ name:"全大", han: closedHand ? 3 : 2 });
 
     // 大于五（ダーユウウー）：6〜9の数牌だけで作る（門前2翻・鳴き1翻）
-    if(!isQuanDa && allTiles.every(isDaYuWuTile)) yaku.push({ name:"大于五", han: closedHand ? 2 : 1 });
+    if(!isQuanDa && isYakuEnabled("大于五") && allTiles.every(isDaYuWuTile)) yaku.push({ name:"大于五", han: closedHand ? 2 : 1 });
 
     // 組合龍（ツーハーロン、三色筋一気通貫）：門前2翻・鳴き1翻
     // 組合龍は専用の構造検出（findZuheLongDecomposition）側で判定し、ここでは扱わない
@@ -5308,12 +5331,17 @@
       const hasTripletOf = (suit, num) => allSets.some(s =>
         (s.type === "triplet" || s.type === "kan") && s.tiles[0].suit === suit && s.tiles[0].num === num
       );
-      if(hasTripletOf("dragon", 1) && hasTripletOf("pin", 1) && hasTripletOf("pin", 5)){
+      if(isYakuEnabled("雪月花") && hasTripletOf("dragon", 1) && hasTripletOf("pin", 1) && hasTripletOf("pin", 5)){
         yaku.push({ name:"雪月花", han:1 });
       }
     }
 
     return yaku;
+  }
+
+  // ruleConfig.disabledYakuに入っていない役か。無効な役は検出そのものをしない
+  function isYakuEnabled(name){
+    return !(ruleConfig.disabledYaku || []).includes(name);
   }
 
   function hasAllFiveSuits(tiles){
@@ -5544,7 +5572,7 @@
 
       // 連七対（役満）：同じ色の7つの連続した数字が、ちょうど2枚ずつの対子になっている（4枚使いは不可）
       let isRenchitoi = false;
-      if(isStrictSevenPairs){
+      if(isStrictSevenPairs && isYakuEnabled("連七対")){
         const tiles7 = keys.map(keyToTile);
         const suit0 = tiles7[0].suit;
         if(tiles7.every(t => t.suit === suit0)){
@@ -5554,16 +5582,16 @@
       }
 
       // 緑一色の七対子・4枚使い（役満）：全て緑の牌で、いずれかの牌を4枚（2組扱い）使っている
-      const isGreenFourTileChiitoi = concealed.every(isGreenTile) && keys.some(k => counts[k] === 4);
+      const isGreenFourTileChiitoi = isYakuEnabled("緑一色（七対子四枚使い）") && concealed.every(isGreenTile) && keys.some(k => counts[k] === 4);
 
       // 紅孔雀の七対子（役満、4枚使いも可）：全て索子1・5・7・9と中だけ
-      const isHongKongqueChiitoi = concealed.every(isHongKongqueTile);
+      const isHongKongqueChiitoi = isYakuEnabled("紅孔雀") && concealed.every(isHongKongqueTile);
 
       // 花鳥風月雪の七対子（役満、4枚使いも可）：全て筒子5・筒子1・索子1・風牌・白だけ
-      const isKachoFugetsuYukiChiitoi = concealed.every(isKachoFugetsuYukiTile);
+      const isKachoFugetsuYukiChiitoi = isYakuEnabled("花鳥風月雪") && concealed.every(isKachoFugetsuYukiTile);
 
       // 百万石の七対子（役満、4枚使いも可）：萬子の数字の合計が100以上
-      const isHyakumangokuChiitoi = manNumberSum(concealed) >= 100;
+      const isHyakumangokuChiitoi = isYakuEnabled("百万石") && manNumberSum(concealed) >= 100;
 
       let yaku;
       if(isGreenFourTileChiitoi) yaku = [{ name:"緑一色（七対子四枚使い）", han:13 }];
@@ -5577,10 +5605,10 @@
       if(riichiDeclared[seat] && ippatsuActive[seat] && ruleConfig.ippatsuEnabled && (ruleConfig.ippatsuOnTsumoEnabled || !isTsumo)) yaku.push({ name:"一発", han:1 });
       if(isTsumo) yaku.push({ name:"門前清自摸和", han:1 });
       if(wall.length === 0) yaku.push({ name: isTsumo ? "海底摸月" : "河底撈魚", han:1 });
-      if(hasAllFiveSuits(concealed)) yaku.push({ name:"五門斉", han:1 });
-      if(concealed.every(isToibudaoTile)) yaku.push({ name:"推不倒", han:2 });
-      if(concealed.every(isXiaoYuWuTile)) yaku.push({ name:"小于五", han:2 });
-      if(concealed.every(isDaYuWuTile)) yaku.push({ name:"大于五", han:2 });
+      if(isYakuEnabled("五門斉") && hasAllFiveSuits(concealed)) yaku.push({ name:"五門斉", han:1 });
+      if(isYakuEnabled("推不倒") && concealed.every(isToibudaoTile)) yaku.push({ name:"推不倒", han:2 });
+      if(isYakuEnabled("小于五") && concealed.every(isXiaoYuWuTile)) yaku.push({ name:"小于五", han:2 });
+      if(isYakuEnabled("大于五") && concealed.every(isDaYuWuTile)) yaku.push({ name:"大于五", han:2 });
       let han = yaku.reduce((sum, y) => sum + y.han, 0);
       han += addDoraYaku(yaku, concealed, seat);
       const akaCount = countAka(concealed);
@@ -5615,6 +5643,7 @@
     }
 
     function buildZuheLongResult(){
+      if(!isYakuEnabled("組合龍")) return null;
       const zDecomp = findZuheLongDecomposition(seat, concealed);
       if(!zDecomp) return null;
       const pairTile = keyToTile(zDecomp.pairKey);
@@ -5635,6 +5664,7 @@
     }
 
     function buildZuheTongshunResult(){
+      if(!isYakuEnabled("組合同順")) return null;
       const zDecomp = findZuheTongshunDecomposition(seat, concealed);
       if(!zDecomp) return null;
       const pairTile = keyToTile(zDecomp.pairKey);
