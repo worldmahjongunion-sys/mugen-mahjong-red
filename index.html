@@ -1882,6 +1882,8 @@
   //     falseは最終局が終わった時点で連荘かどうかによらず終局する
   //   disabledYaku: そのルールで使わない役の名前の配列。入っている役は判定の入口で検出しない
   //     (上位役が下位役を打ち消す処理も働かず、下位の標準役が普通に付く)。空配列・未指定なら全部有効
+  //   chiitoitsuStandardYakuStack: 七対子に断幺九・混一色・清一色・混老頭を重ねるか(標準の麻雀どおり)。
+  //     falseは七対子にこれらを付けない(赤入り無限NEOの従来の挙動)
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
   // 七対子の4枚使いの形だけを外す
@@ -1899,6 +1901,7 @@
   const RULESETS = [
     { id:"akaNeo", label:"赤入り無限ルールNEO", status:"ready", ruleConfig:{
       disabledYaku:[], // 独自役も全部使う
+      chiitoitsuStandardYakuStack:false,
       akaDoraEnabled:true,
       startingPoints:35000, returnPoints:40000,
       umaMode:"ukiCount", fixedUmaTable:null,
@@ -1914,6 +1917,7 @@
     } },
     { id:"original", label:"無限ルールOriginal", status:"ready", ruleConfig:{
       disabledYaku:CUSTOM_YAKU_NAMES,
+      chiitoitsuStandardYakuStack:true,
       akaDoraEnabled:false,
       startingPoints:30000, returnPoints:30000,
       umaMode:"fixed", fixedUmaTable:[10000, 0, 0, -10000],
@@ -1927,10 +1931,11 @@
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:false,
       scoreTableMode:"linear", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
-    // Mリーグ NEOを作るときは disabledYaku:CUSTOM_YAKU_NAMES を入れる(独自役は使わない)
+    // Mリーグ NEOを作るときは disabledYaku:CUSTOM_YAKU_NAMES と chiitoitsuStandardYakuStack:true を入れる(独自役は使わない)
     { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null }, // 少牌+オールマイティー牌は別スコープ
     { id:"mLeagueOriginal", label:"Mリーグ Original", status:"ready", ruleConfig:{
       disabledYaku:CUSTOM_YAKU_NAMES,
+      chiitoitsuStandardYakuStack:true,
       akaDoraEnabled:true,
       startingPoints:25000, returnPoints:30000,
       umaMode:"fixed", fixedUmaTable:[50000, 10000, -10000, -30000], // 順位ウマ+30/+10/-10/-30とオカ20,000(1着総取り)を合算した値
@@ -1948,6 +1953,7 @@
     } },
     { id:"wwPremium", label:"麻雀共同体WW プレミアム", status:"ready", ruleConfig:{
       disabledYaku:CUSTOM_YAKU_NAMES,
+      chiitoitsuStandardYakuStack:true,
       akaDoraEnabled:false,
       startingPoints:30000, returnPoints:30000,
       umaMode:"fixed", fixedUmaTable:[15000, 5000, -5000, -15000], // ウマ5-15、オカ無し(合計0)
@@ -1963,6 +1969,7 @@
     } },
     { id:"wwStandard", label:"麻雀共同体WW スタンダード", status:"ready", ruleConfig:{
       disabledYaku:CUSTOM_YAKU_NAMES,
+      chiitoitsuStandardYakuStack:true,
       akaDoraEnabled:false,
       startingPoints:30000, returnPoints:30000,
       umaMode:"fixed", fixedUmaTable:[30000, 10000, -10000, -30000], // ウマ10-30、オカ無し(合計0)
@@ -5600,6 +5607,20 @@
       else if(isHyakumangokuChiitoi) yaku = [{ name:"百万石", han:13 }];
       else if(isRenchitoi) yaku = [{ name:"連七対", han:13 }];
       else yaku = [{ name:"七対子", han:2 }];
+      // ruleConfig.chiitoitsuStandardYakuStack:trueのルールでは、標準の麻雀どおり七対子に
+      // 断幺九・混一色・清一色・混老頭を重ねる。条件と翻数はcomputeYaku()の門前の場合と同じ。
+      // 役満の七対子には重ねない
+      if(ruleConfig.chiitoitsuStandardYakuStack && yaku[0].name === "七対子"){
+        const isHonorTile = t => t.suit === "wind" || t.suit === "dragon";
+        const isSimple = t => t.num !== 1 && t.num !== 9 && !isHonorTile(t);
+        if(concealed.every(isSimple)) yaku.push({ name:"断幺九", han:1 });
+        const suitsUsed = new Set(concealed.filter(t => !isHonorTile(t)).map(t => t.suit));
+        if(suitsUsed.size === 1){
+          if(concealed.some(isHonorTile)) yaku.push({ name:"混一色", han:3 });
+          else yaku.push({ name:"清一色", han:6 });
+        }
+        if(concealed.every(t => t.num === 1 || t.num === 9 || isHonorTile(t))) yaku.push({ name:"混老頭", han:2 });
+      }
       // computeYaku()を経由しない役なので、ここでも同様にリーチ・一発をカウントする
       if(riichiDeclared[seat]) yaku.push({ name:"リーチ", han:1 });
       if(riichiDeclared[seat] && ippatsuActive[seat] && ruleConfig.ippatsuEnabled && (ruleConfig.ippatsuOnTsumoEnabled || !isTsumo)) yaku.push({ name:"一発", han:1 });
