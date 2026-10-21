@@ -4539,7 +4539,7 @@
     if(seat !== "bottom" && scoreDiffShown[seat]){
       const delta = scores.bottom - scores[seat];
       const sign = delta > 0 ? "+" : (delta < 0 ? "" : "±");
-      el.textContent = sign + delta.toLocaleString();
+      el.textContent = sign + delta; // 自分の持ち点(scores[seat]そのまま)と同じく、カンマなしで出す
       if(delta > 0) el.classList.add("diff-plus");
       else if(delta < 0) el.classList.add("diff-minus");
     } else {
