@@ -1947,8 +1947,8 @@
       honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
       earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false, // 0点未満はマイナス表示のまま進行(貸し借り処理は実装しない)
       yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
-      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true, honbaResetOnChildWin:true,
-      southRoundEnabled:false, renchanAtFinalKyokuEnabled:false,
+      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:false, honbaResetOnChildWin:true, // 流局で親が流れても本場は積む(子の和了の時だけ0)
+      southRoundEnabled:true, renchanAtFinalKyokuEnabled:true, // 東南戦。オーラスも親は連荘(アガリ止め・テンパイ止めなし)
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
       ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:false, // 追記11で確定: WWも4枚使いは無し
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:true,
@@ -4040,7 +4040,7 @@
     ? { ...savedMatchState.scores }
     : { bottom: ruleConfig.startingPoints, top: ruleConfig.startingPoints, left: ruleConfig.startingPoints, right: ruleConfig.startingPoints };
   // 半荘（8局固定・東場2周）の進行状態。savedMatchStateが無ければ東1局・0本場・自分が親から開始
-  let kyokuNumber = savedMatchState ? savedMatchState.kyokuNumber : 1; // 1〜8（連番。東1〜8局として表示。無限Originalだけ5〜8を南1〜4局として表示）
+  let kyokuNumber = savedMatchState ? savedMatchState.kyokuNumber : 1; // 1〜8（連番。東1〜8局として表示。無限Original・WWスタンダードは5〜8を南1〜4局として表示）
   let honba = savedMatchState ? savedMatchState.honba : 0;
 
   // ==================== 検証(リピート)モード ====================
@@ -4352,7 +4352,7 @@
   const nameplateElByName = {};
   Object.keys(scoreElByName).forEach(s => { nameplateElByName[s] = scoreElByName[s].closest(".nameplate"); });
   // DEALER_SEATはファイル冒頭（配牌処理の直前）で既に読み込み済み
-  // 南場に入っているか。southRoundEnabledのルール(無限Original)だけ、5局目以降を南1〜4局として扱う。
+  // 南場に入っているか。southRoundEnabledのルール(無限Original・WWスタンダード)だけ、5局目以降を南1〜4局として扱う。
   // それ以外のルールは東場を2周する半荘(東5〜8局＝裏東場)のため、南入はしない
   function isSouthRound(){ return ruleConfig.southRoundEnabled && kyokuNumber > 4; }
   const ROUND_WIND = isSouthRound() ? 2 : 1; // 場風。南場は南、それ以外は東
@@ -4448,13 +4448,13 @@
   };
   // 裏東場があるルール(NEO等)：表東場(東1〜4局)／裏東場(東5〜8局)
   const DEALER_MARK_COLOR_BY_LAP = { first:"blue", second:"green" };
-  // 南場に入るルール(無限Original)：場風(ROUND_WIND 1〜4＝東南西北)。
+  // 南場に入るルール(無限Original・WWスタンダード)：場風(ROUND_WIND 1〜4＝東南西北)。
   // 今は南4局で終わるので西・北には入らないが、色だけ決めておく
   const DEALER_MARK_COLOR_BY_ROUND_WIND = { 1:"blue", 2:"red", 3:"white", 4:"black" };
   function renderMatchHeader(){
     const roundLabel = isSouthRound() ? "南" + (kyokuNumber - 4) : "東" + kyokuNumber;
     document.getElementById("roundText").textContent = roundLabel + "局 " + honba + "本場";
-    // 起家マークの色。南場に入るルール(無限Original)は場風で決める(東=青/南=赤/西=白/北=黒)。
+    // 起家マークの色。南場に入るルール(無限Original・WWスタンダード)は場風で決める(東=青/南=赤/西=白/北=黒)。
     // それ以外のルールは親が一巡(東1〜4局＝表東場)しても南場にはせず、そのまま東5〜8局(裏東場)を
     // 続けるので、表/裏で決める(表東場=青、裏東場=緑)
     const isSecondLap = kyokuNumber > 4 && !ruleConfig.southRoundEnabled;
@@ -6120,7 +6120,7 @@
   // 意味するので、これで判定すれば同じ局に連荘で何度いても1回しか鳴らない
   function announceKyokuMilestone(){
     if(honba !== 0) return;
-    // 「裏入」は裏東場に入るルールだけ。南場に入るルール(無限Original)では鳴らさない。
+    // 「裏入」は裏東場に入るルールだけ。南場に入るルール(無限Original・WWスタンダード)では鳴らさない。
     // ラス前・オーラスは局の連番(7・8)で決まるので、南3局・南4局でもそのまま鳴る
     if(kyokuNumber === 5){ if(!ruleConfig.southRoundEnabled) speakZundamon("ura"); }
     else if(kyokuNumber === 7) speakZundamon("lastBefore");
@@ -6194,7 +6194,7 @@
 
   // 終了判定：トビ（マイナス）＞70,000点超え＞東8局終了、の優先順で理由を返す（無ければnull）。
   // finishedKyokuNumberは今終わった局の番号（連荘か親交代かによらず、次局へ進む前の値）
-  // renchan：今終わった局で親が連荘するか。renchanAtFinalKyokuEnabledのルール(無限Original)は
+  // renchan：今終わった局で親が連荘するか。renchanAtFinalKyokuEnabledのルール(無限Original・WWスタンダード)は
   // アガリ止めなしで、最終局でも親が連荘する間は終局しない（親が流れた時だけ終局）
   function checkMatchEnd(currentScores, finishedKyokuNumber, renchan){
     const seats = ["bottom", "top", "left", "right"];
