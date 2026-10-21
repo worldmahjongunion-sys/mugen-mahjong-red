@@ -1884,6 +1884,7 @@
   //     (上位役が下位役を打ち消す処理も働かず、下位の標準役が普通に付く)。空配列・未指定なら全部有効
   //   chiitoitsuStandardYakuStack: 七対子に断幺九・混一色・清一色・混老頭を重ねるか(標準の麻雀どおり)。
   //     falseは七対子にこれらを付けない(赤入り無限NEOの従来の挙動)
+  //   tenchihouEnabled: 天和・地和(役満)を採用するか。MCR系以外はtrue(人和は採用しない)
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
   // 七対子の4枚使いの形だけを外す
@@ -1902,6 +1903,7 @@
     { id:"akaNeo", label:"赤入り無限ルールNEO", status:"ready", ruleConfig:{
       disabledYaku:[], // 独自役も全部使う
       chiitoitsuStandardYakuStack:false,
+      tenchihouEnabled:true,
       akaDoraEnabled:true,
       startingPoints:35000, returnPoints:40000,
       umaMode:"ukiCount", fixedUmaTable:null,
@@ -1918,6 +1920,7 @@
     { id:"original", label:"無限ルールOriginal", status:"ready", ruleConfig:{
       disabledYaku:CUSTOM_YAKU_NAMES,
       chiitoitsuStandardYakuStack:true,
+      tenchihouEnabled:true,
       akaDoraEnabled:false,
       startingPoints:30000, returnPoints:30000,
       umaMode:"fixed", fixedUmaTable:[10000, 0, 0, -10000],
@@ -1931,11 +1934,13 @@
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:false,
       scoreTableMode:"linear", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
-    // Mリーグ NEOを作るときは disabledYaku:CUSTOM_YAKU_NAMES と chiitoitsuStandardYakuStack:true を入れる(独自役は使わない)
+    // Mリーグ NEOを作るときは disabledYaku:CUSTOM_YAKU_NAMES と chiitoitsuStandardYakuStack:true、
+    // tenchihouEnabled:true を入れる(独自役は使わない)
     { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null }, // 少牌+オールマイティー牌は別スコープ
     { id:"mLeagueOriginal", label:"Mリーグ Original", status:"ready", ruleConfig:{
       disabledYaku:CUSTOM_YAKU_NAMES,
       chiitoitsuStandardYakuStack:true,
+      tenchihouEnabled:true,
       akaDoraEnabled:true,
       startingPoints:25000, returnPoints:30000,
       umaMode:"fixed", fixedUmaTable:[50000, 10000, -10000, -30000], // 順位ウマ+30/+10/-10/-30とオカ20,000(1着総取り)を合算した値
@@ -1954,6 +1959,7 @@
     { id:"wwPremium", label:"麻雀共同体WW プレミアム", status:"ready", ruleConfig:{
       disabledYaku:CUSTOM_YAKU_NAMES,
       chiitoitsuStandardYakuStack:true,
+      tenchihouEnabled:true,
       akaDoraEnabled:false,
       startingPoints:30000, returnPoints:30000,
       umaMode:"fixed", fixedUmaTable:[15000, 5000, -5000, -15000], // ウマ5-15、オカ無し(合計0)
@@ -1970,6 +1976,7 @@
     { id:"wwStandard", label:"麻雀共同体WW スタンダード", status:"ready", ruleConfig:{
       disabledYaku:CUSTOM_YAKU_NAMES,
       chiitoitsuStandardYakuStack:true,
+      tenchihouEnabled:true,
       akaDoraEnabled:false,
       startingPoints:30000, returnPoints:30000,
       umaMode:"fixed", fixedUmaTable:[30000, 10000, -10000, -30000], // ウマ10-30、オカ無し(合計0)
@@ -1986,7 +1993,8 @@
     } },
     { id:"sanninNeo", label:"無限ルールNEO(3人打ち)", status:"comingSoon", ruleConfig:null },
     { id:"zanLeague", label:"ザンリーグルール", status:"comingSoon", ruleConfig:null },
-    // MCR系を作るときは、独自役のうち組合龍だけ使う: disabledYaku:["組合同順"](MCR独自の役は別途)
+    // MCR系を作るときは、独自役のうち組合龍だけ使う: disabledYaku:["組合同順"](MCR独自の役は別途)。
+    // 天和・地和は採用しない: tenchihouEnabled:false
     { id:"mcrNeo", label:"MCR-NEO", status:"comingSoon", ruleConfig:null },
     { id:"mcrFukushiki", label:"複式MCR", status:"comingSoon", ruleConfig:null }
   ];
@@ -5351,6 +5359,17 @@
     return !(ruleConfig.disabledYaku || []).includes(name);
   }
 
+  // 天和・地和（役満）の名前を返す（当てはまらなければnull）。ruleConfig.tenchihouEnabledのルールで、
+  // 実際のツモ(extraTileなし。待ち一覧などの仮の判定には付けない)の和了のうち、和了者がまだ1枚も
+  // 捨てておらず、誰も鳴いていない(チー・ポン・明槓・暗槓のどれも無い)時。親なら天和、子なら地和。
+  // 鳴かれた捨て牌は捨て牌の列から消えるが、その時は鳴いた人のmeldsが空でなくなるので区別できる
+  function tenchihouYakuName(seat, extraTile, isTsumo){
+    if(!ruleConfig.tenchihouEnabled || !isTsumo || extraTile) return null;
+    if(discards[seat].length !== 0) return null;
+    if(["bottom", "right", "top", "left"].some(s => melds[s].length > 0)) return null;
+    return seat === DEALER_SEAT ? "天和" : "地和";
+  }
+
   function hasAllFiveSuits(tiles){
     const cats = new Set(tiles.map(t => t.suit));
     return cats.has("man") && cats.has("pin") && cats.has("sou") && cats.has("wind") && cats.has("dragon");
@@ -5712,6 +5731,17 @@
     const standardResults = findAllDecompositions(concealed).map(buildStandardResult).filter(Boolean);
     const candidates = [buildKokushiResult(), buildChiitoitsuResult(), ...standardResults, buildZuheLongResult(), buildZuheTongshunResult()].filter(Boolean);
     if(candidates.length === 0) return null;
+    // 天和・地和：国士無双・七対子・標準形(組合龍・組合同順も)のどの読み方にも、名の付いた役満として加える。
+    // 門前のツモなので門前清自摸和が必ず付き、役無しの読み方はここには来ない
+    const tenchihouName = tenchihouYakuName(seat, extraTile, isTsumo);
+    if(tenchihouName){
+      candidates.forEach(r => {
+        if(r.yakunashi) return;
+        r.yaku.unshift({ name:tenchihouName, han:13 });
+        r.han += 13;
+        r.base = calcBasePoints(r.han);
+      });
+    }
     // 符計算のルールは、符も含めた基本点がいちばん高い読み方を選ぶ（同じなら翻、さらに同じなら符の大きい方）。
     // 役無し(yakunashi)は、役のある読み方より常に下にする
     if(ruleConfig.scoreTableMode === "fu"){
