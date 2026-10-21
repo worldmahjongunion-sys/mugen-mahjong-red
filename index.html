@@ -5600,8 +5600,12 @@
       // 百万石の七対子（役満、4枚使いも可）：萬子の数字の合計が100以上
       const isHyakumangokuChiitoi = isYakuEnabled("百万石") && manNumberSum(concealed) >= 100;
 
+      // 字一色の七対子（役満）：字牌7種類をちょうど2枚ずつ（4枚使いの形は対象外）
+      const isTsuiisouChiitoi = isYakuEnabled("字一色") && isStrictSevenPairs && concealed.every(t => t.suit === "wind" || t.suit === "dragon");
+
       let yaku;
-      if(isGreenFourTileChiitoi) yaku = [{ name:"緑一色（七対子四枚使い）", han:13 }];
+      if(isTsuiisouChiitoi) yaku = [{ name:"字一色", han:13 }];
+      else if(isGreenFourTileChiitoi) yaku = [{ name:"緑一色（七対子四枚使い）", han:13 }];
       else if(isHongKongqueChiitoi) yaku = [{ name:"紅孔雀", han:13 }];
       else if(isKachoFugetsuYukiChiitoi) yaku = [{ name:"花鳥風月雪", han:13 }];
       else if(isHyakumangokuChiitoi) yaku = [{ name:"百万石", han:13 }];
