@@ -6063,11 +6063,206 @@
     return !!result && result.points < ruleConfig.minWinPoints;
   }
 
+  // ==== MCR_YAKU_MODULE_BEGIN ====
+  // MCR(国際公式麻雀)の役判定モジュール。アプリの状態(手牌・席・場・ruleConfigなど)には一切触らず、
+  // 渡された牌だけで判定する(単体テストはこの BEGIN〜END を切り出して node の vm で動かす)。
+  // 入力 MCR_YAKU.evaluate({ concealed, melds, winTile, isTsumo, seatWind, roundWind })
+  //   concealed: 手の中の牌(和了牌を含む)。{suit, num} の配列
+  //   melds: 副露と暗槓。[{ kind:"chow"|"pung"|"kong", tiles:[{suit, num}...], concealed:暗槓ならtrue }]
+  //   winTile: 和了牌  isTsumo: ツモ和了か  seatWind/roundWind: 自風・場風(1〜4＝東南西北)
+  // 出力: 和了の形でなければ null。形なら { yaku:[{name, points}], total, shape }。
+  //   読み方(面子の分け方・和了牌がどの面子に入ったか)を全部試し、不計を当てた後の合計が一番高いものを返す
+  // 段階2: 88・64・48・32点の役。24点以下の役と特殊形(全不靠・組合龍)は段階3〜5で足す
+  const MCR_YAKU = (function(){
+    // 牌の番号: 萬子0〜8、筒子9〜17、索子18〜26、風牌27〜30(東南西北)、三元牌31〜33(白・發・中)
+    const SUIT_BASE = { man:0, pin:9, sou:18, wind:27, dragon:31 };
+    const idxOf = t => SUIT_BASE[t.suit] + t.num - 1;
+    const isNum = i => i < 27;
+    const suitOf = i => Math.floor(i / 9); // 0〜2＝数牌の色、3＝字牌
+    const rankOf = i => i % 9 + 1;
+    const isHonor = i => i >= 27;
+    const isWind = i => i >= 27 && i <= 30;
+    const isDragon = i => i >= 31;
+    const isTerminal = i => i < 27 && (i % 9 === 0 || i % 9 === 8);
+    const GREEN = [19, 20, 21, 23, 25, 32]; // 索子2・3・4・6・8と發
+    const THIRTEEN = [0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33];
+
+    // 役の表：点と不計(この役が付いた時に数えない役)。不計は公式(中国麻将竞赛规则)の「不计」に、
+    // 成立すると必ず付いてくる役を足したもの。段階3以降で足す役の名前も先に書いておく
+    const YAKU = {
+      "大四喜":     { points:88, excludes:["小四喜", "三風刻", "碰碰和", "圏風刻", "門風刻", "幺九刻"] },
+      "大三元":     { points:88, excludes:["小三元", "双箭刻", "箭刻"] },
+      "緑一色":     { points:88, excludes:["混一色"] },
+      "九蓮宝燈":   { points:88, excludes:["清一色", "門前清", "幺九刻", "無字"] },
+      "四槓子":     { points:88, excludes:["三槓子", "双明槓", "双暗槓", "明槓", "暗槓", "碰碰和", "単釣将"] },
+      "連七対":     { points:88, excludes:["七対子", "清一色", "門前清", "単釣将", "無字"] },
+      "十三幺":     { points:88, excludes:["五門斉", "門前清", "単釣将", "混幺九"] },
+      "清幺九":     { points:64, excludes:["混幺九", "碰碰和", "全帯幺", "幺九刻", "無字", "双同刻"] },
+      "小四喜":     { points:64, excludes:["三風刻", "幺九刻"] },
+      "小三元":     { points:64, excludes:["双箭刻", "箭刻"] },
+      "字一色":     { points:64, excludes:["混幺九", "碰碰和", "全帯幺", "幺九刻", "欠一門"] },
+      "四暗刻":     { points:64, excludes:["三暗刻", "双暗刻", "門前清", "碰碰和"] },
+      "一色双龍会": { points:64, excludes:["七対子", "清一色", "平和", "一般高", "老少副", "欠一門", "無字"] },
+      "一色四同順": { points:48, excludes:["一色三同順", "一色三節高", "一般高", "四帰一"] },
+      "一色四節高": { points:48, excludes:["一色三節高", "一色三同順", "碰碰和"] },
+      "一色四歩高": { points:32, excludes:["一色三歩高", "連六", "老少副"] },
+      "三槓子":     { points:32, excludes:["双明槓", "双暗槓", "明槓", "暗槓"] },
+      "混幺九":     { points:32, excludes:["碰碰和", "全帯幺", "幺九刻"] }
+    };
+
+    function countsOf(list){ const c = new Array(34).fill(0); list.forEach(i => { c[i]++; }); return c; }
+
+    // 手の中の牌を「雀頭1つ＋面子need個」に分ける読み方を全部返す
+    function decompose(counts, need){
+      const out = [];
+      for(let p = 0; p < 34; p++){
+        if(counts[p] < 2) continue;
+        counts[p] -= 2;
+        splitSets(counts, need, [], r => out.push({ pair:p, sets:r }));
+        counts[p] += 2;
+      }
+      return out;
+    }
+    function splitSets(counts, need, acc, emit){
+      const i = counts.findIndex(c => c > 0);
+      if(i < 0){ if(need === 0) emit(acc.slice()); return; }
+      if(need === 0) return;
+      if(counts[i] >= 3){
+        counts[i] -= 3; acc.push({ kind:"pung", tile:i });
+        splitSets(counts, need - 1, acc, emit);
+        acc.pop(); counts[i] += 3;
+      }
+      if(isNum(i) && rankOf(i) <= 7 && counts[i + 1] > 0 && counts[i + 2] > 0){
+        counts[i]--; counts[i + 1]--; counts[i + 2]--; acc.push({ kind:"chow", tile:i });
+        splitSets(counts, need - 1, acc, emit);
+        acc.pop(); counts[i]++; counts[i + 1]++; counts[i + 2]++;
+      }
+    }
+
+    // 1つの読み方(h)に付く役の名前を集める(同じ役が複数回付く役は段階5で名前を重ねて返す)
+    function detect(h){
+      const names = [];
+      const t = h.tiles;
+      if(t.every(i => GREEN.includes(i))) names.push("緑一色");
+      if(t.every(isHonor)) names.push("字一色");
+      if(t.every(isTerminal)) names.push("清幺九");
+      if(t.every(i => isTerminal(i) || isHonor(i)) && t.some(isHonor) && t.some(isTerminal)) names.push("混幺九");
+      if(h.shape === "thirteen"){ names.push("十三幺"); return names; }
+      if(h.shape === "pairs"){
+        const ps = h.pairs.slice().sort((a, b) => a - b);
+        const distinct = new Set(ps).size === 7;
+        if(distinct && ps.every(isNum) && ps.every(i => suitOf(i) === suitOf(ps[0])) && ps.every((i, k) => k === 0 || i === ps[k - 1] + 1)) names.push("連七対");
+        return names;
+      }
+      // 標準形(雀頭1つ＋面子4つ)
+      const sets = h.sets;
+      const pungs = sets.filter(s => s.kind !== "chow"); // 刻子と槓子
+      const chows = sets.filter(s => s.kind === "chow");
+      const kongs = sets.filter(s => s.kind === "kong");
+      const windPungs = pungs.filter(s => isWind(s.tile)).length;
+      const dragonPungs = pungs.filter(s => isDragon(s.tile)).length;
+      if(windPungs === 4) names.push("大四喜");
+      if(windPungs === 3 && isWind(h.pair)) names.push("小四喜");
+      if(dragonPungs === 3) names.push("大三元");
+      if(dragonPungs === 2 && isDragon(h.pair)) names.push("小三元");
+      if(kongs.length === 4) names.push("四槓子");
+      if(kongs.length === 3) names.push("三槓子");
+      if(pungs.filter(s => s.concealed).length === 4) names.push("四暗刻");
+      // 九蓮宝燈：副露・暗槓なしで1色だけ。和了牌を除いた13枚が1112345678999
+      if(h.noMelds && t.every(isNum) && t.every(i => suitOf(i) === suitOf(t[0]))){
+        const c = countsOf(t); c[h.winTile]--;
+        const base = suitOf(t[0]) * 9;
+        if([3, 1, 1, 1, 1, 1, 1, 1, 3].every((n, k) => c[base + k] === n)) names.push("九蓮宝燈");
+      }
+      if(chows.length === 4){
+        const s0 = suitOf(chows[0].tile);
+        const sameSuit = chows.every(s => suitOf(s.tile) === s0);
+        const starts = chows.map(s => rankOf(s.tile)).sort((a, b) => a - b);
+        if(sameSuit && starts.join() === "1,1,7,7" && suitOf(h.pair) === s0 && rankOf(h.pair) === 5) names.push("一色双龍会");
+        if(sameSuit && starts.every(r => r === starts[0])) names.push("一色四同順");
+        if(sameSuit && [1, 2].some(d => starts.every((r, k) => r === starts[0] + d * k))) names.push("一色四歩高");
+      }
+      if(pungs.length === 4 && pungs.every(s => isNum(s.tile) && suitOf(s.tile) === suitOf(pungs[0].tile))){
+        const rs = pungs.map(s => rankOf(s.tile)).sort((a, b) => a - b);
+        if(rs.every((r, k) => r === rs[0] + k)) names.push("一色四節高");
+      }
+      return names;
+    }
+
+    // 点の高い役から順に見て、先に残した役の不計に入っている役を外す
+    function applyExclusions(names){
+      const sorted = names.slice().sort((a, b) => YAKU[b].points - YAKU[a].points);
+      const excluded = new Set();
+      const kept = [];
+      sorted.forEach(n => {
+        if(excluded.has(n)) return;
+        kept.push({ name:n, points:YAKU[n].points });
+        YAKU[n].excludes.forEach(x => excluded.add(x));
+      });
+      return kept;
+    }
+
+    function evaluate(input){
+      const melds = input.melds || [];
+      const hand = input.concealed.map(idxOf);
+      const winTile = idxOf(input.winTile);
+      const meldSets = melds.map(m => {
+        const ids = m.tiles.map(idxOf).sort((a, b) => a - b);
+        return { kind:m.kind, tile:ids[0], concealed:!!m.concealed, fromMeld:true };
+      });
+      const meldTiles = melds.flatMap(m => m.tiles.map(idxOf));
+      const tiles = hand.concat(meldTiles);
+      const need = 4 - melds.length;
+      if(hand.length !== need * 3 + 2) return null;
+      const counts = countsOf(hand);
+      const readings = [];
+      // 標準形：和了牌が入った面子(雀頭も含む)を1つ選ぶ。ロンで刻子が完成したなら、その刻子は明刻
+      decompose(counts.slice(), need).forEach(d => {
+        const own = d.sets.map(s => ({ kind:s.kind, tile:s.tile, concealed:true }));
+        const choices = [];
+        if(d.pair === winTile) choices.push(-1);
+        own.forEach((s, k) => {
+          if(s.kind === "pung" ? s.tile === winTile : (suitOf(s.tile) === suitOf(winTile) && winTile >= s.tile && winTile <= s.tile + 2)) choices.push(k);
+        });
+        choices.forEach(k => {
+          const sets = own.map((s, j) => (j === k && s.kind === "pung" && !input.isTsumo) ? Object.assign({}, s, { concealed:false }) : s).concat(meldSets);
+          readings.push({ shape:"standard", pair:d.pair, sets, winSet:k, tiles, winTile, noMelds:melds.length === 0, isTsumo:!!input.isTsumo });
+        });
+      });
+      if(melds.length === 0 && hand.length === 14){
+        if(counts.every(c => c % 2 === 0)){ // 七対(同じ牌4枚は2組に数える)
+          const pairs = [];
+          counts.forEach((c, i) => { for(let k = 0; k < c / 2; k++) pairs.push(i); });
+          readings.push({ shape:"pairs", pairs, tiles, winTile, noMelds:true, isTsumo:!!input.isTsumo });
+        }
+        if(THIRTEEN.every(i => counts[i] >= 1) && hand.every(i => THIRTEEN.includes(i))){
+          readings.push({ shape:"thirteen", tiles, winTile, noMelds:true, isTsumo:!!input.isTsumo });
+        }
+      }
+      if(readings.length === 0) return null;
+      let best = null;
+      readings.forEach(h => {
+        const yaku = applyExclusions(detect(h));
+        const total = yaku.reduce((a, y) => a + y.points, 0);
+        if(!best || total > best.total) best = { yaku, total, shape:h.shape };
+      });
+      return best;
+    }
+
+    return { evaluate, YAKU };
+  })();
+  // ==== MCR_YAKU_MODULE_END ====
+
   // ==================== MCR(国際公式麻雀)の点数計算 ====================
   // 日本式の役判定(computeYaku)とは別の関数群。結果は { yaku:[{name, points}], points, rawPoints, capped, mcr:true }。
-  // 段階1は枠だけ：和了の形になっていれば「無番和 8点」とする仮の判定(段階2〜5で公式の役に置き換える)
+  // 役はMCR_YAKU(独立モジュール)で数える。段階2は88〜32点の役だけなので、それが1つもなければ
+  // 仮に「無番和 8点」とする(24点以下の役は段階3〜5で足し、無番和も段階5で公式どおりにする)。
+  // 和了の形かどうかは、特殊形(全不靠・組合龍)を足す段階3までは日本式の判定(attemptWin)を借りる
   function mcrEvaluate(seat, concealed, winTile, isTsumo){
-    return mcrBuildResult(seat, [{ name:"無番和", points:8 }], isTsumo);
+    const melds = meldsToSets(seat).map(s => ({ kind: s.type === "sequence" ? "chow" : (s.type === "kan" ? "kong" : "pung"), tiles: s.tiles, concealed: !s.open }));
+    const r = MCR_YAKU.evaluate({ concealed, melds, winTile, isTsumo, seatWind: SEAT_WIND[seat], roundWind: ROUND_WIND });
+    const yaku = r && r.yaku.length ? r.yaku : [{ name:"無番和", points:8 }];
+    return mcrBuildResult(seat, yaku, isTsumo);
   }
   // 役の合計に上限(maxWinPoints=88)をかけて結果を作る。capped=上限で切った時true
   function mcrBuildResult(seat, yaku, isTsumo){
