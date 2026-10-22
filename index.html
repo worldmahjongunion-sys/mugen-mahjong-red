@@ -6073,11 +6073,12 @@
   //   和了の状況(省略時はfalse): isLastWall=山の最後の牌(ツモなら妙手回春・ロンなら海底撈月)
   //     isReplacement=槓の補充牌でツモ(槓上開花)  isRobbingKong=加槓の牌でロン(搶槓和)
   //     isLastCopy=場に3枚見えている牌の4枚目で和了(和絶張)
-  // 出力: 和了の形でなければ null。形なら { yaku:[{name, points}], total, shape }。
-  //   読み方(面子の分け方・和了牌がどの面子に入ったか)を全部試し、不計を当てた後の合計が一番高いものを返す
+  // 出力: 和了の形でなければ null。形なら { yaku:[{name, points, count}], total, shape }。
+  //   count は同じ役が何回付いたか(幺九刻×2 など)で、points はその合計。
+  //   読み方(面子の分け方・和了牌がどの面子に入ったか)を全部試し、不計を当てた後の合計が一番高いものを返す。
+  //   役が1つもない読み方は無番和(8点)
   // 和了の形: 標準形(雀頭1つ＋面子4つ)・七対・十三幺・全不靠(七星不靠も)・組合龍(＋面子1つ＋雀頭)。
   //   形の判定もこのモジュールだけで行う(日本式の判定は使わない)
-  // 段階2: 88・64・48・32点の役。段階3: 24・16・12点の役と特殊形。段階4: 8・6・4点の役。2・1点の役は段階5で足す
   const MCR_YAKU = (function(){
     // 牌の番号: 萬子0〜8、筒子9〜17、索子18〜26、風牌27〜30(東南西北)、三元牌31〜33(白・發・中)
     const SUIT_BASE = { man:0, pin:9, sou:18, wind:27, dragon:31 };
@@ -6096,12 +6097,13 @@
       perm.flatMap((suit, k) => [0, 3, 6].map(d => suit * 9 + k + d)));
 
     // 役の表：点と不計(この役が付いた時に数えない役)。不計は公式(中国麻将竞赛规则)の「不计」に、
-    // 成立すると必ず付いてくる役を足したもの。段階3以降で足す役の名前も先に書いておく
+    // 成立すると必ず付いてくる役を足したもの
     const YAKU = {
       "大四喜":     { points:88, excludes:["小四喜", "三風刻", "碰碰和", "圏風刻", "門風刻", "幺九刻"] },
       "大三元":     { points:88, excludes:["小三元", "双箭刻", "箭刻"] },
       "緑一色":     { points:88, excludes:["混一色"] },
-      "九蓮宝燈":   { points:88, excludes:["清一色", "門前清", "不求人", "幺九刻", "無字"] },
+      // 九蓮宝燈の幺九刻は、1と9の刻子のうち1つだけ数えない(detectで1つ減らす)
+      "九蓮宝燈":   { points:88, excludes:["清一色", "門前清", "不求人", "無字"] },
       "四槓子":     { points:88, excludes:["三槓子", "双明槓", "双暗槓", "明槓", "暗槓", "碰碰和", "単釣将"] },
       "連七対":     { points:88, excludes:["七対子", "清一色", "門前清", "不求人", "単釣将", "無字"] },
       "十三幺":     { points:88, excludes:["五門斉", "門前清", "不求人", "単釣将", "混幺九"] },
@@ -6140,6 +6142,7 @@
       "推不倒":     { points:8, excludes:["欠一門"] },
       "三色三同順": { points:8, excludes:["喜相逢"] },
       "三色三節高": { points:8, excludes:[] },
+      "無番和":     { points:8, excludes:[] },
       "妙手回春":   { points:8, excludes:["自摸"] },
       "海底撈月":   { points:8, excludes:[] },
       "槓上開花":   { points:8, excludes:["自摸"] },
@@ -6154,7 +6157,29 @@
       "全帯幺":     { points:4, excludes:[] },
       "不求人":     { points:4, excludes:["自摸", "門前清"] },
       "双明槓":     { points:4, excludes:["明槓"] },
-      "和絶張":     { points:4, excludes:[] }
+      "和絶張":     { points:4, excludes:[] },
+      "箭刻":       { points:2, excludes:[] },
+      "圏風刻":     { points:2, excludes:[] },
+      "門風刻":     { points:2, excludes:[] },
+      "門前清":     { points:2, excludes:[] },
+      "平和":       { points:2, excludes:["無字"] },
+      "四帰一":     { points:2, excludes:[] },
+      "双同刻":     { points:2, excludes:[] },
+      "双暗刻":     { points:2, excludes:[] },
+      "暗槓":       { points:2, excludes:[] },
+      "断幺":       { points:2, excludes:["無字"] },
+      "一般高":     { points:1, excludes:[] },
+      "喜相逢":     { points:1, excludes:[] },
+      "連六":       { points:1, excludes:[] },
+      "老少副":     { points:1, excludes:[] },
+      "幺九刻":     { points:1, excludes:[] },
+      "明槓":       { points:1, excludes:[] },
+      "欠一門":     { points:1, excludes:[] },
+      "無字":       { points:1, excludes:[] },
+      "辺張":       { points:1, excludes:[] },
+      "嵌張":       { points:1, excludes:[] },
+      "単釣将":     { points:1, excludes:[] },
+      "自摸":       { points:1, excludes:[] }
     };
 
     function countsOf(list){ const c = new Array(34).fill(0); list.forEach(i => { c[i]++; }); return c; }
@@ -6186,7 +6211,214 @@
       }
     }
 
-    // 1つの読み方(h)に付く役の名前を集める(同じ役が複数回付く役は段階5で名前を重ねて返す)
+    // 和了の形かどうかだけを見る(待ちが1種類だけかを調べる用)。counts=手の中の牌、need=手の中で作る面子の数
+    function hasSets(counts, need){
+      const i = counts.findIndex(c => c > 0);
+      if(i < 0) return need === 0;
+      if(need === 0) return false;
+      let ok = false;
+      if(counts[i] >= 3){ counts[i] -= 3; ok = hasSets(counts, need - 1); counts[i] += 3; }
+      if(!ok && isNum(i) && rankOf(i) <= 7 && counts[i + 1] > 0 && counts[i + 2] > 0){
+        counts[i]--; counts[i + 1]--; counts[i + 2]--;
+        ok = hasSets(counts, need - 1);
+        counts[i]++; counts[i + 1]++; counts[i + 2]++;
+      }
+      return ok;
+    }
+    function hasPairAndSets(counts, need){
+      for(let p = 0; p < 34; p++){
+        if(counts[p] < 2) continue;
+        counts[p] -= 2;
+        const ok = hasSets(counts, need);
+        counts[p] += 2;
+        if(ok) return true;
+      }
+      return false;
+    }
+    function isWinningShape(counts, need){
+      if(hasPairAndSets(counts, need)) return true;
+      if(need === 4){
+        if(counts.every(c => c % 2 === 0)) return true;
+        if(THIRTEEN.every(i => counts[i] >= 1) && counts.every((c, i) => c === 0 || THIRTEEN.includes(i))) return true;
+        if(counts.every(c => c <= 1)){
+          const nums = [];
+          counts.forEach((c, i) => { if(c && isNum(i)) nums.push(i); });
+          if(KNITTED.some(seq => nums.every(i => seq.includes(i)))) return true;
+        }
+      }
+      if(need >= 3){
+        for(const seq of KNITTED){
+          if(!seq.every(i => counts[i] >= 1)) continue;
+          seq.forEach(i => { counts[i]--; });
+          const ok = hasPairAndSets(counts, need - 3);
+          seq.forEach(i => { counts[i]++; });
+          if(ok) return true;
+        }
+      }
+      return false;
+    }
+    // 和了牌を除いた13枚の待ちが、和了牌の1種類だけか(辺張・嵌張・単釣将の条件)。
+    // 自分の手と副露で4枚とも使っている牌は待ちに数えない
+    function isUniqueWait(counts, need, winTile, allCounts){
+      const c = counts.slice();
+      c[winTile]--;
+      let waits = 0;
+      for(let w = 0; w < 34; w++){
+        if(allCounts[w] - (w === winTile ? 1 : 0) >= 4) continue;
+        c[w]++;
+        if(isWinningShape(c, need)) waits++;
+        c[w]--;
+        if(waits > 1) return false;
+      }
+      return waits === 1;
+    }
+
+    // 2つの順子(先頭の牌)の役
+    function chowPairYaku(a, b){
+      const ra = rankOf(a), rb = rankOf(b);
+      if(suitOf(a) !== suitOf(b)) return ra === rb ? "喜相逢" : null;
+      if(ra === rb) return "一般高";
+      if(Math.abs(ra - rb) === 3) return "連六";
+      if(ra + rb === 8 && (ra === 1 || rb === 1)) return "老少副";
+      return null;
+    }
+    // 3つの順子(先頭の牌)の役
+    function chowTripleYaku(trio){
+      const ss = trio.map(suitOf);
+      const rs = trio.map(rankOf).sort((x, y) => x - y);
+      if(ss[0] === ss[1] && ss[1] === ss[2]){
+        if(rs[0] === rs[2]) return "一色三同順";
+        if(rs.join() === "1,4,7") return "清龍";
+        if([1, 2].some(d => rs[1] === rs[0] + d && rs[2] === rs[1] + d)) return "一色三歩高";
+      }
+      if(new Set(ss).size === 3){
+        if(rs.join() === "1,4,7") return "花龍";
+        if(rs[0] === rs[2]) return "三色三同順";
+        if(rs[1] === rs[0] + 1 && rs[2] === rs[1] + 1) return "三色三歩高";
+      }
+      return null;
+    }
+    // 数牌の刻子3つの役
+    function pungTripleYaku(trio){
+      const ss = trio.map(suitOf);
+      const rs = trio.map(rankOf).sort((x, y) => x - y);
+      const shifted = rs[1] === rs[0] + 1 && rs[2] === rs[1] + 1;
+      if(ss[0] === ss[1] && ss[1] === ss[2]) return shifted ? "一色三節高" : null;
+      if(new Set(ss).size === 3){
+        if(rs[0] === rs[2]) return "三同刻";
+        if(shifted) return "三色三節高";
+      }
+      return null;
+    }
+    const CHOW_PAIR_ORDER = ["一般高", "喜相逢", "連六", "老少副"];
+
+    // 順子の組み合わせの役(套算一次)。cs=順子の先頭の牌(2〜4個)
+    //  ・順子3つの役(一色三同順・清龍・花龍など)は1つだけ。点の高い組み合わせを選ぶ
+    //  ・その時に残った4つ目の順子は、3つのうちどれか1つと1回だけ組み合わせてよい
+    //  ・順子3つの役がなければ2つずつの役を数えるが、合わせて(順子の数−1)個まで。
+    //    ほかのどの順子とも役にならない順子があれば、その分だけ減らす。多すぎる時は、同じ役が重なったものから減らす
+    function chowYaku(cs){
+      if(cs.length < 2) return [];
+      if(cs.length === 2){ const f = chowPairYaku(cs[0], cs[1]); return f ? [f] : []; }
+      let best = null;
+      eachTriple(cs.map((_, i) => i)).forEach(idx => {
+        const f = chowTripleYaku(idx.map(i => cs[i]));
+        if(!f) return;
+        const out = [f];
+        const rest = cs.filter((_, i) => !idx.includes(i));
+        if(rest.length){
+          const cand = idx.map(i => chowPairYaku(cs[i], rest[0])).filter(x => x && !YAKU[f].excludes.includes(x));
+          const pick = CHOW_PAIR_ORDER.find(n => cand.includes(n));
+          if(pick) out.push(pick);
+        }
+        const pts = out.reduce((a, n) => a + YAKU[n].points, 0);
+        if(!best || pts > best.pts) best = { out, pts };
+      });
+      if(best) return best.out;
+      const pairs = [];
+      for(let a = 0; a < cs.length; a++) for(let b = a + 1; b < cs.length; b++){
+        const f = chowPairYaku(cs[a], cs[b]);
+        if(f) pairs.push({ a, b, f });
+      }
+      let max = cs.length - 1;
+      if(cs.length === 4) cs.forEach((_, i) => { if(!pairs.some(p => p.a === i || p.b === i)) max--; });
+      const table = CHOW_PAIR_ORDER.map(n => pairs.filter(p => p.f === n).length);
+      let cnt = pairs.length;
+      for(let limit = 1; limit >= 0 && cnt > max; limit--){
+        for(let k = CHOW_PAIR_ORDER.length - 1; k >= 0 && cnt > max; k--){
+          while(table[k] > limit && cnt > max){ table[k]--; cnt--; }
+        }
+      }
+      return CHOW_PAIR_ORDER.flatMap((n, k) => new Array(table[k]).fill(n));
+    }
+    // 数牌の刻子の組み合わせの役(套算一次)。ps=数牌の刻子の牌
+    //  ・刻子3つの役(一色三節高・三同刻・三色三節高)は1つだけ。残った刻子は1回だけ双同刻にしてよい
+    //  ・刻子3つの役がなければ、2つずつの双同刻を全部数える
+    function pungYaku(ps){
+      let best = null;
+      eachTriple(ps.map((_, i) => i)).forEach(idx => {
+        const f = pungTripleYaku(idx.map(i => ps[i]));
+        if(f && (!best || YAKU[f].points > YAKU[best.f].points)) best = { f, idx };
+      });
+      if(best){
+        const out = [best.f];
+        const rest = ps.filter((_, i) => !best.idx.includes(i));
+        if(rest.length && best.idx.some(i => rankOf(ps[i]) === rankOf(rest[0]))) out.push("双同刻");
+        return out;
+      }
+      const out = [];
+      for(let a = 0; a < ps.length; a++) for(let b = a + 1; b < ps.length; b++){
+        if(rankOf(ps[a]) === rankOf(ps[b])) out.push("双同刻");
+      }
+      return out;
+    }
+
+    // 辺張・嵌張・単釣将(待ちが1種類だけの時だけ呼ぶ)：その読み方の手の中の順子と雀頭に、和了牌がどう入れるかを見る。
+    // 和了牌が2通りに入れる時(55＋456の5など)は1つだけ数え、辺張・嵌張・単釣将の順に選ぶ(参照実装と同じ)
+    function waitForm(h){
+      if(!h.sets) return null; // 七対・十三幺・全不靠は数えない(それぞれの役の不計)
+      const own = h.sets.filter(s => !s.fromMeld && s.kind === "chow");
+      const w = h.winTile;
+      if(own.some(s => (rankOf(s.tile) === 1 && w === s.tile + 2) || (rankOf(s.tile) === 7 && w === s.tile))) return "辺張";
+      if(own.some(s => w === s.tile + 1)) return "嵌張";
+      if(h.pair === w) return "単釣将";
+      return null;
+    }
+
+    // 面子に付く役のうち、標準形と組合龍(＋面子1つ)の両方に付くもの：槓子・暗刻・箭刻・風牌・幺九刻・平和。
+    // knittedChows=組合龍を順子3つとして数える時の3(平和の判定用)
+    function setYaku(h, names, knittedChows, nineGates){
+      const sets = h.sets;
+      const pungs = sets.filter(s => s.kind !== "chow"); // 刻子と槓子
+      const chows = sets.filter(s => s.kind === "chow");
+      const kongs = sets.filter(s => s.kind === "kong");
+      const openKongs = kongs.filter(s => !s.concealed).length;
+      const closedKongs = kongs.length - openKongs;
+      if(kongs.length === 4) names.push("四槓子");
+      if(kongs.length === 3) names.push("三槓子");
+      if(kongs.length === 2 && closedKongs === 2) names.push("双暗槓");
+      if(kongs.length === 2 && openKongs === 2) names.push("双明槓");
+      // 槓子が1つ、または明槓1つと暗槓1つの時は、明槓1点・暗槓2点をそれぞれ数える
+      if(kongs.length <= 2 && openKongs === 1) names.push("明槓");
+      if(kongs.length <= 2 && closedKongs === 1) names.push("暗槓");
+      const concealedPungs = pungs.filter(s => s.concealed).length; // 暗槓も暗刻に数える
+      if(concealedPungs === 4) names.push("四暗刻");
+      if(concealedPungs === 3) names.push("三暗刻");
+      if(concealedPungs === 2) names.push("双暗刻");
+      pungs.forEach(s => { if(isDragon(s.tile)) names.push("箭刻"); });
+      const rw = 26 + h.roundWind, sw = 26 + h.seatWind;
+      if(pungs.some(s => s.tile === rw)) names.push("圏風刻");
+      if(pungs.some(s => s.tile === sw)) names.push("門風刻");
+      // 幺九刻：1・9と風牌の刻子1つにつき1点。三風刻(風牌の刻子3つ以上)の風牌の刻子と、
+      // 圏風刻・門風刻になった風牌の刻子は数えない。九蓮宝燈は1と9の刻子のうち1つを数えない
+      const windPungs = pungs.filter(s => isWind(s.tile)).length;
+      let yao = pungs.filter(s => isTerminal(s.tile) || (isWind(s.tile) && windPungs < 3 && s.tile !== rw && s.tile !== sw)).length;
+      if(nineGates) yao--;
+      for(let k = 0; k < yao; k++) names.push("幺九刻");
+      if(chows.length + knittedChows === 4 && isNum(h.pair)) names.push("平和");
+    }
+
+    // 1つの読み方(h)に付く役の名前を集める。同じ役が複数回付く時は名前を重ねて返す
     function detect(h){
       const names = [];
       const t = h.tiles;
@@ -6202,17 +6434,28 @@
         if(ranks.every(r => r <= 3)) names.push("全小");
         if(ranks.every(r => r >= 6)) names.push("大于五");
         if(ranks.every(r => r <= 4)) names.push("小于五");
+        names.push("無字");
       }
       const suits = new Set(t.filter(isNum).map(suitOf));
       if(suits.size === 1 && t.some(isHonor)) names.push("混一色");
       if(suits.size === 3 && t.some(isWind) && t.some(isDragon)) names.push("五門斉");
+      if(suits.size === 2) names.push("欠一門");
+      if(t.every(i => isNum(i) && !isTerminal(i))) names.push("断幺");
       if(t.every(i => REVERSIBLE.includes(i))) names.push("推不倒");
       if(h.isLastWall) names.push(h.isTsumo ? "妙手回春" : "海底撈月");
       if(h.isReplacement) names.push("槓上開花");
       if(h.isRobbingKong) names.push("搶槓和");
       if(h.isLastCopy) names.push("和絶張");
-      // 不求人：副露(明槓を含む)なしのツモ。暗槓はあってよい。七対・十三幺・全不靠は役の不計に入っている
+      // 自摸・不求人・門前清：副露(明槓を含む)がなければ、ツモは不求人・ロンは門前清。暗槓はあってよい。
+      // 七対・十三幺など必ず門前になる役は、不計に不求人・門前清が入っているので、ツモなら自摸だけが残る
+      if(h.isTsumo) names.push("自摸");
       if(h.isTsumo && !h.openMelds) names.push("不求人");
+      if(!h.isTsumo && !h.openMelds) names.push("門前清");
+      // 四帰一：同じ牌4枚を、槓子にしないで使っている数
+      const all = countsOf(t);
+      const kongTiles = (h.sets || []).filter(s => s.kind === "kong").map(s => s.tile);
+      all.forEach((c, i) => { if(c === 4 && !kongTiles.includes(i)) names.push("四帰一"); });
+      if(h.uniqueWait){ const w = waitForm(h); if(w) names.push(w); }
       if(h.shape === "thirteen"){ names.push("十三幺"); return names; }
       if(h.shape === "pairs"){
         names.push("七対子");
@@ -6226,13 +6469,12 @@
         if(h.withStraight) names.push("組合龍");
         return names;
       }
-      // 組合龍＋面子1つ＋雀頭(面子・雀頭に付く役は段階4〜5で足す)
-      if(h.shape === "knitted"){ names.push("組合龍"); return names; }
+      // 組合龍＋面子1つ＋雀頭：組合龍を順子3つとして、面子の役を見る
+      if(h.shape === "knitted"){ names.push("組合龍"); setYaku(h, names, 3, false); return names; }
       // 標準形(雀頭1つ＋面子4つ)
       const sets = h.sets;
       const pungs = sets.filter(s => s.kind !== "chow"); // 刻子と槓子
       const chows = sets.filter(s => s.kind === "chow");
-      const kongs = sets.filter(s => s.kind === "kong");
       const windPungs = pungs.filter(s => isWind(s.tile)).length;
       const dragonPungs = pungs.filter(s => isDragon(s.tile)).length;
       if(windPungs === 4) names.push("大四喜");
@@ -6240,10 +6482,6 @@
       if(windPungs === 3) names.push("三風刻");
       if(dragonPungs === 3) names.push("大三元");
       if(dragonPungs === 2 && isDragon(h.pair)) names.push("小三元");
-      if(kongs.length === 4) names.push("四槓子");
-      if(kongs.length === 3) names.push("三槓子");
-      if(kongs.length === 2 && kongs.every(s => s.concealed)) names.push("双暗槓");
-      if(kongs.length === 2 && kongs.every(s => !s.concealed)) names.push("双明槓");
       if(pungs.length === 4) names.push("碰碰和");
       if(dragonPungs === 2) names.push("双箭刻");
       // 全求人：4つの面子がすべて副露(暗槓は含まない)で、ロン
@@ -6251,84 +6489,69 @@
       // 全帯幺：面子と雀頭のすべてに1・9か字牌が入る
       const outside = i => isTerminal(i) || isHonor(i);
       if(outside(h.pair) && sets.every(s => s.kind === "chow" ? [1, 7].includes(rankOf(s.tile)) : outside(s.tile))) names.push("全帯幺");
-      if(pungs.filter(s => s.concealed).length === 4) names.push("四暗刻");
-      if(pungs.filter(s => s.concealed).length === 3) names.push("三暗刻");
       // 九蓮宝燈：副露・暗槓なしで1色だけ。和了牌を除いた13枚が1112345678999
+      let nineGates = false;
       if(h.noMelds && t.every(isNum) && t.every(i => suitOf(i) === suitOf(t[0]))){
         const c = countsOf(t); c[h.winTile]--;
         const base = suitOf(t[0]) * 9;
-        if([3, 1, 1, 1, 1, 1, 1, 1, 3].every((n, k) => c[base + k] === n)) names.push("九蓮宝燈");
+        if([3, 1, 1, 1, 1, 1, 1, 1, 3].every((n, k) => c[base + k] === n)){ names.push("九蓮宝燈"); nineGates = true; }
       }
+      // 順子4つの役。これが付いた時は、順子の組み合わせの役(一般高など)をほかに数えない
+      let fourChows = false;
       if(chows.length === 4){
         const s0 = suitOf(chows[0].tile);
         const sameSuit = chows.every(s => suitOf(s.tile) === s0);
         const starts = chows.map(s => rankOf(s.tile)).sort((a, b) => a - b);
-        if(sameSuit && starts.join() === "1,1,7,7" && suitOf(h.pair) === s0 && rankOf(h.pair) === 5) names.push("一色双龍会");
-        if(sameSuit && starts.every(r => r === starts[0])) names.push("一色四同順");
-        if(sameSuit && [1, 2].some(d => starts.every((r, k) => r === starts[0] + d * k))) names.push("一色四歩高");
+        const mark = n => { names.push(n); fourChows = true; };
+        if(sameSuit && starts.join() === "1,1,7,7" && suitOf(h.pair) === s0 && rankOf(h.pair) === 5) mark("一色双龍会");
+        if(sameSuit && starts.every(r => r === starts[0])) mark("一色四同順");
+        if(sameSuit && [1, 2].some(d => starts.every((r, k) => r === starts[0] + d * k))) mark("一色四歩高");
+        // 三色双龍会：2色の老少副(123と789)と、残りの色の5の雀頭
+        if(isNum(h.pair) && rankOf(h.pair) === 5){
+          const others = [0, 1, 2].filter(x => x !== suitOf(h.pair));
+          const key = chows.map(s => suitOf(s.tile) + ":" + rankOf(s.tile)).sort().join();
+          if(key === others.flatMap(x => [x + ":1", x + ":7"]).sort().join()) mark("三色双龍会");
+        }
       }
+      if(!fourChows) chowYaku(chows.map(s => s.tile)).forEach(n => names.push(n));
+      let fourPungs = false;
       if(pungs.length === 4 && pungs.every(s => isNum(s.tile) && suitOf(s.tile) === suitOf(pungs[0].tile))){
         const rs = pungs.map(s => rankOf(s.tile)).sort((a, b) => a - b);
-        if(rs.every((r, k) => r === rs[0] + k)) names.push("一色四節高");
+        if(rs.every((r, k) => r === rs[0] + k)){ names.push("一色四節高"); fourPungs = true; }
       }
-      // 三色双龍会：2色の老少副(123と789)と、残りの色の5の雀頭
-      if(chows.length === 4 && isNum(h.pair) && rankOf(h.pair) === 5){
-        const others = [0, 1, 2].filter(x => x !== suitOf(h.pair));
-        const key = chows.map(s => suitOf(s.tile) + ":" + rankOf(s.tile)).sort().join();
-        if(key === others.flatMap(x => [x + ":1", x + ":7"]).sort().join()) names.push("三色双龍会");
-      }
-      // 順子3つの役(一色三同順・清龍・一色三歩高)：順子のうちどれか3つで成立すれば付ける
-      // (4つ目の順子との組み合わせ＝套算一次は段階5でまとめて見直す)
-      eachTriple(chows).forEach(([a, b, c]) => {
-        if(!(suitOf(a.tile) === suitOf(b.tile) && suitOf(b.tile) === suitOf(c.tile))) return;
-        const rs = [a, b, c].map(s => rankOf(s.tile)).sort((x, y) => x - y);
-        if(rs[0] === rs[1] && rs[1] === rs[2]) addOnce(names, "一色三同順");
-        if(rs.join() === "1,4,7") addOnce(names, "清龍");
-        if([1, 2].some(d => rs[1] === rs[0] + d && rs[2] === rs[1] + d)) addOnce(names, "一色三歩高");
-      });
-      // 3色の順子3つの役(花龍・三色三同順・三色三歩高)
-      eachTriple(chows).forEach(trio => {
-        if(new Set(trio.map(s => suitOf(s.tile))).size !== 3) return;
-        const rs = trio.map(s => rankOf(s.tile)).sort((x, y) => x - y);
-        if(rs.join() === "1,4,7") addOnce(names, "花龍");
-        if(rs[0] === rs[2]) addOnce(names, "三色三同順");
-        if(rs[1] === rs[0] + 1 && rs[2] === rs[1] + 1) addOnce(names, "三色三歩高");
-      });
-      // 刻子3つの役(一色三節高・三同刻)
-      eachTriple(pungs.filter(s => isNum(s.tile))).forEach(([a, b, c]) => {
-        const ss = [a, b, c].map(s => suitOf(s.tile));
-        const rs = [a, b, c].map(s => rankOf(s.tile)).sort((x, y) => x - y);
-        if(ss[0] === ss[1] && ss[1] === ss[2] && rs[1] === rs[0] + 1 && rs[2] === rs[1] + 1) addOnce(names, "一色三節高");
-        if(new Set(ss).size === 3 && rs[0] === rs[2]) addOnce(names, "三同刻");
-        if(new Set(ss).size === 3 && rs[1] === rs[0] + 1 && rs[2] === rs[1] + 1) addOnce(names, "三色三節高");
-      });
+      if(!fourPungs) pungYaku(pungs.filter(s => isNum(s.tile)).map(s => s.tile)).forEach(n => names.push(n));
       // 全帯五：面子と雀頭のすべてに5が入る
       if(isNum(h.pair) && rankOf(h.pair) === 5 && sets.every(s => isNum(s.tile) && (s.kind === "chow" ? [3, 4, 5].includes(rankOf(s.tile)) : rankOf(s.tile) === 5))) names.push("全帯五");
       // 全双刻：刻子(槓子)4つと雀頭がすべて2・4・6・8の数牌
       const even = i => isNum(i) && rankOf(i) % 2 === 0;
       if(pungs.length === 4 && pungs.every(s => even(s.tile)) && even(h.pair)) names.push("全双刻");
+      setYaku(h, names, 0, nineGates);
       return names;
     }
 
-    function addOnce(names, n){ if(!names.includes(n)) names.push(n); }
     function eachTriple(list){
       const out = [];
       for(let a = 0; a < list.length; a++) for(let b = a + 1; b < list.length; b++) for(let c = b + 1; c < list.length; c++) out.push([list[a], list[b], list[c]]);
       return out;
     }
 
-    // 点の高い役から順に見て、先に残した役の不計に入っている役を外す
+    // 点の高い役から順に見て、先に残した役の不計に入っている役を外す。
+    // 残った役は名前ごとにまとめ、回数(count)と点の合計(points)にする
     function applyExclusions(names){
       const sorted = names.slice().sort((a, b) => YAKU[b].points - YAKU[a].points);
       const excluded = new Set();
       const kept = [];
       sorted.forEach(n => {
         if(excluded.has(n)) return;
-        kept.push({ name:n, points:YAKU[n].points });
+        const same = kept.find(y => y.name === n);
+        if(same){ same.count++; same.points += YAKU[n].points; return; }
+        kept.push({ name:n, points:YAKU[n].points, count:1 });
         YAKU[n].excludes.forEach(x => excluded.add(x));
       });
       return kept;
     }
+
+    const shapePrefer = yaku => yaku.some(y => y.name === "一色三同順" || y.name === "三同刻");
 
     function evaluate(input){
       const melds = input.melds || [];
@@ -6342,18 +6565,20 @@
       const tiles = hand.concat(meldTiles);
       const need = 4 - melds.length;
       if(hand.length !== need * 3 + 2) return null;
-      const situation = { isLastWall:!!input.isLastWall, isReplacement:!!input.isReplacement, isRobbingKong:!!input.isRobbingKong,
-        isLastCopy:!!input.isLastCopy, openMelds: melds.filter(m => !m.concealed).length };
       const counts = countsOf(hand);
+      // 和絶張：手の中に和了牌がもう1枚あれば4枚目ではない。自分の副露に3枚あれば必ず4枚目
+      const lastCopy = (!!input.isLastCopy && counts[winTile] === 1) || meldTiles.filter(i => i === winTile).length === 3;
+      const situation = { isLastWall:!!input.isLastWall, isReplacement:!!input.isReplacement, isRobbingKong:!!input.isRobbingKong,
+        isLastCopy:lastCopy, openMelds: melds.filter(m => !m.concealed).length,
+        seatWind: input.seatWind || 1, roundWind: input.roundWind || 1, uniqueWait: null };
       const readings = [];
+      const inSet = (s, w) => s.kind === "pung" ? s.tile === w : (suitOf(s.tile) === suitOf(w) && w >= s.tile && w <= s.tile + 2);
       // 標準形：和了牌が入った面子(雀頭も含む)を1つ選ぶ。ロンで刻子が完成したなら、その刻子は明刻
       decompose(counts.slice(), need).forEach(d => {
         const own = d.sets.map(s => ({ kind:s.kind, tile:s.tile, concealed:true }));
         const choices = [];
         if(d.pair === winTile) choices.push(-1);
-        own.forEach((s, k) => {
-          if(s.kind === "pung" ? s.tile === winTile : (suitOf(s.tile) === suitOf(winTile) && winTile >= s.tile && winTile <= s.tile + 2)) choices.push(k);
-        });
+        own.forEach((s, k) => { if(inSet(s, winTile)) choices.push(k); });
         choices.forEach(k => {
           const sets = own.map((s, j) => (j === k && s.kind === "pung" && !input.isTsumo) ? Object.assign({}, s, { concealed:false }) : s).concat(meldSets);
           readings.push({ shape:"standard", pair:d.pair, sets, winSet:k, tiles, winTile, noMelds:melds.length === 0, isTsumo:!!input.isTsumo });
@@ -6377,7 +6602,8 @@
           }
         }
       }
-      // 組合龍＋面子1つ＋雀頭(副露は1つまで)：組合龍の9枚を抜いた残りを、雀頭＋面子に分ける
+      // 組合龍＋面子1つ＋雀頭(副露は1つまで)：組合龍の9枚を抜いた残りを、雀頭＋面子に分ける。
+      // 和了牌が組合龍・雀頭・面子のどこに入ったかも読み方ごとに分ける
       if(melds.length <= 1){
         KNITTED.forEach(seq => {
           if(!seq.every(i => counts[i] >= 1)) return;
@@ -6385,18 +6611,29 @@
           seq.forEach(i => { rest[i]--; });
           decompose(rest, need - 3).forEach(d => {
             const own = d.sets.map(s => ({ kind:s.kind, tile:s.tile, concealed:true }));
-            const sets = own.map(s => (s.kind === "pung" && s.tile === winTile && !seq.includes(winTile) && d.pair !== winTile && !input.isTsumo) ? Object.assign({}, s, { concealed:false }) : s).concat(meldSets);
-            readings.push({ shape:"knitted", knitted:seq, pair:d.pair, sets, tiles, winTile, noMelds:melds.length === 0, isTsumo:!!input.isTsumo });
+            const choices = [];
+            if(seq.includes(winTile)) choices.push("knitted");
+            if(d.pair === winTile) choices.push(-1);
+            own.forEach((s, k) => { if(inSet(s, winTile)) choices.push(k); });
+            choices.forEach(k => {
+              const sets = own.map((s, j) => (j === k && s.kind === "pung" && !input.isTsumo) ? Object.assign({}, s, { concealed:false }) : s).concat(meldSets);
+              readings.push({ shape:"knitted", knitted:seq, pair:d.pair, sets, winSet:k, tiles, winTile, noMelds:melds.length === 0, isTsumo:!!input.isTsumo });
+            });
           });
         });
       }
       if(readings.length === 0) return null;
+      // 待ちが1種類だけか(標準形と組合龍の辺張・嵌張・単釣将に使う)
+      if(readings.some(h => h.shape === "standard" || h.shape === "knitted")) situation.uniqueWait = isUniqueWait(counts, need, winTile, countsOf(tiles));
       let best = null;
       readings.forEach(h => {
         Object.assign(h, situation);
-        const yaku = applyExclusions(detect(h));
+        let yaku = applyExclusions(detect(h));
+        if(yaku.length === 0) yaku = [{ name:"無番和", points:YAKU["無番和"].points, count:1 }];
         const total = yaku.reduce((a, y) => a + y.points, 0);
-        if(!best || total > best.total) best = { yaku, total, shape:h.shape };
+        // 合計が同じ読み方なら、一色三同順・三同刻の付く方を選ぶ(参照実装と同じ。333444555 は一色三節高より一色三同順)
+        const prefer = best && total === best.total && shapePrefer(yaku) && !shapePrefer(best.yaku);
+        if(!best || total > best.total || prefer) best = { yaku, total, shape:h.shape };
       });
       return best;
     }
@@ -6407,9 +6644,8 @@
 
   // ==================== MCR(国際公式麻雀)の点数計算 ====================
   // 日本式の役判定(computeYaku)とは別の関数群。結果は { yaku:[{name, points}], points, rawPoints, capped, mcr:true }。
-  // 和了の形の判定と役はMCR_YAKU(独立モジュール)で行い、形でなければnullを返す。
-  // 段階4は4点以上の役だけなので、それが1つもなければ仮に「無番和 8点」とする
-  // (2・1点の役は段階5で足し、無番和も段階5で公式どおりにする)
+  // 和了の形の判定と役(無番和を含む)はMCR_YAKU(独立モジュール)で行い、形でなければnullを返す。
+  // 同じ役が複数回付いた時は { name, points:合計, count:回数 }
   function mcrEvaluate(seat, concealed, winTile, isTsumo){
     const melds = meldsToSets(seat).map(s => ({ kind: s.type === "sequence" ? "chow" : (s.type === "kan" ? "kong" : "pung"), tiles: s.tiles, concealed: !s.open }));
     // 和了の状況：日本式の海底摸月・嶺上開花・槍槓と同じ材料で判定する(槍槓の牌は河底にならない)
@@ -6419,8 +6655,7 @@
     const r = MCR_YAKU.evaluate({ concealed, melds, winTile, isTsumo, seatWind: SEAT_WIND[seat], roundWind: ROUND_WIND,
       isLastWall, isReplacement, isRobbingKong, isLastCopy: mcrVisibleCopies(winTile) === 3 });
     if(!r) return null;
-    const yaku = r.yaku.length ? r.yaku : [{ name:"無番和", points:8 }];
-    return mcrBuildResult(seat, yaku, isTsumo);
+    return mcrBuildResult(seat, r.yaku, isTsumo);
   }
   // 和絶張の判定用：和了牌と同じ牌が、全員の河と副露(暗槓は伏せてあるので数えない)に何枚見えているか。
   // ロンの和了牌は河に置かれているので、和了牌そのもの(参照が同じ牌)は数えない
@@ -7420,7 +7655,7 @@
     let rowsHtml = "";
     if(result.mcr){
       // MCR：役名と点を並べ、最後に合計の行(上限で切った時は「88点(上限)」)
-      result.yaku.forEach(y => { rowsHtml += row(displayNameOf(y.name), y.points + "点", ""); });
+      result.yaku.forEach(y => { rowsHtml += row(displayNameOf(y.name) + (y.count > 1 ? "×" + y.count : ""), y.points + "点", ""); });
       rowsHtml += row(mcrTotalText(result), "", "", "fu-row");
       return { title, rowsHtml };
     }
