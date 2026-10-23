@@ -4572,12 +4572,14 @@
   }
 
   // 状態を丸ごと入れ替えた後、卓の見た目（手牌以外）を作り直す共通処理
+  // リーチの印：リーチ中の名札を赤く光らせる(全ルール。リピートで戻した時に、リーチしていない席の光を消す)。
   // オープンリーチの印：名札を金色に光らせ、名札の角に待ちの種類数を出す。待ちは見えている牌で変わるので、
   // 捨て牌・副露・宣言のたびに数え直す。オープンリーチしていない席は印と数を消す(リピートで戻した時も)
   function renderRiichiMarks(){
     ["bottom", "right", "top", "left"].forEach(s => {
       const plate = nameplateElByName[s];
       if(!plate) return;
+      plate.classList.toggle("riichi", !!riichiDeclared[s]);
       const open = !!openRiichiDeclared[s];
       plate.classList.toggle("open-riichi", open);
       let badge = plate.querySelector(".open-riichi-badge");
