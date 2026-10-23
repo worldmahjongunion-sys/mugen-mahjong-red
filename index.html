@@ -7453,14 +7453,34 @@
   //    ただし3着以下で沈んでいる時は、受け入れ枚数がBEHIND_UKEIRE_TOLERANCE枚以内の差なら
   //    受け入れよりドラ・赤牌の温存を優先する（安定重視をやめて一発逆転を狙いにいく）
   // 3. 選んだ結果が聴牌かつ門前かつ未リーチかつ1000点以上あれば、そのままリーチ宣言する
+  // オープンリーチ中のほかの人の待ちで、今その人がロンできる牌の種類(tileKeyのSet)。公開された手牌は全員に
+  // 見えているので、CPUも正確に分かる。フリテン中の人は、ロンできないので数えない
+  function openRiichiDangerKeys(seat){
+    const keys = new Set();
+    ["bottom", "right", "top", "left"].forEach(s => {
+      if(s === seat || !openRiichiDeclared[s] || isFuriten(s)) return;
+      getWaitsForReveal(s).forEach(w => keys.add(tileKey(w)));
+    });
+    return keys;
+  }
+
   function pickCpuDiscard(seat){
     const hand = hands[seat];
     const calledMeldsCount = melds[seat].length;
-    const candidates = calcCandidateShantens(hand, calledMeldsCount);
+    let candidates = calcCandidateShantens(hand, calledMeldsCount);
     if(ruleConfig.scoreTableMode === "mcr") return pickCpuDiscardMcr(seat, candidates); // MCR：8点縛りを見る打牌(リーチ・ドラはない)
+    // オープンリーチへの押し引き：公開された待ちの牌は、ほかに切れる牌があれば切らない(切れば必ずロンされる)。
+    // 残った安全な牌の中で、シャンテン数を保てる牌があればそれで押し(下の効率の判断のまま)、無ければ
+    // 形を崩す安全な牌を切る(降り)。安全な牌が1枚も無い時だけ、今までどおりの判断で選ぶ
+    const openDanger = openRiichiDangerKeys(seat);
+    if(openDanger.size > 0){
+      const safe = candidates.filter(c => !openDanger.has(c.kind));
+      if(safe.length > 0) candidates = safe;
+    }
     const bestShanten = Math.min(...candidates.map(c => c.shanten));
 
-    const dangerousSeats = ["top", "left", "right"].filter(s => s !== seat && riichiDeclared[s]);
+    // 公開された待ちが分かっているオープンリーチの人は、上で扱ったので、現物で守る相手からは外す
+    const dangerousSeats = ["top", "left", "right"].filter(s => s !== seat && riichiDeclared[s] && !openRiichiDeclared[s]);
     if(dangerousSeats.length > 0 && bestShanten >= 1){
       const safe = candidates.filter(c => dangerousSeats.every(s => isGenbutsu(c.tile, s)));
       if(safe.length > 0){
@@ -7549,10 +7569,49 @@
     return Math.random() < prob;
   }
 
-  // CPUがリーチする時に、オープンリーチにするか(openRiichiEnabledのルールだけ呼ぶ)。
-  // いつオープンリーチにするかの判断は段階5で入れる。今はいつも普通のリーチ
+  // CPUのオープンリーチの条件(あとから調整できるように数字をここにまとめる)
+  const CPU_OPEN_RIICHI = {
+    minWaitKinds: 20,     // 待ちがこの種類数以上(多面待ち)ならオープンリーチを考える
+    minExtraPoints: 3000, // オープンにすると、ロンした時の受取額(待ちごとの平均)がこの点数以上増えるなら考える
+                          // (切り上げ満貫の表では、3翻→4翻の満貫・5翻→6翻の跳満などの時だけ届く)
+    probability: 0.5,     // 上のどちらかを満たした時に、実際にオープンリーチにする確率
+    skipIfOtherOpen: true // ほかの人がもうオープンリーチしている局ではしない
+  };
+  // CPUがリーチする時に、オープンリーチにするか(openRiichiEnabledのルールだけ呼ぶ)。discardTileはリーチの宣言牌。
+  // 打点は裏ドラ(まだ見えていない)を除いて見積もる
   function cpuWantsOpenRiichi(seat, discardTile){
-    return false;
+    if(CPU_OPEN_RIICHI.skipIfOtherOpen && Object.keys(openRiichiDeclared).some(s => s !== seat && openRiichiDeclared[s])) return false;
+    const hand = hands[seat];
+    const idx = hand.indexOf(discardTile);
+    if(idx < 0) return false;
+    hand.splice(idx, 1);
+    const prevRiichi = riichiDeclared[seat];
+    let waitKinds = 0, extra = 0;
+    try {
+      const waits = getWaits(seat);
+      waitKinds = waits.length;
+      if(waitKinds > 0 && waitKinds < CPU_OPEN_RIICHI.minWaitKinds){
+        riichiDeclared[seat] = true; // 普通のリーチをした時の役で数える
+        const other = ["bottom", "right", "top", "left"].find(s => s !== seat);
+        let sumNormal = 0, sumOpen = 0, n = 0;
+        waits.forEach(w => {
+          const r = attemptWin(seat, w, false);
+          if(!r || r.yakunashi) return;
+          const ura = r.yaku.filter(y => y.name === "裏ドラ" || y.name === "カン裏");
+          const normal = Object.assign({}, r, { yaku: r.yaku.filter(y => !ura.includes(y)), han: r.han - ura.reduce((a, y) => a + y.han, 0) });
+          const open = Object.assign({}, normal, { yaku: [...normal.yaku, { name:"オープンリーチ", han:1 }], han: normal.han + 1 });
+          sumNormal += computeRonAmount(seat, other, normal, 0).nominalGain;
+          sumOpen += computeRonAmount(seat, other, open, 0).nominalGain;
+          n++;
+        });
+        extra = n ? (sumOpen - sumNormal) / n : 0;
+      }
+    } finally {
+      riichiDeclared[seat] = prevRiichi;
+      hand.splice(idx, 0, discardTile);
+    }
+    const want = waitKinds >= CPU_OPEN_RIICHI.minWaitKinds || extra >= CPU_OPEN_RIICHI.minExtraPoints;
+    return want && Math.random() < CPU_OPEN_RIICHI.probability;
   }
 
   // --- 自分のリーチ宣言 ---
