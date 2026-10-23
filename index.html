@@ -4355,6 +4355,9 @@
   let riichiSticks = savedMatchState ? savedMatchState.riichiSticks : 0;
   // 各自が今の局でリーチを宣言しているか。局の開始時に全員falseへリセットする
   let riichiDeclared = { bottom:false, top:false, left:false, right:false };
+  // オープンリーチ(openRiichiEnabled)で手牌を公開している席。公開された手牌は、オールマイティー牌の
+  // 「5枚目になる当てはめ」「赤5が見えているか」の判定で、見えている牌として数える(宣言の処理は段階4)
+  let openRiichiDeclared = { bottom:false, top:false, left:false, right:false };
   // リーチ宣言後、まだ宣言牌（河で横向きにする1枚）を確定させていない席。宣言直後の次の打牌だけを狙い撃ちするためのワンショットフラグ
   let awaitingRiichiDiscard = { bottom:false, top:false, left:false, right:false };
   // リーチ宣言牌そのもの（discards[seat]内の同一オブジェクト参照）。renderDiscardでこの1枚だけ追加で90度回す
@@ -4987,8 +4990,19 @@
       ok = false; // 待ちが存在しない場合はfalse（異常系）
     } else {
       const tKey = tileKey(tile);
-      ok = waits.every(w => {
-        const hand14 = [...handTiles, w]; // 13枚＋待ち牌＝14枚の和了形
+      // オールマイティー牌(万能)のあるルールは、待ち牌に加えて万能の化け先を1枚足した14枚にする。
+      // 化け先が複数ある時は、そのすべての形で暗刻が独立している時だけ認める
+      const vis = HAS_ALMIGHTY ? almightyVisibleInfo(seat, []) : null;
+      const hand14List = w => {
+        if(!HAS_ALMIGHTY) return [[...handTiles, w]]; // 13枚＋待ち牌＝14枚の和了形
+        const wi = TILE_INDEX_MAP.get(tileKey(w));
+        const c = countsArrayFromTiles([...handTiles, w]);
+        vis.counts[wi]++;
+        const list = almightyCompletionIndices(c, melds[seat].length, vis.counts, false).map(i => [...handTiles, w, ALL_TILE_TYPES[i]]);
+        vis.counts[wi]--;
+        return list;
+      };
+      ok = waits.every(w => hand14List(w).every(hand14 => {
         const decomps = findAllDecompositions(hand14);
         // 標準形（4面子+雀頭）の分解が1つも無い場合はfalse。実在するケース：本ルールは
         // 七対子の「同じ牌4枚を2対子として使う」を認めているため、tileが4枚とも
@@ -5002,7 +5016,7 @@
           const usedElsewhere = d.sets.some(s => s.type !== "triplet" && s.tiles.some(x => tileKey(x) === tKey));
           return tripletCount === 1 && !usedElsewhere;
         });
-      });
+      }));
     }
 
     handTiles.splice(idx, 0, removed); // 必ず元の14枚に戻す
@@ -5906,10 +5920,179 @@
   // 結果画面の「30符3飜」の行に添える点数の名前（満貫に届かなければ無し）
   const FU_LIMIT_NAMES = { 2000:"満貫", 3000:"跳満", 4000:"倍満", 6000:"三倍満" };
 
-  // 手牌が和了形になっているか判定し、役があれば結果を返す（役なしはnull）
+  // ==================== オールマイティー牌(万能)の判定(almightyTileEnabled：Mリーグ NEO) ====================
+  // 万能は手牌の配列(hands)に入れず、判定の時だけ「何かの牌に化けた仮の牌」を1枚足して、今までの判定
+  // (attemptWinCore)にそのまま渡す。どの牌に化けるかは、次の速い判定で候補を絞ってから決める。
+  // ・和了の形かどうかは、34種類の枚数だけを見る形の判定(almightyIsCompleteShape)で調べる
+  // ・化けられない牌：見えている牌と合わせて5枚目になる牌。見えている牌＝自分の手牌(和了牌を含む)・全員の河・
+  //   副露・ドラ表示牌(カンドラを含む)・オープンリーチ中の人の手牌。伏せた手牌と伏せた裏ドラ表示牌は数えない
+  // ・赤5に化けられるのは、その色の赤5が見えていない時だけ(5枚目になる時は、そもそも5に化けられない)
+  // 組合龍・組合同順は形の判定に入れていないので、それらを使うルールでは全当てはめを今の判定で試す(遅い道)
+  const ALMIGHTY_FAST_SHAPE = !(isYakuEnabled("組合龍") || isYakuEnabled("組合同順"));
+  const KOKUSHI_INDEX_SET = new Set([0, 8, 9, 17, 18, 26, 27, 28, 29, 30, 31, 32, 33]);
+
+  // 枚数配列(34種)が、確定面子meldCount組と合わせて和了の形(標準形・七対子・国士無双)になっているか。
+  // 役の有無は見ない(attemptWinCoreがnullを返さない形と同じ範囲)。配列は調べ終えたら元に戻す
+  function almightyIsCompleteShape(c, meldCount){
+    let total = 0;
+    for(let i = 0; i < 34; i++) total += c[i];
+    if(total !== 14 - 3 * meldCount) return false;
+    if(meldCount === 0){
+      // 七対子：ちょうど2枚の種類が7つ(4枚使いを認めるルールは、4枚の種類を対子2組に数える)
+      let pairs = 0, ok = true;
+      for(let i = 0; i < 34 && ok; i++){
+        if(c[i] === 0) continue;
+        if(c[i] === 2) pairs++;
+        else if(c[i] === 4 && ruleConfig.chiitoitsuFourTileEnabled) pairs += 2;
+        else ok = false;
+      }
+      if(ok && pairs === 7) return true;
+      // 国士無双：么九牌13種類がすべてあり、1種類だけ2枚
+      let kinds = 0, twos = 0, other = false;
+      for(let i = 0; i < 34; i++){
+        if(c[i] === 0) continue;
+        if(!KOKUSHI_INDEX_SET.has(i) || c[i] > 2){ other = true; break; }
+        kinds++;
+        if(c[i] === 2) twos++;
+      }
+      if(!other && kinds === 13 && twos === 1) return true;
+    }
+    // 標準形：小さい牌から順に、刻子・雀頭・順子として取り切れるか
+    const search = (hasHead) => {
+      let i = 0;
+      while(i < 34 && c[i] === 0) i++;
+      if(i === 34) return hasHead;
+      if(c[i] >= 3){ c[i] -= 3; const ok = search(hasHead); c[i] += 3; if(ok) return true; }
+      if(!hasHead && c[i] >= 2){ c[i] -= 2; const ok = search(true); c[i] += 2; if(ok) return true; }
+      if(i < 27 && i % 9 <= 6 && c[i + 1] > 0 && c[i + 2] > 0){
+        c[i]--; c[i + 1]--; c[i + 2]--;
+        const ok = search(hasHead);
+        c[i]++; c[i + 1]++; c[i + 2]++;
+        if(ok) return true;
+      }
+      return false;
+    };
+    return search(false);
+  }
+
+  // seatから見えている牌の枚数(34種)と、色ごとの赤5が見えているか。extraTilesは、まだどこにも
+  // 置かれていない牌(ロンの和了牌など)を自分の手牌として足す。同じ牌(参照)は1回しか数えない
+  function almightyVisibleInfo(seat, extraTiles){
+    const seen = new Set();
+    const add = t => { if(t) seen.add(t); };
+    hands[seat].forEach(add);
+    (extraTiles || []).forEach(add);
+    ["bottom", "top", "left", "right"].forEach(s => {
+      discards[s].forEach(add);
+      melds[s].forEach(m => { m.handTiles.forEach(add); add(m.calledTile); add(m.addedTile); });
+      if(s !== seat && openRiichiDeclared[s]) hands[s].forEach(add);
+    });
+    doraIndicators.forEach(add);
+    if(!URA_DORA_HIDDEN) riichiDoraIndicators.forEach(add); // 伏せた裏ドラ表示牌は見えていない
+    const counts = new Array(34).fill(0);
+    const redSeen = { man:false, pin:false, sou:false };
+    seen.forEach(t => {
+      const idx = TILE_INDEX_MAP.get(tileKey(t));
+      if(idx !== undefined) counts[idx]++;
+      if(t.red) redSeen[t.suit] = true;
+    });
+    return { counts, redSeen };
+  }
+
+  // 実牌の枚数配列realCounts(和了牌を含めて13-3×鳴き枚)に万能を足して和了の形になる、万能の化け先の
+  // 番号(0〜33)の一覧。visibleCountsで4枚見えている牌(化けると5枚目)には化けない。firstOnlyなら1つ見つけて止める
+  function almightyCompletionIndices(realCounts, meldCount, visibleCounts, firstOnly){
+    const out = [];
+    for(let i = 0; i < 34; i++){
+      if(visibleCounts[i] >= 4) continue;
+      realCounts[i]++;
+      const ok = almightyIsCompleteShape(realCounts, meldCount);
+      realCounts[i]--;
+      if(ok){ out.push(i); if(firstOnly) break; }
+    }
+    return out;
+  }
+
+  // 化け先の候補を仮の牌にする。5で、その色の赤5が見えていなければ、赤の5も候補に入れる(普通の5を先に置く)
+  function almightyVariantTiles(idx, redSeen){
+    const t = ALL_TILE_TYPES[idx];
+    const list = [{ suit:t.suit, num:t.num, almighty:true }];
+    if(ruleConfig.akaDoraEnabled && t.num === 5 && t.suit in redSeen && !redSeen[t.suit]) list.push({ suit:t.suit, num:t.num, red:true, almighty:true });
+    return list;
+  }
+
+  // 当てはめどうしを比べる値：役の無い読み方はいちばん下。役があれば、本場を除いた実際の受取額
+  // (ツモは3人分の合計、ロンはロンの額。赤のご祝儀も含む)、同じなら翻、さらに同じなら符の大きい方
+  function almightyResultRank(seat, r){
+    if(r.yakunashi) return [-1, 0, 0];
+    const other = ["bottom", "right", "top", "left"].find(s => s !== seat);
+    const gain = r.isTsumo ? computeTsumoAmounts(seat, r, 0).nominalGain : computeRonAmount(seat, other, r, 0).nominalGain;
+    return [gain, r.han, r.fu || 0];
+  }
+  function almightyRankGreater(a, b){
+    const i = a.findIndex((v, k) => v !== b[k]);
+    return i >= 0 && a[i] > b[i];
+  }
+
+  // 和了の判定(万能あり)：化け先の候補ごとに今の判定(attemptWinCore)を通し、点がいちばん高い当てはめを選ぶ。
+  // 結果のalmightyTileに化けた牌({suit,num,red})を入れる。同じ点なら、番号の小さい牌・赤でない方を残す
+  function attemptWinAlmighty(seat, extraTile, isTsumo){
+    const real = hands[seat].slice();
+    if(extraTile) real.push(extraTile);
+    const meldCount = melds[seat].length;
+    if(real.length !== 13 - 3 * meldCount) return null;
+    const vis = almightyVisibleInfo(seat, extraTile ? [extraTile] : []);
+    const indices = ALMIGHTY_FAST_SHAPE
+      ? almightyCompletionIndices(countsArrayFromTiles(real), meldCount, vis.counts, false)
+      : ALL_TILE_TYPES.map((t, i) => i).filter(i => vis.counts[i] < 4);
+    let best = null, bestRank = null;
+    indices.forEach(i => {
+      almightyVariantTiles(i, vis.redSeen).forEach(v => {
+        const r = attemptWinCore(seat, extraTile, isTsumo, v);
+        if(!r) return;
+        r.almightyTile = { suit:v.suit, num:v.num, red:!!v.red };
+        const rank = almightyResultRank(seat, r);
+        if(!best || almightyRankGreater(rank, bestRank)){ best = r; bestRank = rank; }
+      });
+    });
+    return best;
+  }
+
+  // 待ち(万能あり)：実牌(12-3×鳴き枚)に待ち牌wを足し、さらに万能をどれかの牌にすると和了の形になるw。
+  // 今のgetWaitsと同じく役の有無は問わず、w自体が4枚見えていても待ちから外さない(和了牌wは自分の手牌として数える)
+  function getWaitsAlmighty(seat){
+    const meldCount = melds[seat].length;
+    if(hands[seat].length !== 12 - 3 * meldCount) return [];
+    const vis = almightyVisibleInfo(seat, []);
+    if(!ALMIGHTY_FAST_SHAPE){
+      return ALL_TILE_TYPES.filter((w, wi) => {
+        vis.counts[wi]++;
+        const ok = ALL_TILE_TYPES.some((t, ti) => vis.counts[ti] < 4 && attemptWinCore(seat, w, true, { suit:t.suit, num:t.num, almighty:true }) !== null);
+        vis.counts[wi]--;
+        return ok;
+      });
+    }
+    const c = countsArrayFromTiles(hands[seat]);
+    return ALL_TILE_TYPES.filter((w, wi) => {
+      c[wi]++; vis.counts[wi]++;
+      const ok = almightyCompletionIndices(c, meldCount, vis.counts, true).length > 0;
+      c[wi]--; vis.counts[wi]--;
+      return ok;
+    });
+  }
+
+  // 手牌が和了形になっているか判定し、役があれば結果を返す（役なしはnull）。
+  // オールマイティー牌(万能)のあるルールは、万能をどの牌にするかを選んだうえで今の判定を使う
   function attemptWin(seat, extraTile, isTsumo){
+    if(HAS_ALMIGHTY && ruleConfig.scoreTableMode !== "mcr") return attemptWinAlmighty(seat, extraTile, isTsumo);
+    return attemptWinCore(seat, extraTile, isTsumo, null);
+  }
+
+  // 今までの和了の判定。almightyTileは万能が化けた仮の牌(万能のあるルールだけ。手牌に1枚足して判定する)
+  function attemptWinCore(seat, extraTile, isTsumo, almightyTile){
     const concealed = hands[seat].slice();
     if(extraTile) concealed.push(extraTile);
+    if(almightyTile) concealed.push(almightyTile);
     // 和了牌（ロンなら捨て牌、ツモなら直前にツモった牌）。待ちの形（平和の判定）に使う
     const winTile = extraTile || (seat === "bottom" ? lastDrawnTile : lastDrawnCpu[seat]);
     // MCRは日本式の役・翻を使わず、和了の形の判定も点数もmcrEvaluate(MCR_YAKUモジュール)で行う
@@ -6736,7 +6919,9 @@
 
   // 待ち一覧：34種類の牌を1枚ずつ仮に加えてみて、和了の形になる（役なし和了も可の本ルールでは
   // attemptWin が非nullを返す）牌の種類だけを集めて返す（{suit,num}の配列）
+  // オールマイティー牌(万能)のあるルールは、形の判定で求める(getWaitsAlmighty)
   function getWaits(seat){
+    if(HAS_ALMIGHTY && ruleConfig.scoreTableMode !== "mcr") return getWaitsAlmighty(seat);
     return ALL_TILE_TYPES.filter(t => attemptWin(seat, t, true) !== null);
   }
 
@@ -6767,8 +6952,10 @@
 
   // 終局時の手牌公開用：seat以外の全員の待ち牌を1つのSetにまとめる。テンパイのまま流局した人と
   // 同様に、和了者本人（ツモ・ロンいずれでも）の待ちも必ず含める
+  // オールマイティー牌(万能)のあるルールは待ちが広く、手牌のほとんどが光ってしまうので、光らせない(空のSet)
   function otherSeatsWaitKeys(seat){
     const keys = new Set();
+    if(HAS_ALMIGHTY) return keys;
     ["bottom", "top", "left", "right"].forEach(s => {
       if(s === seat) return;
       getWaitsForReveal(s).forEach(w => keys.add(tileKey(w)));
@@ -6939,8 +7126,17 @@
   // 計算し直しがち。session中ずっと使い回せるキャッシュを持たせて再計算を避ける
   const shantenCache = new Map();
 
-  // 手牌(オブジェクト配列)から総合シャンテン数(標準形・七対子・国士無双の最小値)を求める
+  // 手牌(オブジェクト配列)から総合シャンテン数を求める。オールマイティー牌(万能)のあるルールでは、
+  // 万能を1枚足したシャンテン数＝実牌のシャンテン数−1にする。ただし打牌後の形(実牌＋鳴き×3が12枚)は
+  // 0(聴牌)、打牌前の形(13枚)は−1(和了)より下にならない。万能が5枚目になる制限はここでは見ない(見積もり用)
   function calcShanten(tiles, calledMeldsCount){
+    const s = calcShantenReal(tiles, calledMeldsCount);
+    if(!HAS_ALMIGHTY) return s;
+    const floor = (tiles.length + 3 * calledMeldsCount) % 3 === 1 ? -1 : 0;
+    return Math.max(floor, s - 1);
+  }
+  // 実牌だけの総合シャンテン数(標準形・七対子・国士無双の最小値)
+  function calcShantenReal(tiles, calledMeldsCount){
     const counts = countsArrayFromTiles(tiles);
     const cacheKey = counts.join(",") + "|" + calledMeldsCount;
     const cached = shantenCache.get(cacheKey);
