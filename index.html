@@ -1003,6 +1003,8 @@
     text-align:left;
   }
   .final-standings .final-rule-note .final-rule-title{ font-weight:bold; margin-bottom:2px; }
+  /* 結果パネルの「万能→5萬(赤)」の行(Mリーグ NEO) */
+  .result-row.almighty-row .col-name, .pr-yaku-row.almighty-row span{ color:#FFD54A; font-weight:bold; }
   .final-standings .final-rule-note ul{ margin:0; padding-left:1.2em; }
 
   /* .boardの左上（和了結果表示＝右上の対角）に固定表示する。中身は.center-midのレイアウトを流用する。
@@ -2061,8 +2063,8 @@
       scoreTableMode:"linear", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
     // Mリーグ NEO：Mリーグ Originalの設定をそのまま使い、少牌(配牌12枚)＋各自1枚のオールマイティー牌と、
-    // オープンリーチだけを加える。段階実装の途中なので表紙ではまだ「近日公開」(status:"comingSoon")のまま
-    { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null },
+    // オープンリーチだけを加える(設定はRULESETSの下でOriginalからコピーして作る)。段階6で表紙から選べるようにした
+    { id:"mLeagueNeo", label:"Mリーグ NEO", status:"ready", ruleConfig:null },
     { id:"mLeagueOriginal", label:"Mリーグ Original", status:"ready", ruleConfig:{
       deadWallLayout:"auto14",
       disabledYaku:CUSTOM_YAKU_NAMES,
@@ -8026,11 +8028,20 @@
       `<div class="final-reason">${finalReasonText(reason)}／${handsPlayedCount}局 ${elapsedText}</div>` +
       `<div class="final-rank-row final-rank-header">` +
       `<span></span><span></span><span>${ruleConfig.umaMode === "mcrUki" ? "素点" : "素点(" + ruleConfig.returnPoints + "基準)"}</span><span>順位点</span><span>合計</span></div>` +
-      rows + (ruleConfig.umaMode === "mcrUki" ? mcrFinalRuleNote(scores) : "");
+      rows + (ruleConfig.umaMode === "mcrUki" ? mcrFinalRuleNote(scores) : (ruleConfig.almightyTileEnabled ? mLeagueNeoFinalRuleNote() : ""));
     document.getElementById("finalOverlay").style.display = "flex";
   }
 
   // MCR-NEO：終了画面の下に添えるルールの要点。順位点は今回の浮き(0点以上)の人数で引いた表も出す
+  // Mリーグ NEOの終了画面に出すルールの要点
+  function mLeagueNeoFinalRuleNote(){
+    return `<div class="final-rule-note"><div class="final-rule-title">Mリーグ NEO のルール</div><ul>` +
+      `<li>配牌は12枚＋各自1枚の万能(オールマイティー牌)。万能はどの牌にもなる(ドラ・赤にもなる)</li>` +
+      `<li>オープンリーチあり(手牌を公開して2翻)</li>` +
+      `<li>天和・地和あり、人和なし</li>` +
+      `<li>そのほかは Mリーグ Original と同じ</li>` +
+      `</ul></div>`;
+  }
   function mcrFinalRuleNote(finalScores){
     const uki = ["bottom", "right", "top", "left"].filter(s => finalScores[s] >= 0).length;
     const table = MCR_UMA_TABLE_BY_UKI[uki] || MCR_UMA_TABLE_BY_UKI[4];
@@ -8199,12 +8210,20 @@
   // 和了者1人分の見出し＋役一覧（役・飜・点数の行）を組み立てる。単独用のshowResult・
   // 複数用のshowMultiResultの両方から呼ぶ（ダブロン対応で切り出し）。供託・本場・合計行は
   // ここに含めず、呼び出し側でまとめて付け足す
+  // オールマイティー牌(万能)が化けた牌の名前。数牌は「5萬」のように数字で、赤の5は「5萬(赤)」、字牌は「東」「中」
+  function almightyTileText(t){
+    if(t.suit === "wind" || t.suit === "dragon") return tileLabel(t);
+    return t.num + { man:"萬", pin:"筒", sou:"索" }[t.suit] + (t.red ? "(赤)" : "");
+  }
+
   function buildYakuRows(seat, result, loserSeat, bonusTotal){
     const title = result.isTsumo ? (seatLabel[seat] + "のツモ") : (seatLabel[seat] + "のロン（" + seatLabel[loserSeat] + "から）");
     const isTsumo = result.isTsumo;
     const isDealer = seat === DEALER_SEAT;
 
     let rowsHtml = "";
+    // オールマイティー牌(万能)のあるルール：役の行の前に、万能が何に化けたかを1行出す(スマホ縦の表示にもそのまま載る)
+    if(result.almightyTile) rowsHtml += row("万能→" + almightyTileText(result.almightyTile), "", "", "almighty-row");
     if(result.mcr){
       // MCR：役名と点を点の大きい順に並べ(同じ役をまとめた「×2」の行は合計の点で並べる。同点は判定の順のまま)、
       // 最後に合計の行(上限で切った時は「88点(上限)」)
@@ -8327,7 +8346,7 @@
     const rows = [...box.querySelectorAll(".result-row:not(.total-row):not(.fu-row)")].map(r => {
       const han = r.querySelector(".col-han").textContent;
       const pts = r.querySelector(".col-pts").textContent;
-      return `<div class="pr-yaku-row"><span>${r.querySelector(".col-name").innerHTML}</span>` +
+      return `<div class="pr-yaku-row${r.classList.contains("almighty-row") ? " almighty-row" : ""}"><span>${r.querySelector(".col-name").innerHTML}</span>` +
         `<span class="pr-han">${han || (pts ? Number(pts) + "点" : "")}</span></div>`;
     }).join("");
     const splitEl = box.querySelector(".result-row.total-row .col-name");
