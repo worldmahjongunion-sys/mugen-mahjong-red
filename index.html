@@ -2238,7 +2238,8 @@
         matches: g.matches, rankCounts: g.rankCounts,
         avgRank: Math.round(g.rankSum / g.matches * 100) / 100,
         topRate: Math.round(g.rankCounts[0] / g.matches * 1000) / 10,
-        avgTotal: Math.round(g.totalSum / g.matches / 100) * 100,
+        // 平均合計は100点単位。点が数十点のMCR-NEO(一荘戦)だけ1点単位
+        avgTotal: matchUnitOf(g.ruleId) === "一荘" ? Math.round(g.totalSum / g.matches) : Math.round(g.totalSum / g.matches / 100) * 100,
         avgHands: Math.round(g.handsSum / g.matches * 10) / 10
       }));
   }
