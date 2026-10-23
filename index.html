@@ -970,6 +970,18 @@
   .final-standings .final-rank-row.final-rank-header + .final-rank-row{
     border-top:1px solid rgba(255,255,255,0.15);
   }
+  /* MCR-NEO：終了画面の下に添えるルールの要点 */
+  .final-standings .final-rule-note{
+    margin-top:8px;
+    padding-top:6px;
+    border-top:1px solid rgba(255,255,255,0.15);
+    font-size:11px;
+    line-height:1.5;
+    opacity:0.85;
+    text-align:left;
+  }
+  .final-standings .final-rule-note .final-rule-title{ font-weight:bold; margin-bottom:2px; }
+  .final-standings .final-rule-note ul{ margin:0; padding-left:1.2em; }
 
   /* .boardの左上（和了結果表示＝右上の対角）に固定表示する。中身は.center-midのレイアウトを流用する。
      局・供託・ドラを表示する枠(.top-left-info)と、その下の操作ボタン行(.result-actions)を
@@ -2067,10 +2079,10 @@
     } },
     { id:"sanninNeo", label:"無限ルールNEO(3人打ち)", status:"comingSoon", ruleConfig:null },
     { id:"zanLeague", label:"ザンリーグルール", status:"comingSoon", ruleConfig:null },
-    // MCR-NEO(国際公式麻雀ベース)。段階実装中のため表紙からはまだ選べない(status:"comingSoon")。
+    // MCR-NEO(国際公式麻雀ベース)。段階7で表紙から選べるようにした(status:"ready")。
     // 役・点は日本式の判定(computeYaku)を使わず、scoreTableMode:"mcr"の関数群(mcrEvaluate)で数える。
     // 天和・地和なし、王牌なし、リーチ・ドラ・赤・フリテン・本場・連荘なし、東南西北の16局で終わる
-    { id:"mcrNeo", label:"MCR-NEO", status:"comingSoon", ruleConfig:{
+    { id:"mcrNeo", label:"MCR-NEO", status:"ready", ruleConfig:{
       deadWallLayout:"none",
       disabledYaku:[], // MCRの役は日本式の判定を通らないので関係しない
       chiitoitsuStandardYakuStack:false,
@@ -7639,8 +7651,22 @@
       `<div class="final-reason">${finalReasonText(reason)}／${handsPlayedCount}局 ${elapsedText}</div>` +
       `<div class="final-rank-row final-rank-header">` +
       `<span></span><span></span><span>${ruleConfig.umaMode === "mcrUki" ? "素点" : "素点(" + ruleConfig.returnPoints.toLocaleString() + "基準)"}</span><span>順位点</span><span>合計</span></div>` +
-      rows;
+      rows + (ruleConfig.umaMode === "mcrUki" ? mcrFinalRuleNote(scores) : "");
     document.getElementById("finalOverlay").style.display = "flex";
+  }
+
+  // MCR-NEO：終了画面の下に添えるルールの要点。順位点は今回の浮き(0点以上)の人数で引いた表も出す
+  function mcrFinalRuleNote(finalScores){
+    const uki = ["bottom", "right", "top", "left"].filter(s => finalScores[s] >= 0).length;
+    const table = MCR_UMA_TABLE_BY_UKI[uki] || MCR_UMA_TABLE_BY_UKI[4];
+    const fmt = n => (n > 0 ? "＋" : (n < 0 ? "－" : "±")) + Math.abs(n);
+    return `<div class="final-rule-note"><div class="final-rule-title">MCR-NEO のルール</div><ul>` +
+      `<li>8点縛り(役の合計が8点未満では和了できない。上限88点)</li>` +
+      `<li>フリテンなし・リーチなし・ドラなし</li>` +
+      `<li>一荘戦(東南西北の16局)。流局でも親は次の人へ</li>` +
+      `<li>4局ごとに席替え(公式の表どおり)</li>` +
+      `<li>順位点は浮き(0点以上)の人数で決まる。今回は浮き${uki}人：${table.map(fmt).join("／")}</li>` +
+      `</ul></div>`;
   }
 
   // 局終了後の共通処理：終了条件を満たしていれば最終順位画面を出し、満たしていなければ
@@ -7805,8 +7831,9 @@
 
     let rowsHtml = "";
     if(result.mcr){
-      // MCR：役名と点を並べ、最後に合計の行(上限で切った時は「88点(上限)」)
-      result.yaku.forEach(y => { rowsHtml += row(displayNameOf(y.name) + (y.count > 1 ? "×" + y.count : ""), y.points + "点", ""); });
+      // MCR：役名と点を点の大きい順に並べ(同じ役をまとめた「×2」の行は合計の点で並べる。同点は判定の順のまま)、
+      // 最後に合計の行(上限で切った時は「88点(上限)」)
+      result.yaku.slice().sort((a, b) => b.points - a.points).forEach(y => { rowsHtml += row(displayNameOf(y.name) + (y.count > 1 ? "×" + y.count : ""), y.points + "点", ""); });
       rowsHtml += row(mcrTotalText(result), "", "", "fu-row");
       return { title, rowsHtml };
     }
