@@ -2051,12 +2051,15 @@
       honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
       earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false,
       yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
-      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true, honbaResetOnChildWin:true,
-      southRoundEnabled:false, renchanAtFinalKyokuEnabled:false,
+      // 局進行はWWスタンダードと同じ(2026-10-21)：流局で親が流れても本場は積む(子の和了の時だけ0)、東南戦、オーラスも親は連荘
+      tenpaiRenchanEnabled:true, honbaResetOnDealerChange:false, honbaResetOnChildWin:true,
+      southRoundEnabled:true, renchanAtFinalKyokuEnabled:true,
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
       ippatsuOnTsumoEnabled:false, chiitoitsuFourTileEnabled:false, // 追記11で確定: WWも4枚使いは無し
       ippatsuEnabled:false, uraDoraEnabled:false, kanDoraEnabled:false, // 一発・裏ドラ・カンドラ無し
-      scoreTableMode:"lookup", scoreTableKiriage:false, yakumanMultiplierEnabled:false, countedYakumanCapped:false // 切り上げ満貫無し(子7700・親11600の実数)
+      // 符計算あり(WWスタンダードと同じcalcFu)。切り上げ満貫は無し(30符4飜・60符3飜は子7700・親11600の実数)。
+      // 名の付いた役満は固定額、役の合計だけで13翻以上は三倍満止め(数え役満なし)
+      scoreTableMode:"fu", scoreTableKiriage:false, yakumanMultiplierEnabled:false, countedYakumanCapped:true
     } },
     { id:"wwStandard", label:"麻雀共同体WW スタンダード", status:"ready", ruleConfig:{
       deadWallLayout:"auto14",
