@@ -2260,6 +2260,11 @@
       return parsed && Array.isArray(parsed.rows) ? parsed : null;
     } catch(e){ return null; }
   }
+  // 成績の対局数の単位。一荘戦(東南西北の16局)のルール(MCR-NEO)は「一荘」、それ以外は「半荘」
+  function matchUnitOf(ruleId){
+    const rule = RULESETS.find(x => x.id === ruleId);
+    return rule && rule.ruleConfig && rule.ruleConfig.totalKyoku === 16 ? "一荘" : "半荘";
+  }
   function renderStatsScreen(){
     const stats = loadMonthlyStats() || runMonthlyStatsBatch();
     const body = document.getElementById("statsBody");
@@ -2285,7 +2290,7 @@
       }
       const card = el("div", "stats-card");
       const head = el("div", "stats-card-head");
-      head.append(el("span", "", r.ruleLabel), el("span", "stats-matches", r.matches + "半荘"));
+      head.append(el("span", "", r.ruleLabel), el("span", "stats-matches", r.matches + matchUnitOf(r.ruleId)));
       const ranks = el("div", "stats-card-line");
       r.rankCounts.forEach((c, i) => ranks.appendChild(el("span", "", (i + 1) + "位 " + c)));
       const rates = el("div", "stats-card-line");
