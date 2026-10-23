@@ -2297,7 +2297,7 @@
       const rates = el("div", "stats-card-line");
       rates.append(el("span", "", "平均順位 " + r.avgRank.toFixed(2)), el("span", "", "トップ率 " + r.topRate + "%"));
       const sign = r.avgTotal > 0 ? "＋" : (r.avgTotal < 0 ? "－" : "±");
-      const total = el("div", "", "平均合計 " + sign + Math.abs(r.avgTotal).toLocaleString() + "点");
+      const total = el("div", "", "平均合計 " + sign + Math.abs(r.avgTotal) + "点");
       card.append(head, ranks, rates, total);
       body.appendChild(card);
     });
@@ -7546,7 +7546,7 @@
 
   function finalReasonText(reason){
     if(reason.type === "bust") return seatLabel[reason.seat] + "の持ち点がマイナスになったため終了（トビ）";
-    if(reason.type === "over70000") return seatLabel[reason.seat] + "が70,000点を超えたため終了";
+    if(reason.type === "over70000") return seatLabel[reason.seat] + "が70000点を超えたため終了";
     if(ruleConfig.totalKyoku === 16) return "北4局が終了したため終了";
     return (ruleConfig.southRoundEnabled ? "南4局" : "東8局") + "が終了したため終了";
   }
@@ -7656,7 +7656,7 @@
       `<div class="final-title">対局終了</div>` +
       `<div class="final-reason">${finalReasonText(reason)}／${handsPlayedCount}局 ${elapsedText}</div>` +
       `<div class="final-rank-row final-rank-header">` +
-      `<span></span><span></span><span>${ruleConfig.umaMode === "mcrUki" ? "素点" : "素点(" + ruleConfig.returnPoints.toLocaleString() + "基準)"}</span><span>順位点</span><span>合計</span></div>` +
+      `<span></span><span></span><span>${ruleConfig.umaMode === "mcrUki" ? "素点" : "素点(" + ruleConfig.returnPoints + "基準)"}</span><span>順位点</span><span>合計</span></div>` +
       rows + (ruleConfig.umaMode === "mcrUki" ? mcrFinalRuleNote(scores) : "");
     document.getElementById("finalOverlay").style.display = "flex";
   }
@@ -7959,7 +7959,7 @@
       const han = r.querySelector(".col-han").textContent;
       const pts = r.querySelector(".col-pts").textContent;
       return `<div class="pr-yaku-row"><span>${r.querySelector(".col-name").innerHTML}</span>` +
-        `<span class="pr-han">${han || (pts ? Number(pts).toLocaleString() + "点" : "")}</span></div>`;
+        `<span class="pr-han">${han || (pts ? Number(pts) + "点" : "")}</span></div>`;
     }).join("");
     const splitEl = box.querySelector(".result-row.total-row .col-name");
     const splitText = splitEl ? splitEl.textContent : "";
@@ -7972,14 +7972,14 @@
       const sign = diff > 0 ? "+" : (diff < 0 ? "−" : "±");
       return `<div class="pr-player${s === seat ? " pr-win" : ""}">` +
         `<span class="pr-wind">${WIND_CHAR[SEAT_WIND[s]]}</span><span>${seatLabel[s]}</span>` +
-        `<span class="pr-score">${scores[s].toLocaleString()}</span>` +
-        `<span class="pr-diff ${cls}">${sign}${Math.abs(diff).toLocaleString()}</span></div>`;
+        `<span class="pr-score">${scores[s]}</span>` +
+        `<span class="pr-diff ${cls}">${sign}${Math.abs(diff)}</span></div>`;
     }).join("");
     const headline = portraitResultHeadline(seat, result, basePoints);
     box.innerHTML =
       `<div class="pr-title">${title}</div>` +
       `<div class="pr-head">${headline ? `<span class="pr-limit">${headline}</span>` : ""}` +
-      `<span class="pr-points">${totalGain.toLocaleString()}<small>点</small></span>` +
+      `<span class="pr-points">${totalGain}<small>点</small></span>` +
       (splitText ? `<span class="pr-split">${splitText}</span>` : "") + `</div>` +
       `<div class="pr-yaku">${rows}${sumRow}</div>` +
       `<div class="pr-players">${players}</div>` +
