@@ -3512,7 +3512,7 @@
   }
 
   // CPUのチーAI（初回判断）。shouldCpuCall（ポン・カン用）と同じ基準：シャンテンが良くなる、
-  // または変わらない場合だけ検討し、確率的に鳴くかどうかを決める。役の有無は考慮しない
+  // または変わらない場合だけ検討し、確率的に鳴くかどうかを決める。役の有無は考慮しない(MCRだけは8点の筋を見る)
   function shouldCpuChi(seat, tile, shapes){
     const combos = chiComboOptions(hands[seat], tile, shapes);
     if(combos.length === 0) return null;
@@ -3522,9 +3522,11 @@
       const remaining = hands[seat].slice();
       combo.forEach(t => remaining.splice(remaining.indexOf(t), 1));
       const afterShanten = calcShanten(remaining, melds[seat].length + 1);
+      // MCR：鳴いた後の手に8点の筋が見えないチーはしない
+      if(ruleConfig.scoreTableMode === "mcr" && !mcrCpuCallReaches(seat, remaining, "chow", [...combo, tile])) return;
       if(!best || afterShanten < best.afterShanten) best = { combo, afterShanten };
     });
-    if(best.afterShanten > beforeShanten) return null;
+    if(!best || best.afterShanten > beforeShanten) return null;
     const prob = best.afterShanten < beforeShanten ? 0.85 : 0.25;
     return Math.random() < prob ? best.combo : null;
   }
@@ -6980,6 +6982,152 @@
   // 沈んでいる時、最大受け入れ枚数からどれだけ目減りしてもドラ・赤牌の温存を優先するかの許容幅
   const BEHIND_UKEIRE_TOLERANCE = 4;
 
+  // ==================== MCR のCPU：8点縛りを満たす手作り ====================
+  // MCR(scoreTableMode "mcr")の時だけ使う。重い探索はせず、手牌と副露の枚数の構成から
+  // 「8点に届く見込み」を見積もる。テンパイの時は見積もりではなく、待ちごとの本物の判定(attemptWin)を優先する
+  const MCR_CPU_TERMINAL = i => i < 27 && (i % 9 === 0 || i % 9 === 8);
+  // 筋の点の見積もり。counts=手の中の牌(34種の枚数)、sets=副露と暗槓({kind:"chow"|"pung"|"kong", tile:先頭の牌の番号, open})。
+  // 返り値 { points, reach }。役が1つも見えない手は無番和(8点)なので届く手、1〜7点の役だけの手は届かない手として扱う。
+  // strict(鳴きの判断)の時は、順子の形の筋を「9枚のうち1枚まで足りない」に絞る
+  function mcrCpuEstimate(counts, sets, seatWind, roundWind, strict){
+    const all = counts.slice();
+    sets.forEach(s => {
+      if(s.kind === "chow"){ all[s.tile]++; all[s.tile + 1]++; all[s.tile + 2]++; }
+      else all[s.tile] += s.kind === "kong" ? 4 : 3;
+    });
+    const isPungSet = i => sets.some(s => s.kind !== "chow" && s.tile === i);
+    const done = i => isPungSet(i) || counts[i] >= 3; // 刻子ができている
+    const hasChowMeld = sets.some(s => s.kind === "chow");
+    const closed = sets.every(s => !s.open);
+    const suitTotal = k => all.slice(k * 9, k * 9 + 9).reduce((a, b) => a + b, 0);
+    const honorTotal = all.slice(27).reduce((a, b) => a + b, 0);
+    // 字牌：箭刻2(2つで双箭刻6)・圏風刻2・門風刻2。対子は半分(1点)に見る
+    let honor = 0;
+    const dragonDone = [31, 32, 33].filter(done).length;
+    honor += dragonDone >= 2 ? 6 : dragonDone * 2;
+    [31, 32, 33].forEach(i => { if(!done(i) && counts[i] === 2) honor += 1; });
+    [26 + roundWind, 26 + seatWind].forEach(i => { if(done(i)) honor += 2; else if(counts[i] === 2) honor += 1; });
+    // 碰碰和6：順子の副露がなく、刻子2つ以上＋対子で5組に届く
+    let pungs = 0;
+    if(!hasChowMeld){
+      const p = sets.length + counts.filter(c => c >= 3).length;
+      const pairs = counts.filter(c => c === 2).length;
+      if(p >= 2 && p + pairs >= 5) pungs = 6;
+    }
+    // 全帯幺4：どの副露にも幺九牌があり、手の中の4〜6の牌が1枚以下
+    const meldOutside = sets.every(s => s.kind === "chow" ? (s.tile % 9 === 0 || s.tile % 9 === 6) : (s.tile >= 27 || MCR_CPU_TERMINAL(s.tile)));
+    const middle = counts.reduce((a, c, i) => a + (i < 27 && i % 9 >= 3 && i % 9 <= 5 ? c : 0), 0);
+    const outside = meldOutside && middle <= 1 ? 4 : 0;
+    // 1色にまとめる：混一色6・清一色24。ほかの色の牌(手の中)が3枚以下で、副露がその色か字牌だけ
+    let flush = 0;
+    for(let k = 0; k < 3; k++){
+      if(sets.some(s => s.tile < 27 && Math.floor(s.tile / 9) !== k)) continue;
+      const off = [0, 1, 2].filter(j => j !== k).reduce((a, j) => a + suitTotal(j), 0);
+      if(off > 3) continue;
+      const honorsInHand = counts.slice(27).reduce((a, b) => a + b, 0);
+      const pts = !sets.some(s => s.tile >= 27) && honorsInHand <= 1 && off + honorsInHand <= 2 ? 24 : 6;
+      flush = Math.max(flush, pts);
+    }
+    // 順子の形：清龍16・三色三同順8・花龍8・三色三歩高6。9枚のうち2枚まで(strictは1枚まで)足りなくてよいが、
+    // どの順子も2枚以上そろっていること。形に入らない副露は1つまで
+    const pattern = chows => {
+      let present = 0, used = 0, thin = false;
+      chows.forEach(c => {
+        if(sets.some(s => s.kind === "chow" && s.tile === c)){ present += 3; used++; return; }
+        let k = 0;
+        for(let j = 0; j < 3; j++) if(counts[c + j] > 0) k++;
+        if(k < 2) thin = true;
+        present += k;
+      });
+      return !thin && sets.length - used <= 1 && present >= (strict ? 8 : 7);
+    };
+    const PERMS = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+    let chow = 0;
+    for(let k = 0; k < 3 && chow < 16; k++) if(pattern([k * 9, k * 9 + 3, k * 9 + 6])) chow = 16;
+    for(let r = 0; r < 7 && chow < 8; r++) if(pattern([r, 9 + r, 18 + r])) chow = 8;
+    PERMS.forEach(p => { if(chow < 8 && pattern([p[0] * 9, p[1] * 9 + 3, p[2] * 9 + 6])) chow = 8; });
+    for(let r = 0; r < 5 && chow < 6; r++) PERMS.forEach(p => { if(chow < 6 && pattern([p[0] * 9 + r, p[1] * 9 + r + 1, p[2] * 9 + r + 2])) chow = 6; });
+    // 五門斉6：萬・筒・索に2枚以上、風牌と三元牌に2枚以上ずつ
+    const winds = all.slice(27, 31).reduce((a, b) => a + b, 0), dragons = all.slice(31).reduce((a, b) => a + b, 0);
+    const five = [0, 1, 2].every(k => suitTotal(k) >= 2) && winds >= 2 && dragons >= 2 ? 6 : 0;
+    // 小さな役：門前清2・断幺2・無字1・欠一門1・全求人6(副露4つ)
+    const tanyao = all.every((c, i) => c === 0 || (i < 27 && !MCR_CPU_TERMINAL(i))) ? 2 : 0;
+    const noHonor = honorTotal === 0 ? 1 : 0;
+    const voided = [0, 1, 2].filter(k => suitTotal(k) === 0).length === 1 ? 1 : 0;
+    const small = (closed ? 2 : 0) + tanyao + (sets.filter(s => s.open).length === 4 ? 6 : 0);
+    const totals = [
+      honor + pungs + outside + small + noHonor + voided,
+      flush ? flush + honor + pungs + outside + small : 0,
+      chow ? chow + honor + outside + small + noHonor : 0,
+      five ? five + honor + pungs + small : 0
+    ];
+    const points = Math.max(...totals);
+    if(points === 0) return { points: 8, reach: true }; // 役が1つも見えない：無番和
+    return { points, reach: points >= ruleConfig.minWinPoints };
+  }
+  // seatの副露(melds)を、見積もり用の {kind, tile, open} に直す。extraがあれば鳴いた後の面子として足す
+  function mcrCpuSets(seat, extra){
+    const sets = meldsToSets(seat).map(s => ({ kind: s.type === "sequence" ? "chow" : (s.type === "kan" ? "kong" : "pung"),
+      tile: Math.min(...s.tiles.map(t => TILE_INDEX_MAP.get(tileKey(t)))), open: s.open }));
+    if(extra) sets.push(extra);
+    return sets;
+  }
+  function mcrCpuEstimateFor(seat, tiles, extra, strict){
+    return mcrCpuEstimate(countsArrayFromTiles(tiles), mcrCpuSets(seat, extra), SEAT_WIND[seat], ROUND_WIND, strict);
+  }
+  // 鳴いた後の手(remaining＋新しい面子)で8点の筋が見えるか。見えない鳴きはしない
+  function mcrCpuCallReaches(seat, remaining, kind, tiles){
+    const tile = Math.min(...tiles.map(t => TILE_INDEX_MAP.get(tileKey(t))));
+    return mcrCpuEstimateFor(seat, remaining, { kind, tile, open: true }, true).reach;
+  }
+  // 13枚(hands[seat]からtileを抜いた形)の待ちのうち、本物の判定で8点に届く(ロンかツモのどちらかで)待ちの残り枚数
+  function mcrCpuLegalWaitCount(seat, tile, visible){
+    const hand = hands[seat];
+    const idx = hand.indexOf(tile);
+    const removed = hand.splice(idx, 1)[0];
+    let shape = 0, legal = 0;
+    ALL_TILE_TYPES.forEach((t, i) => {
+      const r = attemptWin(seat, t, false);
+      if(!r) return;
+      const remain = Math.max(0, 4 - (visible[i] || 0));
+      shape += remain;
+      if(r.points >= ruleConfig.minWinPoints || (attemptWin(seat, t, true) || { points: 0 }).points >= ruleConfig.minWinPoints) legal += remain;
+    });
+    hand.splice(idx, 0, removed);
+    return { shape, legal };
+  }
+  // MCRのCPUの打牌。8点に届かないテンパイは1シャンテンとして扱い、
+  // 1シャンテン以上では受け入れ枚数の差がBEHIND_UKEIRE_TOLERANCE枚以内の中で、8点の筋が見える牌を残す
+  function pickCpuDiscardMcr(seat, candidates){
+    const calledMeldsCount = melds[seat].length;
+    const visible = buildVisibleCounts(seat);
+    candidates.forEach(c => {
+      if(c.shanten === 0){
+        const w = mcrCpuLegalWaitCount(seat, c.tile, visible);
+        if(w.legal > 0){ c.ukeire = w.legal; }
+        else { c.shanten = 1; c.under8 = true; c.ukeire = w.shape; } // 8点に届く待ちがない(または残りがない)
+      }
+    });
+    const bestShanten = Math.min(...candidates.map(c => c.shanten));
+    const best = candidates.filter(c => c.shanten === bestShanten);
+    best.forEach(c => {
+      if(c.ukeire === undefined) c.ukeire = calcUkeire(c.remaining, calledMeldsCount, c.shanten, visible);
+      c.est = bestShanten === 0 ? { points: 0, reach: true } : mcrCpuEstimateFor(seat, c.remaining);
+    });
+    const maxUkeire = Math.max(...best.map(c => c.ukeire));
+    const pool = bestShanten === 0 ? best : best.filter(c => c.ukeire >= maxUkeire - BEHIND_UKEIRE_TOLERANCE);
+    pool.sort((a, b) => {
+      if(a.est.reach !== b.est.reach) return a.est.reach ? -1 : 1;
+      if(b.est.points !== a.est.points) return b.est.points - a.est.points;
+      return b.ukeire - a.ukeire;
+    });
+    const chosen = pool[0];
+    console.log("[CPU打牌AI MCR]", seat, "最小シャンテン=" + bestShanten,
+      "候補=" + pool.map(c => c.kind + ":sh" + c.shanten + (c.under8 ? "(8点未満)" : "") + "/uk" + c.ukeire + "/見積" + c.est.points).join(", "),
+      "→選択=" + chosen.kind);
+    return { tile: chosen.tile, declareRiichi: false };
+  }
+
   // CPU(seat)が今まさに切る牌を選ぶ。{ tile, declareRiichi } を返す
   // 1. 誰かがリーチ中で、自分がまだ聴牌していない(1シャンテン以上)時は、現物があれば守備優先でベタオリする。
   //    (2026-09-12の実戦報告を受けて、以前は2シャンテン以上でしか発動しなかったためリーチ後1シャンテンの
@@ -6994,6 +7142,7 @@
     const hand = hands[seat];
     const calledMeldsCount = melds[seat].length;
     const candidates = calcCandidateShantens(hand, calledMeldsCount);
+    if(ruleConfig.scoreTableMode === "mcr") return pickCpuDiscardMcr(seat, candidates); // MCR：8点縛りを見る打牌(リーチ・ドラはない)
     const bestShanten = Math.min(...candidates.map(c => c.shanten));
 
     const dangerousSeats = ["top", "left", "right"].filter(s => s !== seat && riichiDeclared[s]);
@@ -7079,6 +7228,8 @@
     used.forEach(t => remaining.splice(remaining.indexOf(t), 1));
     const afterShanten = calcShanten(remaining, melds[seat].length + 1);
     if(afterShanten > beforeShanten) return false;
+    // MCR：鳴いた後の手に8点の筋が見えない鳴きはしない
+    if(ruleConfig.scoreTableMode === "mcr" && !mcrCpuCallReaches(seat, remaining, type === "kan" ? "kong" : "pung", [tile])) return false;
     const prob = afterShanten < beforeShanten ? 0.85 : 0.25;
     return Math.random() < prob;
   }
