@@ -303,6 +303,28 @@
   .nameplate.riichi{
     box-shadow:0 0 6px 2px rgba(255,60,60,0.9), 0 0 0 1.5px rgba(255,120,120,0.9) inset;
   }
+  /* オープンリーチ(Mリーグ NEO)：名札を金色に光らせ、名札の左(その人から見て左)の角に待ちの種類数を出す。
+     名札と一緒に回るので、その人の向きで読める。absoluteなので名札・中央の枠の大きさは変えない */
+  .nameplate{ position:relative; }
+  .nameplate.open-riichi{
+    box-shadow:0 0 6px 2px rgba(255,200,40,0.95), 0 0 0 1.5px rgba(255,220,120,0.95) inset;
+  }
+  .open-riichi-badge{
+    position:absolute; right:100%; top:50%; transform:translateY(-50%); margin-right:4px;
+    padding:1px 4px; border-radius:4px; white-space:nowrap; line-height:1.15; text-align:center;
+    font-size:0.62em; font-weight:bold; color:#3A2A00; background:#FFD54A; pointer-events:none;
+  }
+  /* オープンリーチのあるルール：CPUの手牌の列に、最初から表向きの牌(回転した牌)の厚みを取っておく。
+     対局の途中で手牌を公開した時に、卓の大きさ・位置が変わらないようにするため。伏せ牌の帯は外側に寄せる */
+  html.open-riichi-rule #handTop{ min-height:var(--tile-h); align-items:flex-start; }
+  html.open-riichi-rule #handLeft{ min-width:var(--tile-h); align-items:flex-start; }
+  html.open-riichi-rule #handRight{ min-width:var(--tile-h); align-items:flex-end; }
+  /* リーチの選び方(オープンリーチのあるルールで、リーチボタンを押した時だけ出す) */
+  .riichi-choice{
+    position:fixed; z-index:60; display:flex; gap:6px; padding:6px; border-radius:8px;
+    background:rgba(0,0,0,0.78); box-shadow:0 2px 8px rgba(0,0,0,0.5);
+  }
+  .riichi-choice .row-btn{ min-width:0; padding:0 10px; }
   /* 4人とも中身は横書きのまま「方角→点数」の順で並べ、プレート全体をtransformで1回だけ回す。
      90度回転で箱の実寸（レイアウト上の幅・高さ）が回転前のままになる問題は、
      JS側で.center-info内の各セルに実測サイズを固定で入れて吸収する（stabilizeCenterInfoCells参照）。 */
@@ -2413,6 +2435,8 @@
   // オールマイティー牌(万能)：各自1枚ずつ、局の間ずっと持っている(捨てられない・鳴きに使えない)ので、
   // 枚数を数える状態は持たず、ルールの設定だけで決める。hands[]には入れない
   const HAS_ALMIGHTY = !!ruleConfig.almightyTileEnabled;
+  // オープンリーチのあるルールは、CPUの手牌の列の厚みを表向きの牌の分だけ取っておく(CSSのhtml.open-riichi-rule)
+  if(ruleConfig.openRiichiEnabled) document.documentElement.classList.add("open-riichi-rule");
 
   // 山の絵の基準にする、配牌直後・自摸前の生きたツモ回数（＝王牌8枚なら76、14枚なら70、12枚配りで王牌14枚なら74）
   const LIVE_WALL_TOTAL = wall.length;
@@ -2888,6 +2912,8 @@
   const DRAWN_SLOT_FIRST = { top:true, right:true, left:false };
 
   function renderCpuHandBacks(name){
+    // オープンリーチ中のCPUは、手牌を公開しているので表向きで並べる(万能も「万能」の表で出す)
+    if(openRiichiDeclared[name]){ renderCpuHandFaces(name); return; }
     const el = cpuHandElByName[name];
     el.innerHTML = "";
     const hasDrawn = !!lastDrawnCpu[name];
@@ -2946,6 +2972,7 @@
   }
 
   function renderDiscard(name){
+    if(ruleConfig.openRiichiEnabled) renderRiichiMarks();
     const el = discardElByName[name];
     el.innerHTML = "";
     const { doraKey, riichiDoraKey } = currentDoraKeys();
@@ -3119,6 +3146,7 @@
   }
 
   function renderMelds(name){
+    if(ruleConfig.openRiichiEnabled) renderRiichiMarks();
     const el = meldElByName[name];
     const baseRot = MELD_BASE_ROTATION[name];
     const flexDir = MELD_FLEX_DIRECTION[name];
@@ -4017,7 +4045,7 @@
       const chosen = pickCpuDiscard(seat);
       // declareRiichi()はriichiValidDiscardTypes()内で手牌14枚(打牌前)を前提に聴牌チェックするため、
       // 必ず打牌(hand.splice)より前に呼ぶ
-      if(chosen.declareRiichi) declareRiichi(seat);
+      if(chosen.declareRiichi) declareRiichi(seat, ruleConfig.openRiichiEnabled && cpuWantsOpenRiichi(seat, chosen.tile));
       const idx = hand.indexOf(chosen.tile);
       discarded = hand.splice(idx >= 0 ? idx : Math.floor(Math.random() * hand.length), 1)[0];
     }
@@ -4440,6 +4468,7 @@
       honba, riichiSticks, kyokuNumber, dealerSeat: DEALER_SEAT, gameEnded,
       lastDrawnTile: cloneTileRef(lastDrawnTile, map),
       riichiDeclared: { ...riichiDeclared },
+      openRiichiDeclared: { ...openRiichiDeclared },
       ippatsuActive: { ...ippatsuActive },
       furitenTemp: { ...furitenTemp },
       furitenRiichi: { ...furitenRiichi },
@@ -4513,6 +4542,8 @@
     gameEnded = snap.gameEnded;
     lastDrawnTile = cloneTileRef(snap.lastDrawnTile, map);
     riichiDeclared = { ...snap.riichiDeclared };
+    openRiichiDeclared = { ...(snap.openRiichiDeclared || { bottom:false, top:false, left:false, right:false }) };
+    hideRiichiChoice();
     ippatsuActive = { ...snap.ippatsuActive };
     furitenTemp = { ...snap.furitenTemp };
     furitenRiichi = { ...snap.furitenRiichi };
@@ -4541,7 +4572,27 @@
   }
 
   // 状態を丸ごと入れ替えた後、卓の見た目（手牌以外）を作り直す共通処理
+  // オープンリーチの印：名札を金色に光らせ、名札の角に待ちの種類数を出す。待ちは見えている牌で変わるので、
+  // 捨て牌・副露・宣言のたびに数え直す。オープンリーチしていない席は印と数を消す(リピートで戻した時も)
+  function renderRiichiMarks(){
+    ["bottom", "right", "top", "left"].forEach(s => {
+      const plate = nameplateElByName[s];
+      if(!plate) return;
+      const open = !!openRiichiDeclared[s];
+      plate.classList.toggle("open-riichi", open);
+      let badge = plate.querySelector(".open-riichi-badge");
+      if(!open){ if(badge) badge.remove(); return; }
+      if(!badge){
+        badge = document.createElement("span");
+        badge.className = "open-riichi-badge";
+        plate.appendChild(badge);
+      }
+      badge.textContent = "待ち" + getWaitsForReveal(s).length + "種";
+    });
+  }
+
   function renderTableFromState(){
+    renderRiichiMarks();
     ["top", "left", "right", "bottom"].forEach(renderDiscard);
     renderScores();
     updateKyotakuDisplay();
@@ -5223,7 +5274,8 @@
 
     // リーチ：宣言した本人が和了した時のみ1翻。リーチは門前でしか宣言できないため、門前限定の条件は不要
     // （ダブルリーチは未実装）
-    if(riichiDeclared[seat]) yaku.push({ name:"リーチ", han:1 });
+    // オープンリーチ(openRiichiDeclared)は「オープンリーチ 2翻」の1行にする(リーチ1翻＋1翻)
+    if(riichiDeclared[seat]) yaku.push(openRiichiDeclared[seat] ? { name:"オープンリーチ", han:2 } : { name:"リーチ", han:1 });
     // 一発：席ごとに判定(CPUのリーチにも付く、2026-09-03〜)。ippatsuActive[seat]は
     // その席がリーチ宣言牌を切った時にtrue、鳴きが入るかその席自身の次の打牌が終わるとfalseになる
     // ruleConfig.ippatsuEnabled:falseのルール(WWプレミアム等)では一発自体が無い。
@@ -6185,7 +6237,7 @@
         if(concealed.every(t => t.num === 1 || t.num === 9 || isHonorTile(t))) yaku.push({ name:"混老頭", han:2 });
       }
       // computeYaku()を経由しない役なので、ここでも同様にリーチ・一発をカウントする
-      if(riichiDeclared[seat]) yaku.push({ name:"リーチ", han:1 });
+      if(riichiDeclared[seat]) yaku.push(openRiichiDeclared[seat] ? { name:"オープンリーチ", han:2 } : { name:"リーチ", han:1 });
       if(riichiDeclared[seat] && ippatsuActive[seat] && ruleConfig.ippatsuEnabled && (ruleConfig.ippatsuOnTsumoEnabled || !isTsumo)) yaku.push({ name:"一発", han:1 });
       if(isTsumo) yaku.push({ name:"門前清自摸和", han:1 });
       if(wall.length === 0) yaku.push({ name: isTsumo ? "海底摸月" : "河底撈魚", han:1 });
@@ -7495,8 +7547,16 @@
     return Math.random() < prob;
   }
 
+  // CPUがリーチする時に、オープンリーチにするか(openRiichiEnabledのルールだけ呼ぶ)。
+  // いつオープンリーチにするかの判断は段階5で入れる。今はいつも普通のリーチ
+  function cpuWantsOpenRiichi(seat, discardTile){
+    return false;
+  }
+
   // --- 自分のリーチ宣言 ---
-  function declareRiichi(seat){
+  // open:trueはオープンリーチ(openRiichiEnabledのルールだけ)。手牌を全員に公開し、役は「オープンリーチ 2翻」になる。
+  // 点棒・一発・裏ドラは普通のリーチと同じ
+  function declareRiichi(seat, open){
     playSfx(SFX.callRiichi); // リーチが成立した瞬間に鳴らす（自分・CPU問わず）
     // riichiValidDiscardTypes()はriichiDeclared[seat]がfalseである前提で判定するので、
     // 必ずriichiDeclaredをtrueにする前に計算する
@@ -7508,6 +7568,11 @@
     updateKyotakuDisplay();
     awaitingRiichiDiscard[seat] = true;
     nameplateElByName[seat].classList.add("riichi");
+    if(open && ruleConfig.openRiichiEnabled){
+      openRiichiDeclared[seat] = true;
+      if(seat !== "bottom") renderCpuHandBacks(seat); // 公開した手牌は表向きで並べる(renderCpuHandBacks参照)
+      renderRiichiMarks();
+    }
     // ここから下は「自分(bottom)の手牌クリックUI」専用の後処理。CPUのリーチ宣言時に
     // 誤って自分の手牌を打牌可能状態にしてしまわないよう、bottomの時だけ行う
     if(seat === "bottom"){
@@ -8643,10 +8708,35 @@
     if(gameEnded || !lastDrawnTile || !canDeclareRiichi("bottom")){
       btn.disabled = true;
       btn.onclick = null;
+      hideRiichiChoice();
       return;
     }
     btn.disabled = false;
-    btn.onclick = () => declareRiichi("bottom");
+    // オープンリーチのあるルールは、押すと「リーチ／オープンリーチ／やめる」を選ぶ
+    btn.onclick = ruleConfig.openRiichiEnabled ? showRiichiChoice : () => declareRiichi("bottom");
+  }
+  // リーチボタンの真上に、リーチの種類を選ぶ小さな枠を出す
+  function showRiichiChoice(){
+    hideRiichiChoice();
+    const anchor = document.getElementById("riichiBtn").getBoundingClientRect();
+    const box = document.createElement("div");
+    box.id = "riichiChoice";
+    box.className = "riichi-choice";
+    [["リーチ", false], ["オープンリーチ", true], ["やめる", null]].forEach(([label, open]) => {
+      const b = document.createElement("button");
+      b.className = "row-btn";
+      b.textContent = label;
+      b.onclick = () => { hideRiichiChoice(); if(open !== null) declareRiichi("bottom", open); };
+      box.appendChild(b);
+    });
+    document.body.appendChild(box);
+    const w = box.offsetWidth, h = box.offsetHeight;
+    box.style.left = Math.max(4, Math.min(innerWidth - w - 4, anchor.left + anchor.width / 2 - w / 2)) + "px";
+    box.style.top = Math.max(4, anchor.top - h - 6) + "px";
+  }
+  function hideRiichiChoice(){
+    const box = document.getElementById("riichiChoice");
+    if(box) box.remove();
   }
 
   function updateActionButtons(){
