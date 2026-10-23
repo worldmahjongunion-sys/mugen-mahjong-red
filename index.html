@@ -4443,6 +4443,8 @@
         uraDoraRevealed = false; // 配牌直後などに戻すので、和了後にめくった裏ドラも伏せ直す
         updateAutoDeadWallVisual();
         renderTopLeftKanDora();
+      } else {
+        updateRinshanVisual(); // 王牌8枚(無限系)：嶺上牌の見た目も、戻したdeadWallの枚数(カン前)に合わせて作り直す
       }
     }
     replaceArrayContents(callDecisionLog, snap.callDecisionLog.slice());
