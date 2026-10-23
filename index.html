@@ -6021,13 +6021,18 @@
     return list;
   }
 
+  // 受取額が同じ役満どうしで、格の高い方の役満(大四喜＞小四喜、純正九蓮宝燈＞九蓮宝燈)。
+  // このアプリではどちらも役満1つ分で同じ額になるので、万能の当てはめを選ぶ時だけ、格の高い方を残す
+  const ALMIGHTY_HIGHER_YAKUMAN = new Set(["大四喜", "純正九蓮宝燈"]);
   // 当てはめどうしを比べる値：役の無い読み方はいちばん下。役があれば、本場を除いた実際の受取額
-  // (ツモは3人分の合計、ロンはロンの額。赤のご祝儀も含む)、同じなら翻、さらに同じなら符の大きい方
+  // (ツモは3人分の合計、ロンはロンの額。赤のご祝儀も含む)、同じなら格の高い役満の数、
+  // さらに同じなら翻、さらに同じなら符の大きい方
   function almightyResultRank(seat, r){
-    if(r.yakunashi) return [-1, 0, 0];
+    if(r.yakunashi) return [-1, 0, 0, 0];
     const other = ["bottom", "right", "top", "left"].find(s => s !== seat);
     const gain = r.isTsumo ? computeTsumoAmounts(seat, r, 0).nominalGain : computeRonAmount(seat, other, r, 0).nominalGain;
-    return [gain, r.han, r.fu || 0];
+    const higherYakuman = r.yaku.filter(y => ALMIGHTY_HIGHER_YAKUMAN.has(y.name)).length;
+    return [gain, higherYakuman, r.han, r.fu || 0];
   }
   function almightyRankGreater(a, b){
     const i = a.findIndex((v, k) => v !== b[k]);
