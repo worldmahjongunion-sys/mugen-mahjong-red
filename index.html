@@ -3044,11 +3044,11 @@
   function revealAllHands(){
     ["top", "left", "right"].forEach(renderCpuHandFaces);
     // gameEndedは呼び出し側で既にtrueにしてあるはずなので、ここでrenderMeldsを呼び直すと
-    // 暗槓の4枚目以外(3枚)も含めて全員分が表向きに開示される
+    // 暗槓の伏せていた両端も含めて全員分が表向きに開示される
     ["bottom", "top", "left", "right"].forEach(renderMelds);
   }
 
-  // 暗槓・大明槓共通：横一列3枚(rowEls)の指定位置(stackedIndex:0/1/2)の上に、
+  // 大明槓・加槓用(暗槓は4枚横一列なので使わない)：横一列3枚(rowEls)の指定位置(stackedIndex:0/1/2)の上に、
   // 回転済みの4枚目(stackedEl)を幅を増やさず積み重ねる。
   // 積む方向は常に卓中央側（KAN_STACK_SIDE）＝手牌から離れる向きにして、
   // 積んだ牌が手牌に重ならないようにする
@@ -3098,32 +3098,27 @@
       group.style.gap = "3px"; // 鳴き牌3枚の間隔＝捨て牌の間隔と同じ
 
       if(m.type === "ankan"){
-        // 暗槓：3枚を横一列に並べ、4枚目を横向き（90度回転）にして真ん中の上に積む。
-        // 局の途中は、実際の卓と同じく「両端の2枚は伏せ、中の2枚は表向き」にして、何を槓したかを
-        // 全員(自分・CPU)の暗槓で見せる：横一列の両端を伏せ、横一列の真ん中と積んだ1枚を表向きにする。
-        // 表向きの2枚には赤牌を優先して使う(赤があれば赤が見える)。局が終わった時（和了・流局＝
-        // gameEnded）は、今までどおり誰の暗槓も4枚とも表向きにして開示する
+        // 暗槓：実際の卓と同じく4枚を横一列に並べ、局の途中は「両端の2枚は伏せ、中の2枚は表向き」に
+        // して、何を槓したかを全員(自分・CPU)の暗槓で見せる。表向きの2枚には赤牌を優先して使う
+        // (赤があれば赤が見える)。局が終わった時（和了・流局＝gameEnded）は、誰の暗槓も4枚とも
+        // 表向きにして開示する。4枚とも席の向き(baseRot)のままなので、積む牌の厚みは使わない
         const revealAll = gameEnded;
         const rowBackCls = backClassByName[name] || "tile-back";
         const faceTiles = [...m.handTiles.filter(t => t.red), ...m.handTiles.filter(t => !t.red)];
-        const rowEls = m.handTiles.slice(0, 3).map((t, i) => {
-          if(revealAll || i === 1){
-            const ft = revealAll ? t : faceTiles[0];
+        m.handTiles.slice(0, 4).forEach((t, i) => {
+          if(revealAll || i === 1 || i === 2){
+            const ft = revealAll ? t : faceTiles[i - 1];
             const tEl = tileEl(ft.suit, ft.num, tileClass(ft.suit, ft.num), ft.red);
             markAtari(ft, tEl);
             applyMeldRotation(tEl, baseRot, scaleVar);
-            return tEl;
+            group.appendChild(tEl);
+            return;
           }
           const backEl = document.createElement("div");
           backEl.className = rowBackCls;
           applyMeldRotation(backEl, baseRot, scaleVar);
-          return backEl;
+          group.appendChild(backEl);
         });
-        const stackedTile = revealAll ? (m.handTiles.find(t => t.red) || m.handTiles[3]) : faceTiles[1];
-        const stackedEl = tileEl(stackedTile.suit, stackedTile.num, tileClass(stackedTile.suit, stackedTile.num), stackedTile.red);
-        markAtari(stackedTile, stackedEl);
-        applyMeldRotation(stackedEl, baseRot - 90, scaleVar);
-        buildKanGroup(name, flexDir, rowEls, stackedEl, 1).forEach(elx => group.appendChild(elx));
         el.appendChild(group);
         return;
       }
