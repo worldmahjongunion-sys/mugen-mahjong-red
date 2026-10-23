@@ -1813,6 +1813,21 @@
     return div;
   }
 
+  // オールマイティー牌(万能)の絵。画像ファイルは無いので、牌の画像と同じ縦横比のSVGをその場で作る
+  // (imgにしておくと、applyMeldRotationで普通の牌と同じように向きを変えられる)
+  const ALMIGHTY_TILE_SRC = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 73 100">'
+    + '<rect x="5" y="5" width="63" height="90" rx="7" fill="#FFF3C4" stroke="#C9A227" stroke-width="5"/>'
+    + '<text x="36.5" y="45" font-size="31" font-weight="bold" text-anchor="middle" fill="#9A6B00" font-family="sans-serif">万</text>'
+    + '<text x="36.5" y="80" font-size="31" font-weight="bold" text-anchor="middle" fill="#9A6B00" font-family="sans-serif">能</text>'
+    + '</svg>');
+  function almightyTileEl(cls){
+    const div = document.createElement("div");
+    div.className = "tile almighty" + (cls ? " " + cls : "");
+    div.innerHTML = `<img src="${ALMIGHTY_TILE_SRC}" alt="万能">`;
+    return div;
+  }
+
   // 牌の絵（通常34種＋赤5の3種＝37種）を、局の始め（＝ページ読み込み。局ごとにlocation.reload()で
   // 作り直す方式のため、ここが毎局の始めになる）に前もって読み込んでおく。読み込んでいないと、
   // その局で初めて表に出る絵（CPUが鳴いて伏せていた牌が表になる時など）が、1コマ白く抜けて
@@ -1962,9 +1977,15 @@
   //   totalKyoku: 何局で終わるか。8=東8局または南4局、16=東南西北の各4局(一荘戦)
   //   minWinPoints/maxWinPoints: scoreTableMode:"mcr"の和了に必要な点(8点縛り)と、和了点の上限
   //   seatChangeEnabled: 場風が変わるたび(4局ごと)にSEAT_CHANGE_TABLEで席替えをするか(MCR)
+  // 以下はMリーグ NEOで加えた設定
+  //   startHandSize: 配牌の実牌の枚数(親はこれに最初のツモ1枚が加わる)。13が通常、Mリーグ NEOは12(少牌)
+  //   almightyTileEnabled: 各自がオールマイティー牌(万能)を1枚、実牌とは別に持つか。万能は山から引かず、
+  //     打牌・鳴き・カンには使えない。手牌の配列(hands)には入れず、表示と判定の時だけ足して扱う
+  //   openRiichiEnabled: オープンリーチ(手牌を公開して2翻)を選べるか
   const RULE_CONFIG_DEFAULTS = {
     riichiEnabled:true, doraEnabled:true, furitenEnabled:true, renchanEnabled:true,
-    totalKyoku:8, minWinPoints:0, maxWinPoints:null, seatChangeEnabled:false
+    totalKyoku:8, minWinPoints:0, maxWinPoints:null, seatChangeEnabled:false,
+    startHandSize:13, almightyTileEnabled:false, openRiichiEnabled:false
   };
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
@@ -2017,9 +2038,9 @@
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:false,
       scoreTableMode:"linear", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
-    // Mリーグ NEOを作るときは disabledYaku:CUSTOM_YAKU_NAMES と chiitoitsuStandardYakuStack:true、
-    // tenchihouEnabled:true、deadWallLayout:"auto14" を入れる(独自役は使わない)
-    { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null }, // 少牌+オールマイティー牌は別スコープ
+    // Mリーグ NEO：Mリーグ Originalの設定をそのまま使い、少牌(配牌12枚)＋各自1枚のオールマイティー牌と、
+    // オープンリーチだけを加える。段階実装の途中なので表紙ではまだ「近日公開」(status:"comingSoon")のまま
+    { id:"mLeagueNeo", label:"Mリーグ NEO", status:"comingSoon", ruleConfig:null },
     { id:"mLeagueOriginal", label:"Mリーグ Original", status:"ready", ruleConfig:{
       deadWallLayout:"auto14",
       disabledYaku:CUSTOM_YAKU_NAMES,
@@ -2107,6 +2128,10 @@
     } },
     { id:"mcrFukushiki", label:"複式MCR", status:"comingSoon", ruleConfig:null }
   ];
+  // Mリーグ NEOの設定＝Mリーグ Originalの設定＋少牌・オールマイティー牌・オープンリーチ
+  RULESETS.find(r => r.id === "mLeagueNeo").ruleConfig = Object.assign({},
+    RULESETS.find(r => r.id === "mLeagueOriginal").ruleConfig,
+    { startHandSize:12, almightyTileEnabled:true, openRiichiEnabled:true });
   const DEFAULT_RULE_ID = "akaNeo";
   // 表紙で選んだルールIDを覚えておくキー。半荘中(savedMatchStateがまだ無いkyoku1中)でも
   // うっかりリロードした時にルールがデフォルトへ戻らないよう、savedMatchStateとは別に
@@ -2378,13 +2403,18 @@
     }
   }
 
-  // 自分・CPU3人へ配牌（13枚ずつ。山は既にシャッフル済みのため、誰が親でも配る順序自体は無関係）
-  const myTiles13 = wall.splice(0, 13);
-  const cpuRightTiles = wall.splice(0, 13);
-  const cpuTopTiles = wall.splice(0, 13);
-  const cpuLeftTiles = wall.splice(0, 13);
+  // 自分・CPU3人へ配牌（13枚ずつ。山は既にシャッフル済みのため、誰が親でも配る順序自体は無関係）。
+  // ruleConfig.startHandSizeが12のルール(Mリーグ NEO)は12枚ずつで、親の13枚目は最初のツモとして引く
+  const START_HAND_SIZE = ruleConfig.startHandSize;
+  const myTiles13 = wall.splice(0, START_HAND_SIZE);
+  const cpuRightTiles = wall.splice(0, START_HAND_SIZE);
+  const cpuTopTiles = wall.splice(0, START_HAND_SIZE);
+  const cpuLeftTiles = wall.splice(0, START_HAND_SIZE);
+  // オールマイティー牌(万能)：各自1枚ずつ、局の間ずっと持っている(捨てられない・鳴きに使えない)ので、
+  // 枚数を数える状態は持たず、ルールの設定だけで決める。hands[]には入れない
+  const HAS_ALMIGHTY = !!ruleConfig.almightyTileEnabled;
 
-  // 山の絵の基準にする、配牌直後・自摸前の生きたツモ回数（＝76）
+  // 山の絵の基準にする、配牌直後・自摸前の生きたツモ回数（＝王牌8枚なら76、14枚なら70、12枚配りで王牌14枚なら74）
   const LIVE_WALL_TOTAL = wall.length;
 
   // 手牌は13枚を並び替えて表示する（親の最初の1枚は、後段でplayerDraw()/cpuDrawAndDiscard()を
@@ -2394,7 +2424,7 @@
   // ==================== STEP3+4: ターン進行（ツモ→打牌）＋ 鳴き（ポン・チー・カン） ====================
 
   // 状態（手牌・捨て牌・鳴き牌はすべてここで管理し、変更のたびに描画し直す）
-  const myHandTiles = [...sortedHand]; // {suit,num} の配列（13枚。親が「あなた」の場合はこの後playerDraw()で14枚になる）
+  const myHandTiles = [...sortedHand]; // {suit,num} の配列（13枚、少牌のルールは12枚。親が「あなた」の場合はこの後playerDraw()で1枚増える）
   let lastDrawnTile = null; // 直前にツモった牌（並び替えても離して表示するため参照で管理）。手番が来るまではnull
   const lastDrawnCpu = { top:null, left:null, right:null }; // CPU各自の現在のツモ牌（カン後の嶺上牌も含めて明示的に管理）
   // 今のツモが嶺上牌（カン後の補充ツモ）かどうかの目印。嶺上開花の判定にだけ使う
@@ -2826,6 +2856,9 @@
       handMineEl.appendChild(el);
     });
 
+    // オールマイティー牌(万能)：手牌の右端(ツモ枠の左)に固定で置く。打牌・鳴きには使えないので押せない
+    if(HAS_ALMIGHTY) handMineEl.appendChild(almightyTileEl());
+
     // ツモ枠は常に同じ幅を確保する（自摸っていない間は透明なプレースホルダーを置き、手牌全体の幅が変わってズレないようにする）
     if(lastDrawnTile){
       const el = tileEl(lastDrawnTile.suit, lastDrawnTile.num, tileClass(lastDrawnTile.suit, lastDrawnTile.num), lastDrawnTile.red);
@@ -2858,7 +2891,8 @@
     const el = cpuHandElByName[name];
     el.innerHTML = "";
     const hasDrawn = !!lastDrawnCpu[name];
-    const normalCount = hands[name].length - (hasDrawn ? 1 : 0); // ツモ牌を除いた「通常の手牌」の枚数
+    // ツモ牌を除いた「通常の手牌」の枚数。オールマイティー牌(万能)のあるルールは、それも1枚の伏せ牌として並べる
+    const normalCount = hands[name].length - (hasDrawn ? 1 : 0) + (HAS_ALMIGHTY ? 1 : 0);
 
     function makeBack(hidden){
       const b = document.createElement("div");
@@ -3031,12 +3065,20 @@
 
     const drawnEl = drawn ? makeFace(drawn) : null;
     if(drawnEl) drawnEl.classList.add("drawn");
+    // オールマイティー牌(万能)：自分の手牌と同じく、手牌の端のツモ枠の隣に置く
+    let almightyEl = null;
+    if(HAS_ALMIGHTY){
+      almightyEl = almightyTileEl();
+      applyMeldRotation(almightyEl, rotationDeg);
+    }
 
     if(DRAWN_SLOT_FIRST[name]){
       if(drawnEl) el.appendChild(drawnEl);
+      if(almightyEl) el.appendChild(almightyEl);
       others.forEach(t => el.appendChild(makeFace(t)));
     } else {
       others.forEach(t => el.appendChild(makeFace(t)));
+      if(almightyEl) el.appendChild(almightyEl);
       if(drawnEl) el.appendChild(drawnEl);
     }
   }
@@ -8416,7 +8458,7 @@
   }
 
 
-  // 親が誰でも配牌自体は13枚ずつ（画面位置は固定、風だけが親を基準に回る）。
+  // 親が誰でも配牌自体は13枚ずつ（Mリーグ NEOは12枚ずつ。画面位置は固定、風だけが親を基準に回る）。
   // 最初の1枚は、親の席に応じて通常のツモと同じ経路（playerDraw/cpuDrawAndDiscard）で
   // 引かせる。CPUが親の場合はcpuDrawAndDiscardがadvanceTurnAfterDiscard経由で自動的に
   // 連鎖し、手番が「あなた」に回ってきた時点で自然にplayerDraw()へつながる
