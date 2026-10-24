@@ -8287,8 +8287,18 @@
     return t.num + { man:"萬", pin:"筒", sou:"索" }[t.suit] + (t.red ? "(赤)" : "");
   }
 
+  // 結果パネルの見出し。MCR-NEOは、席替えでCPUの座る位置が変わっても、和了した人・放銃した人を
+  // 画面上の位置(POSITION_LABEL：上家・対面・下家・自家)で「下家の出あがり（対面から）」「自家のツモあがり」と出す。
+  // ほかのルールは今までどおり「下家のロン（対面から）」「自家のツモ」
+  function resultTitleOf(seat, result, loserSeat){
+    if(ruleConfig.scoreTableMode === "mcr"){
+      return result.isTsumo ? (POSITION_LABEL[seat] + "のツモあがり") : (POSITION_LABEL[seat] + "の出あがり（" + POSITION_LABEL[loserSeat] + "から）");
+    }
+    return result.isTsumo ? (seatLabel[seat] + "のツモ") : (seatLabel[seat] + "のロン（" + seatLabel[loserSeat] + "から）");
+  }
+
   function buildYakuRows(seat, result, loserSeat, bonusTotal){
-    const title = result.isTsumo ? (seatLabel[seat] + "のツモ") : (seatLabel[seat] + "のロン（" + seatLabel[loserSeat] + "から）");
+    const title = resultTitleOf(seat, result, loserSeat);
     const isTsumo = result.isTsumo;
     const isDealer = seat === DEALER_SEAT;
 
