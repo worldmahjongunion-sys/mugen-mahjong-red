@@ -886,8 +886,10 @@
     font-variant-numeric:tabular-nums;
   }
   /* リーチドラ「Rドラ」・赤牌ボーナスの「赤」部分だけ、左上のリーチドラ表示と同じ色・太さにする
-     （「×1」「(自摸)」までは赤くしない。col-name全体ではなく中のspanだけを対象にする） */
-  .result-box .result-row .col-name .bonus-red-text{
+     （「×1」「(自摸)」までは赤くしない。col-name全体ではなく中のspanだけを対象にする）。
+     スマホ縦の結果(.pr-yaku-row)は同じspanを写して使うので、そちらも同じ色にする */
+  .result-box .result-row .col-name .bonus-red-text,
+  .result-box .pr-yaku-row .bonus-red-text{
     color:var(--honor-red);
     font-weight:bold;
   }
