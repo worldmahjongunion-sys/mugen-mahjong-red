@@ -2012,7 +2012,8 @@
   //   openRiichiEnabled: オープンリーチ(手牌を公開して2翻)を選べるか
   // 以下はMCR-NEOの和了の発声で加えた設定
   //   winCallSpeech: 和了の発声を、音声ファイル(「ロン」「ツモ」)の代わりにブラウザの音声合成で読む時の
-  //     { text, lang }。nullは今までどおり音声ファイル。MCR-NEOはツモ・ロンとも中国語の「胡」(hú、二声)
+  //     { text, lang }。nullは今までどおり音声ファイル。MCR-NEOはツモ・ロンとも中国語の「胡」(hú、二声)。
+  //     その言語の声が端末に無い・音声合成が使えない時は、今までの音声ファイルを鳴らす
   const RULE_CONFIG_DEFAULTS = {
     riichiEnabled:true, doraEnabled:true, furitenEnabled:true, renchanEnabled:true,
     totalKyoku:8, minWinPoints:0, maxWinPoints:null, seatChangeEnabled:false,
@@ -7864,27 +7865,33 @@
   // 和了の発声。ruleConfig.winCallSpeechのあるルール(MCR-NEO)は音声合成で読み、それ以外は今までどおり
   // 「ツモ」「ロン」の音声ファイルを鳴らす
   function playWinCall(isTsumo){
-    if(ruleConfig.winCallSpeech) speakWinCall(ruleConfig.winCallSpeech);
-    else playSfx(isTsumo ? SFX.callTsumo : SFX.callRon);
+    const file = isTsumo ? SFX.callTsumo : SFX.callRon;
+    if(ruleConfig.winCallSpeech) speakWinCall(ruleConfig.winCallSpeech, () => playSfx(file));
+    else playSfx(file);
   }
-  // 音声合成で読む。その言語(zh-CNなど)の声が端末に1つも無い時は、別の言語の声で違う読み方を
-  // しないよう鳴らさない(声の一覧がまだ読み込まれていない時は、言語だけ指定して読ませる)。
-  // 音声合成が無い・失敗した場合もゲームを止めないよう、必ずcatchで握りつぶす
-  function speakWinCall(speech){
+  // 音声合成で読む。その言語(zh-CNなど)の声が無い時・音声合成が無い時・失敗した時は、別の言語の声で
+  // 違う読み方をしないよう読まずに、fallback(今までの「ツモ」「ロン」の音声ファイル)を鳴らす。
+  // 声の一覧はページを開いた時に読み込ませているので、和了の時点で空なら声が無いものとして扱う。
+  // 読み始めた後の失敗(ネットの声に繋がらない等)もonerrorでfallbackにする。ゲームは止めない
+  function speakWinCall(speech, fallback){
     try {
       const synth = window.speechSynthesis;
-      if(!synth || typeof SpeechSynthesisUtterance !== "function") return;
+      if(!synth || typeof SpeechSynthesisUtterance !== "function") return fallback();
       const voices = synth.getVoices() || [];
       const langHead = speech.lang.split("-")[0].toLowerCase();
       const norm = v => (v.lang || "").replace("_", "-").toLowerCase();
       const voice = voices.find(v => norm(v) === speech.lang.toLowerCase()) || voices.find(v => norm(v).split("-")[0] === langHead);
-      if(voices.length > 0 && !voice) return;
+      if(!voice) return fallback();
       const u = new SpeechSynthesisUtterance(speech.text);
       u.lang = speech.lang;
-      if(voice){ try { u.voice = voice; } catch(e){} } // 声の指定に失敗しても、言語の指定だけで読ませる
+      try { u.voice = voice; } catch(e){} // 声の指定に失敗しても、言語の指定だけで読ませる
+      // cancel()で前の読み上げを止めた時の"interrupted"/"canceled"は失敗ではないので、fallbackにしない
+      u.onerror = ev => { if(!ev || (ev.error !== "interrupted" && ev.error !== "canceled")) fallback(); };
       synth.cancel(); // 前の読み上げが残っていても、この和了の声をすぐ出す
       synth.speak(u);
-    } catch(e){}
+    } catch(e){
+      try { fallback(); } catch(e2){}
+    }
   }
   // 声の一覧は最初のgetVoices()の後に非同期で読み込まれるブラウザがあるので、ページを開いた時に一度呼んでおく
   try { if(window.speechSynthesis) window.speechSynthesis.getVoices(); } catch(e){}
