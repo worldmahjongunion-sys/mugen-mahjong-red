@@ -5902,6 +5902,12 @@
     return { effectiveHan: 13, multiplier };
   }
 
+  // 結果の表示を「役満」にするか。13翻以上でも、名の付いた役満が無く三倍満止めになる手
+  // (countedYakumanCapped:trueのルール)は役満ではなく三倍満として、役・ドラ・赤の行を翻で出す
+  function isYakumanResult(result){
+    return result.han >= 13 && resolveScoreHanAndMultiplier(result).effectiveHan >= 13;
+  }
+
   function lookupScoreRow(effectiveHan){
     const table = ruleConfig.scoreTableKiriage ? SCORE_TABLE_KIRIAGE : SCORE_TABLE_NO_KIRIAGE;
     return table[Math.min(Math.max(effectiveHan, 1), 13)];
@@ -8213,6 +8219,7 @@
   }
 
   // 符計算のルールの「30符3飜」「40符4飜 満貫」「13飜 三倍満」(役の合計だけで13翻以上の三倍満止め)。
+  // 固定点数表のルール(Mリーグ系)は三倍満止めの時だけ「13飜 三倍満」。
   // それ以外のルール・役無し・名の付いた役満は空
   // MCRの合計の行の文言
   function mcrTotalText(result){
@@ -8220,6 +8227,7 @@
   }
 
   function fuSummaryText(result){
+    if(ruleConfig.scoreTableMode === "lookup") return (!result.yakunashi && result.han >= 13 && !isYakumanResult(result)) ? result.han + "飜 三倍満" : "";
     if(ruleConfig.scoreTableMode !== "fu" || result.yakunashi || result.fu == null) return "";
     if(result.han >= 13){
       const { effectiveHan } = resolveScoreHanAndMultiplier(result);
@@ -8276,7 +8284,8 @@
       // ドラの飜がhan>=13の判定に加わっただけの場合も含め、役満成立時はドラが実際の点数に
       // 一切寄与しないため、ドラの行自体を出さない（点数欄だけ空欄にすると「本来は点数が
       // あるのに表示できていない」ように誤読されるため、行ごと省く方が実態に合う）
-      const isYakuman = result.han >= 13;
+      // 三倍満止めの手(isYakumanResultがfalse)は、役満ではないので役・ドラ・赤の行を翻で出す
+      const isYakuman = isYakumanResult(result);
       const normalYaku = result.yaku.filter(y => !DORA_YAKU_NAMES.has(y.name)).slice().sort((a, b) => a.han - b.han);
       const doraYaku = isYakuman ? [] : result.yaku.filter(y => DORA_YAKU_NAMES.has(y.name));
       const pointsPerHan = isDealer ? 3000 : 2000; // 1翻あたりの合計額（子2,000点・親3,000点）
@@ -8356,7 +8365,7 @@
       if(result.han >= 13 && basic >= 8000) return "役満";
       return FU_LIMIT_NAMES[basic] || (result.fu + "符" + result.han + "飜");
     }
-    if(result.han >= 13) return "役満";
+    if(isYakumanResult(result)) return "役満";
     if(ruleConfig.scoreTableMode === "lookup"){
       const isDealer = seat === DEALER_SEAT;
       const hit = PORTRAIT_LIMIT_NAMES.find(([dealerPts, childPts]) => basePoints === (isDealer ? dealerPts : childPts));
@@ -8376,7 +8385,7 @@
     const splitText = splitEl ? splitEl.textContent : "";
     const sumRow = result.mcr
       ? `<div class="pr-yaku-row pr-sum"><span>合計</span><span class="pr-han">${result.capped ? result.points + "点(上限)" : result.points + "点"}</span></div>`
-      : ((result.han && result.han < 13) ? `<div class="pr-yaku-row pr-sum"><span>合計</span><span class="pr-han">${result.han}飜</span></div>` : "");
+      : ((result.han && !isYakumanResult(result)) ? `<div class="pr-yaku-row pr-sum"><span>合計</span><span class="pr-han">${result.han}飜</span></div>` : "");
     const players = ["bottom", "right", "top", "left"].map(s => {
       const diff = s === seat ? totalGain : -(paymentsBySeat[s] || 0);
       const cls = diff > 0 ? "plus" : (diff < 0 ? "minus" : "zero");
