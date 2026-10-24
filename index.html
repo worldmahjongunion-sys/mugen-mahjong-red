@@ -1972,6 +1972,8 @@
   // ボタン自体は常時表示するが、押しても対局室には入らず表紙内にメッセージを出すだけにする
   // ruleConfigの各フィールド(段階的に実装。現時点ではStage1=値の差し替えのみ反映済み):
   //   akaDoraEnabled: 赤ドラを生成するか
+  //   akaHanEnabled: 赤牌を1枚1翻(ドラと同じ)で数えるか。true=Mリーグ系(別払いなし)。
+  //     false=赤1枚につき別払い(ご祝儀、役ありは1人2,000点・役無しは1,000点)。赤の無いルールは関係しない
   //   startingPoints/returnPoints: 開始点・返し点
   //   umaMode: "ukiCount"(NEO、浮き人数で3パターン切替+オカ) / "fixed"(Original、着順固定・オカ無し)
   //   fixedUmaTable: umaMode:"fixed"の時に使う[1位,2位,3位,4位]の順位点
@@ -2009,7 +2011,8 @@
   const RULE_CONFIG_DEFAULTS = {
     riichiEnabled:true, doraEnabled:true, furitenEnabled:true, renchanEnabled:true,
     totalKyoku:8, minWinPoints:0, maxWinPoints:null, seatChangeEnabled:false,
-    startHandSize:13, almightyTileEnabled:false, openRiichiEnabled:false
+    startHandSize:13, almightyTileEnabled:false, openRiichiEnabled:false,
+    akaHanEnabled:false
   };
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
@@ -2071,6 +2074,7 @@
       chiitoitsuStandardYakuStack:true,
       tenchihouEnabled:true,
       akaDoraEnabled:true,
+      akaHanEnabled:true, // 赤は1枚1翻(ドラと同じ扱い)。別払い(ご祝儀)は無し
       startingPoints:25000, returnPoints:30000,
       umaMode:"fixed", fixedUmaTable:[50000, 10000, -10000, -30000], // 順位ウマ+30/+10/-10/-30とオカ20,000(1着総取り)を合算した値
       honbaRonBonus:300, honbaTsumoBonusPerSeat:100,
@@ -5813,6 +5817,19 @@
   }
 
   function addDoraYaku(yaku, allTiles, seat){
+    return addIndicatorDoraYaku(yaku, allTiles, seat) + addAkaHanYaku(yaku, allTiles);
+  }
+
+  // ruleConfig.akaHanEnabled:trueのルール(Mリーグ系)：赤牌を1枚1翻の「赤」の行にする(ドラ・裏ドラの行の後ろ)。
+  // falseのルールは翻に入れず、精算で別払い(ご祝儀)にする
+  function addAkaHanYaku(yaku, allTiles){
+    if(!ruleConfig.akaHanEnabled) return 0;
+    const akaCount = countAka(allTiles);
+    if(akaCount > 0) yaku.push({ name:"赤", han:akaCount });
+    return akaCount;
+  }
+
+  function addIndicatorDoraYaku(yaku, allTiles, seat){
     // auto14のルールは、表ドラ(1枚目)とカンドラ(2枚目以降)、裏ドラとカン裏を別の行にする。
     // 数える表示牌・合計の翻数は合算していた時と同じ
     if(IS_AUTO_DEAD_WALL){
@@ -6081,7 +6098,7 @@
   // このアプリではどちらも役満1つ分で同じ額になるので、万能の当てはめを選ぶ時だけ、格の高い方を残す
   const ALMIGHTY_HIGHER_YAKUMAN = new Set(["大四喜", "純正九蓮宝燈"]);
   // 当てはめどうしを比べる値：役の無い読み方はいちばん下。役があれば、本場を除いた実際の受取額
-  // (ツモは3人分の合計、ロンはロンの額。赤のご祝儀も含む)、同じなら格の高い役満の数、
+  // (ツモは3人分の合計、ロンはロンの額。赤のご祝儀のあるルールはそれも含む)、同じなら格の高い役満の数、
   // さらに同じなら翻、さらに同じなら符の大きい方
   function almightyResultRank(seat, r){
     if(r.yakunashi) return [-1, 0, 0, 0];
@@ -7653,6 +7670,11 @@
   // 動かす」ことで、複数人ロンの精算中に名目上受け取りすぎている状態を経由しないようにするため。
   // 計算式そのものは旧7関数から変更していない
 
+  // 役ありの和了で、赤の別払い(ご祝儀)を支払う側1人あたりいくら払うか。赤を翻で数えるルールは0
+  function akaBonusPerPayer(result){
+    return ruleConfig.akaHanEnabled ? 0 : result.akaCount * 2000;
+  }
+
   // ロン1人分の名目上の受取額を計算する。result.yakunashi/result.han>=13/通常役の3分岐は
   // 従来のfinalizeWinと同じ。honbaCountはこの局開始時点の本場数
   function computeRonAmount(winnerSeat, loserSeat, result, honbaCount){
@@ -7675,7 +7697,7 @@
       const { effectiveHan, multiplier } = resolveScoreHanAndMultiplier(result);
       const row = lookupScoreRow(effectiveHan);
       const base = row[isDealer ? 1 : 0] * multiplier;
-      const akaBonus = result.akaCount * 2000;
+      const akaBonus = akaBonusPerPayer(result);
       return { seat: winnerSeat, nominalGain: base + akaBonus + honbaBonus, akaBonus, honbaBonus };
     }
     // ruleConfig.scoreTableMode:"fu"のルール(WWスタンダード)：基本点×4(親は×6)を100点単位に切り上げる
@@ -7727,7 +7749,7 @@
         : (s === DEALER_SEAT ? Math.ceil(base * 2 / 100) * 100 : Math.ceil(base / 100) * 100);
     }
     // 役なしはbaseBySeatに赤牌ぶんを既に含むため、ここでの追加加算は0にする（二重計上防止）
-    const akaPerSeat = result.yakunashi ? 0 : result.akaCount * 2000; // 旧settleAkaBonusのツモ分岐
+    const akaPerSeat = result.yakunashi ? 0 : akaBonusPerPayer(result); // 旧settleAkaBonusのツモ分岐
     const payments = others.map(s => ({ seat: s, amount: baseBySeat(s) + akaPerSeat + honbaPerSeat }));
     const nominalGain = payments.reduce((sum, p) => sum + p.amount, 0);
     const akaBonus = result.yakunashi ? result.akaCount * 1000 * others.length : akaPerSeat * others.length;
@@ -8248,7 +8270,8 @@
       // ドラ・リーチドラはハウスルール上、他の役と違って「翻を稼ぐための役」ではなく
       // 定額ボーナスの性格が強いので、表示上も他の役（飜数の少ない順）とは分けて末尾にまとめる
       // （赤牌ボーナスも同じ理由で、常にそのさらに後ろの行に表示する）
-      const DORA_YAKU_NAMES = new Set(["ドラ", "カンドラ", "リーチドラ", "裏ドラ", "カン裏"]);
+      // 「赤」は赤を1翻で数えるルール(Mリーグ系)の行。ドラと同じく末尾に「赤×1 1飜」と出す
+      const DORA_YAKU_NAMES = new Set(["ドラ", "カンドラ", "リーチドラ", "裏ドラ", "カン裏", "赤"]);
       // 役満は固定額（親48,000点・子32,000点）で、飜×単位の線形計算に乗らない。
       // ドラの飜がhan>=13の判定に加わっただけの場合も含め、役満成立時はドラが実際の点数に
       // 一切寄与しないため、ドラの行自体を出さない（点数欄だけ空欄にすると「本来は点数が
@@ -8260,7 +8283,7 @@
       normalYaku.concat(doraYaku).forEach(y => {
         const isDoraRow = DORA_YAKU_NAMES.has(y.name);
         // リーチドラの「Rドラ」部分だけ赤くする。通常のドラ・他の役名は素のまま
-        const namePart = y.name === "リーチドラ" ? `<span class="bonus-red-text">${displayNameOf(y.name)}</span>` : displayNameOf(y.name);
+        const namePart = (y.name === "リーチドラ" || y.name === "赤") ? `<span class="bonus-red-text">${displayNameOf(y.name)}</span>` : displayNameOf(y.name);
         const displayName = isDoraRow ? (namePart + "×" + y.han) : namePart;
         const hanText = isYakuman ? "役満" : (y.han + "飜");
         // 役ごとの点数は、翻×単位の線形計算(無限ルール)でだけ意味があるので出す。符計算・固定点数表の
