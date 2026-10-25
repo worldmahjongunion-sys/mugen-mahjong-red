@@ -1440,6 +1440,13 @@
     .tile-top{ border-radius:calc(var(--tile-w) * 0.085); }
     /* 上の帯のドラ表示牌（幅18px・高さ25pxの固定）も同じ比率 */
     .top-left-info .tile.dora-tile{ border-radius:1.5px 1.5px 2.3px 2.3px; border-bottom-width:2.3px; }
+
+    /* 表紙のルールボタン：名前の長いもの(titleLines)は2段目を改行して出す。
+       段数が違っても全部のボタンを同じ高さにそろえ(一番高い段に合わせる)、その分だけ上下の余白を詰める */
+    .title-screen-rules{ grid-auto-rows:1fr; }
+    .title-screen-rules button{ padding:0.6em; }
+    .title-screen-rules button .rule-btn-sep{ display:none; }
+    .title-screen-rules button .rule-btn-line2{ display:block; }
   }
 </style>
 </head>
@@ -2095,7 +2102,7 @@
       // 名の付いた役満が1つも無い「数え役満」は三倍満止めにする
       scoreTableMode:"lookup", scoreTableKiriage:true, yakumanMultiplierEnabled:true, countedYakumanCapped:true
     } },
-    { id:"wwPremium", label:"麻雀共同体WW プレミアム", status:"ready", ruleConfig:{
+    { id:"wwPremium", label:"麻雀共同体WW プレミアム", titleLines:["麻雀共同体WW", "プレミアム"], status:"ready", ruleConfig:{
       deadWallLayout:"auto14",
       disabledYaku:CUSTOM_YAKU_NAMES,
       chiitoitsuStandardYakuStack:true,
@@ -2116,7 +2123,7 @@
       // 名の付いた役満は固定額、役の合計だけで13翻以上は三倍満止め(数え役満なし)
       scoreTableMode:"fu", scoreTableKiriage:false, yakumanMultiplierEnabled:false, countedYakumanCapped:true
     } },
-    { id:"wwStandard", label:"麻雀共同体WW スタンダード", status:"ready", ruleConfig:{
+    { id:"wwStandard", label:"麻雀共同体WW スタンダード", titleLines:["麻雀共同体WW", "スタンダード"], status:"ready", ruleConfig:{
       deadWallLayout:"auto14",
       disabledYaku:CUSTOM_YAKU_NAMES,
       chiitoitsuStandardYakuStack:true,
@@ -2135,7 +2142,7 @@
       // 符計算あり(切り上げ満貫あり)。名の付いた役満は固定額、役の合計だけで13翻以上は三倍満止め(数え役満なし)
       scoreTableMode:"fu", scoreTableKiriage:true, yakumanMultiplierEnabled:false, countedYakumanCapped:true
     } },
-    { id:"sanninNeo", label:"無限ルールNEO(3人打ち)", status:"comingSoon", ruleConfig:null },
+    { id:"sanninNeo", label:"無限ルールNEO(3人打ち)", titleLines:["無限ルールNEO", "(3人打ち)"], status:"comingSoon", ruleConfig:null },
     { id:"zanLeague", label:"ザンリーグルール", status:"comingSoon", ruleConfig:null },
     // MCR-NEO(国際公式麻雀ベース)。段階7で表紙から選べるようにした(status:"ready")。
     // 役・点は日本式の判定(computeYaku)を使わず、scoreTableMode:"mcr"の関数群(mcrEvaluate)で数える。
@@ -2205,7 +2212,24 @@
     RULESETS.forEach(rule => {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.textContent = rule.label;
+      if(rule.titleLines){
+        // スマホ縦だけ2段目を改行する(PCは区切りの空白ごと1行で、rule.labelと同じに見える)
+        const [line1, line2] = rule.titleLines;
+        btn.appendChild(document.createTextNode(line1));
+        const sep = rule.label.slice(line1.length, rule.label.length - line2.length);
+        if(sep){
+          const sepEl = document.createElement("span");
+          sepEl.className = "rule-btn-sep";
+          sepEl.textContent = sep;
+          btn.appendChild(sepEl);
+        }
+        const line2El = document.createElement("span");
+        line2El.className = "rule-btn-line2";
+        line2El.textContent = line2;
+        btn.appendChild(line2El);
+      } else {
+        btn.textContent = rule.label;
+      }
       if(rule.status !== "ready"){
         btn.classList.add("coming-soon");
         const badge = document.createElement("span");
