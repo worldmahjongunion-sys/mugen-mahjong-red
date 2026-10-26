@@ -932,6 +932,8 @@
     background:transparent;
     border:1px solid rgba(243,239,227,0.5);
   }
+  /* スマホ縦だけの「卓をチェック」とその間の小さなボタン3つ。PC・横向きでは出さない(出し方は縦向きの@media側) */
+  .table-check-btn, .table-check-bar{ display:none; }
 
   /* 半荘終了時の最終順位画面。以前は卓全体を暗転させる全画面オーバーレイだったが、
      卓全体を暗くしないでほしいとの要望で撤廃。今は.result-stack内で#resultBoxの
@@ -1410,6 +1412,16 @@
     .result-stack:has(#resultBox:not([style*="none"]) .pr-ok){ padding-top:92px; }
     .board:has(#resultBox:not([style*="none"]) .pr-ok) #repeatBtn,
     .board:has(#resultBox:not([style*="none"]) .pr-ok) #nextKyokuBtn{ display:none; }
+    /* 「卓をチェック」(和了・流局とも)：押すと結果の枠と帯の下のボタン行を隠して卓全体を見せ、
+       代わりに帯の下の同じ場所に小さなボタン3つ(結果に戻る・リピート・次局へ)を右寄せで出す */
+    .result-box .table-check-btn{ display:block; margin:14px auto 0; width:70%; height:40px; font-size:15px; font-weight:bold;
+      color:var(--text-light); background:transparent; border:1px solid rgba(243,239,227,0.5); border-radius:10px; }
+    body.table-peek .result-stack, body.table-peek #resultActions{ display:none !important; }
+    body.table-peek .table-check-bar{ display:flex; position:absolute; top:calc(100% + 4px); right:0; gap:6px; }
+    .table-check-bar button{ padding:0.3em 0.8em; font-size:12px; font-weight:bold; border-radius:6px; }
+    .table-check-bar .back-btn{ color:var(--text-light); background:rgba(5,20,12,0.85); border:1px solid rgba(243,239,227,0.5); }
+    .table-check-bar .repeat-btn{ color:var(--gold); background:rgba(5,20,12,0.85); border:1px solid var(--gold); }
+    .table-check-bar .next-kyoku-btn{ color:#052014; background:var(--gold); border:1px solid var(--gold); }
 
     /* 山の表示は縦向きでは省き、そのぶん卓の牌を大きくする（残り枚数は中央の数字、ドラは上の帯で分かる） */
     .wall-ring > .ring-top, .wall-ring > .ring-left, .wall-ring > .ring-right, .wall-ring > .ring-bottom{ display:none; }
@@ -1601,6 +1613,12 @@
       <button type="button" class="repeat-btn" id="repeatBtn"></button>
       <button type="button" class="next-kyoku-btn" id="nextKyokuBtn"></button>
       <button type="button" class="home-btn" id="homeBtn">ホームページに戻る</button>
+    </div>
+    <!-- スマホ縦の「卓をチェック」中だけ、#resultActionsの代わりに出す小さなボタン3つ -->
+    <div class="table-check-bar" id="tableCheckBar">
+      <button type="button" class="back-btn" id="tableCheckBackBtn">結果に戻る</button>
+      <button type="button" class="repeat-btn" id="tableCheckRepeatBtn">リピート</button>
+      <button type="button" class="next-kyoku-btn" id="tableCheckNextBtn">次局へ</button>
     </div>
   </div>
 
@@ -8223,7 +8241,39 @@
       return `<div class="result-yaku">${seatLabel[s]}　${deltaText}</div>`;
     }).join("");
     box.innerHTML = `<div class="result-title">${titleText || "流局"}</div>` + rows;
+    addTableCheckButton(box);
   }
+
+  // スマホ縦の「卓をチェック」：結果の枠の中にボタンを足す(PC・横向きではCSSで出さない)。
+  // 押すとbody.table-peekで結果の枠と帯の下のボタン行を隠し、卓全体を見せる。その間に出す
+  // 小さなボタン3つのうち「リピート」「次局へ」は、帯の下の#repeatBtn/#nextKyokuBtn
+  // (＝結果の枠の「この局をリピート」「OK」)を押したのと同じ動きにする
+  function addTableCheckButton(box){
+    setTablePeek(false);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "table-check-btn";
+    btn.textContent = "卓をチェック";
+    btn.onclick = () => setTablePeek(true);
+    (box.querySelector(".pr-btns") || box).appendChild(btn);
+  }
+  function setTablePeek(on){
+    if(on){
+      // 文言は帯の下の2つに合わせる(オーラスは「新しい半荘へ」、リピート中は「リプレイ」「次へ」)
+      const repeatBtn = document.getElementById("repeatBtn");
+      const nextBtn = document.getElementById("nextKyokuBtn");
+      document.getElementById("tableCheckRepeatBtn").textContent = repeatBtn.textContent;
+      const peekNext = document.getElementById("tableCheckNextBtn");
+      peekNext.textContent = nextBtn.textContent;
+      peekNext.style.display = nextBtn.style.display === "none" ? "none" : "";
+    }
+    document.body.classList.toggle("table-peek", on);
+  }
+  (function initTableCheckBar(){
+    document.getElementById("tableCheckBackBtn").onclick = () => setTablePeek(false);
+    document.getElementById("tableCheckRepeatBtn").onclick = () => { setTablePeek(false); document.getElementById("repeatBtn").click(); };
+    document.getElementById("tableCheckNextBtn").onclick = () => { setTablePeek(false); document.getElementById("nextKyokuBtn").click(); };
+  })();
 
   // 山が尽きた（誰もツモれなくなった）ときの流局処理。
   // 「上がり連荘」ルールのため、流局は親のテンパイ／ノーテンを問わず常に親交代
@@ -8427,6 +8477,7 @@
       const extraPoints = (collectedKyotaku || 0) + (honbaBonusTotal || 0) + (bonusTotal || 0);
       showPortraitResult(box, seat, result, title, totalGain, totalGain - extraPoints, paymentsBySeat);
     }
+    addTableCheckButton(box);
   }
 
   // --- スマホ縦向き専用の和了結果（単独の和了だけ。ダブロン・流局は元の表示を画面幅に収めるだけ） ---
@@ -8511,6 +8562,7 @@
       extraHtml += `<div class="result-yaku">放銃者の持ち点不足のため、受取額は均等精算されています</div>`;
     }
     box.innerHTML = blocksHtml + extraHtml;
+    addTableCheckButton(box);
   }
 
   // ツモの精算（単独のみ。同時多発ツモは存在しないため常に単一勝者）
