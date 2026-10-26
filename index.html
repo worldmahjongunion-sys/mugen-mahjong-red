@@ -1444,7 +1444,7 @@
     /* 表紙のルールボタン：名前の長いもの(titleLines)は2段目を改行して出す。
        段数が違っても全部のボタンを同じ高さにそろえ(一番高い段に合わせる)、その分だけ上下の余白を詰める */
     .title-screen-rules{ grid-auto-rows:1fr; }
-    .title-screen-rules button{ padding:0.6em; }
+    .title-screen-rules button{ padding:0.6em; font-size:min(16px, 4.45vw); } /* 幅360px未満だけ字を縮め、1段目が折り返さないようにする */
     .title-screen-rules button .rule-btn-sep{ display:none; }
     .title-screen-rules button .rule-btn-line2{ display:block; }
   }
@@ -2042,7 +2042,7 @@
     "組合龍", "組合同順"
   ];
   const RULESETS = [
-    { id:"akaNeo", label:"赤入り無限ルールNEO", status:"ready", ruleConfig:{
+    { id:"akaNeo", label:"赤入り無限ルールNEO", titleLines:["赤入り無限ルール", "NEO"], status:"ready", ruleConfig:{
       deadWallLayout:"legacy8",
       disabledYaku:[], // 独自役も全部使う
       chiitoitsuStandardYakuStack:false,
@@ -2060,7 +2060,7 @@
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:false,
       scoreTableMode:"linear", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
-    { id:"original", label:"無限ルールOriginal", status:"ready", ruleConfig:{
+    { id:"original", label:"無限ルールOriginal", titleLines:["無限ルール", "Original"], status:"ready", ruleConfig:{
       deadWallLayout:"legacy8",
       disabledYaku:CUSTOM_YAKU_NAMES,
       chiitoitsuStandardYakuStack:true,
