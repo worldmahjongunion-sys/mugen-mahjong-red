@@ -4538,6 +4538,9 @@
   // 抜いた北にロンが無かった：嶺上牌から1枚補充してから、その人の番を続ける
   function continueKitaDraw(seat){
     if(gameEnded) return;
+    // ロンされなかった：今リーチしている人(抜いた本人を含む)の待ちに北は無い(リーチ中のロンは強制のため)。安全牌の判断に使う
+    const kita = nukiDora[seat][nukiDora[seat].length - 1];
+    if(kita && ruleConfig.riichiRonForced) kita.safeFor = activeSeats(["bottom", "right", "top", "left"]).filter(s => riichiDeclared[s]);
     const rinshan = drawRinshanTile();
     updateRinshanVisual();
     hands[seat].push(rinshan);
@@ -4583,15 +4586,32 @@
     btn.onclick = tile ? () => { const t = kitaTileFor("bottom"); if(t) executeKita("bottom", t); } : null;
   }
 
-  // CPUが北を抜くか(段階4の簡単な判断。段階5で見直す)：リーチ中は引いた北を抜く。リーチしていない時は、
-  // 北が2枚以上(役牌の暗刻を狙う)か、国士無双を狙っている(么九牌が9種以上)時は抜かずに持つ
+  // CPUの北の判断。抜く北(牌そのもの)を返す。nullの時は抜かない(暗刻で持つ、または打牌の判断(pickCpuDiscard)に任せて
+  // 捨てることもある)。判断の理由はcpuKitaReasonに残す(確認用)
+  //  ・リーチ中：引いた北を、ほかにリーチの人がいれば捨てる(抜くと嶺上牌をもう1枚ツモ切ることになり危ない)、いなければ抜く
+  //  ・国士無双を狙っている(鳴きなし・么九牌が9種以上)：持つ
+  //  ・北がちょうど3枚：暗刻で持つ(役牌・北1翻。1翻縛りの役になる)。4枚目を引いたら、それは抜く
+  //  ・ほかの人のリーチに降りている(テンパイしていない)：抜かない(抜くと補充した牌をもう1枚切ることになる)。北は打牌の判断で捨てることがある
+  //  ・北が2枚で鳴いている：役牌の暗刻を狙って持つ(北はポンできないので、門前ならリーチで役を作れる方を取り、抜く)
+  //  ・それ以外：抜く(1翻増えて、補充で手も進む)
+  let cpuKitaReason = null;
   function cpuKitaChoice(seat){
+    cpuKitaReason = null;
     const tile = kitaTileFor(seat);
-    if(!tile || riichiDeclared[seat]) return tile;
+    if(!tile) return null;
+    const othersRiichi = activeSeats(["bottom", "right", "top", "left"]).some(s => s !== seat && riichiDeclared[s]);
+    if(riichiDeclared[seat]){
+      cpuKitaReason = othersRiichi ? "リーチ中・捨てる" : "リーチ中・抜く";
+      return othersRiichi ? null : tile;
+    }
     const hand = hands[seat];
-    if(hand.filter(isKitaTile).length >= 2) return null;
+    const kitaCount = hand.filter(isKitaTile).length;
     const yaochu = new Set(hand.filter(t => t.suit === "wind" || t.suit === "dragon" || t.num === 1 || t.num === 9).map(tileKey));
-    if(melds[seat].length === 0 && yaochu.size >= 9) return null;
+    if(melds[seat].length === 0 && yaochu.size >= 9){ cpuKitaReason = "国士で持つ"; return null; }
+    if(kitaCount === 3){ cpuKitaReason = "暗刻で持つ"; return null; } // 4枚目は暗槓できないので抜く(暗刻は残る)
+    if(othersRiichi && calcShanten(hand, melds[seat].length) >= 1){ cpuKitaReason = "降りて抜かない"; return null; }
+    if(kitaCount === 2 && melds[seat].length > 0){ cpuKitaReason = "対子で持つ"; return null; }
+    cpuKitaReason = "抜く";
     return tile;
   }
 
@@ -7563,11 +7583,15 @@
 
   // remaining(13枚)に対して、シャンテン数を1つでも進める(=より完成に近づける)牌の
   // 残り枚数の合計(受け入れ枚数)を求める
+  // その種類の牌が、この対局の牌山に何枚あるか。3人打ち(manzuTerminalsOnly)の萬子2〜8は0枚、ほかは4枚
+  function tileCopiesInGame(t){
+    return (ruleConfig.manzuTerminalsOnly && t.suit === "man" && t.num !== 1 && t.num !== 9) ? 0 : 4;
+  }
   function calcUkeire(remaining, calledMeldsCount, baseShanten, visible){
     let total = 0;
     for(const t of ALL_TILE_TYPES){
       const idx = TILE_INDEX_MAP.get(tileKey(t));
-      const remainCount = 4 - (visible[idx] || 0);
+      const remainCount = tileCopiesInGame(t) - (visible[idx] || 0); // 3人打ちは27種(無い萬子2〜8は0枚)
       if(remainCount <= 0) continue;
       const testShanten = calcShanten([...remaining, t], calledMeldsCount);
       if(testShanten < baseShanten) total += remainCount;
@@ -7585,7 +7609,10 @@
 
   // tileがseatに対して現物(=seatの捨て牌に同じ種類がある)かどうか。フリテンにより、
   // 現物は絶対にロンされない安全牌
+  // 3人打ち：リーチ中のロンは強制和了なので、seatのリーチの後に抜かれてロンされなかった北(seatが自分で抜いた北も)は、
+  // seatの待ちに無い＝現物と同じ。抜いた北の牌には、その時リーチしていた人をsafeForとして記録する(continueKitaDraw)
   function isGenbutsu(tile, seat){
+    if(isKitaTile(tile) && ruleConfig.kitaNukiEnabled && activeSeats(["bottom", "right", "top", "left"]).some(s => nukiDora[s].some(n => n.safeFor && n.safeFor.includes(seat)))) return true;
     return discards[seat].some(d => d.suit === tile.suit && d.num === tile.num);
   }
 
@@ -7795,7 +7822,8 @@
     const bestShanten = Math.min(...candidates.map(c => c.shanten));
 
     // 公開された待ちが分かっているオープンリーチの人は、上で扱ったので、現物で守る相手からは外す
-    const dangerousSeats = activeSeats(["top", "left", "right"]).filter(s => s !== seat && riichiDeclared[s] && !openRiichiDeclared[s]);
+    // 3人打ちは相手2人(もう1人のCPUと自分)の両方を見る。4人のルールは今までどおり、CPUの3席だけを見る
+    const dangerousSeats = activeSeats(EMPTY_SEAT ? ["bottom", "top", "left", "right"] : ["top", "left", "right"]).filter(s => s !== seat && riichiDeclared[s] && !openRiichiDeclared[s]);
     if(dangerousSeats.length > 0 && bestShanten >= 1){
       const safe = candidates.filter(c => dangerousSeats.every(s => isGenbutsu(c.tile, s)));
       if(safe.length > 0){
