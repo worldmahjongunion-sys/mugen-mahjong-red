@@ -8122,10 +8122,16 @@
 
   // 最終素点から各家の順位点を計算する。同点の場合は同順位グループとして扱い、
   // そのグループが占める順位ぶんの順位点（オカ含む）を合計してグループ人数で均等に折半する
+  // 同点の人たち(groupSeats、順位の決め方の順)で順位点の合計groupSumを分ける。unit(100点、MCRは1点)単位で分け、
+  // 割り切れない端数は順位の上の人(あなた→下家→対面→上家)に付ける。合計は必ずgroupSumのまま(例：44000を3人なら14800・14600・14600)
+  function splitTiedUma(umaBySeat, groupSeats, groupSum, unit){
+    const base = Math.floor(groupSum / groupSeats.length / unit) * unit;
+    groupSeats.forEach((s, k) => { umaBySeat[s] = base + (k === 0 ? groupSum - base * groupSeats.length : 0); });
+  }
   function computeUmaBySeat(finalScores){
     const seats = activeSeats(["bottom", "right", "top", "left"]); // 同点時：あなた→下家→対面→上家の順を優先
     const ranked = seats.slice().sort((a, b) => finalScores[b] - finalScores[a]);
-    // MCR：浮き人数で表を選び、同点は占める順位の順位点を合計して人数で割る(表の値なら端数は出ない)
+    // MCR：浮き人数で表を選び、同点は占める順位の順位点を合計して人数で割る(1点単位。表の値なら端数は出ない)
     if(ruleConfig.umaMode === "mcrUki"){
       const table = MCR_UMA_TABLE_BY_UKI[seats.filter(s => finalScores[s] >= 0).length] || MCR_UMA_TABLE_BY_UKI[4];
       const umaBySeat = {};
@@ -8134,8 +8140,7 @@
         let j = i;
         while(j + 1 < ranked.length && finalScores[ranked[j + 1]] === finalScores[ranked[i]]) j++;
         const groupSeats = ranked.slice(i, j + 1);
-        const split = Math.round(table.slice(i, j + 1).reduce((a, b) => a + b, 0) / groupSeats.length);
-        groupSeats.forEach(s => { umaBySeat[s] = split; });
+        splitTiedUma(umaBySeat, groupSeats, table.slice(i, j + 1).reduce((a, b) => a + b, 0), 1);
         i = j + 1;
       }
       return { ranked, umaBySeat };
@@ -8150,9 +8155,7 @@
         let j = i;
         while(j + 1 < ranked.length && finalScores[ranked[j + 1]] === finalScores[ranked[i]]) j++;
         const groupSeats = ranked.slice(i, j + 1);
-        const groupSum = table.slice(i, j + 1).reduce((a, b) => a + b, 0);
-        const split = Math.round(groupSum / groupSeats.length / 100) * 100;
-        groupSeats.forEach(s => { umaBySeat[s] = split; });
+        splitTiedUma(umaBySeat, groupSeats, table.slice(i, j + 1).reduce((a, b) => a + b, 0), 100);
         i = j + 1;
       }
       return { ranked, umaBySeat };
@@ -8174,8 +8177,7 @@
       const groupSeats = ranked.slice(i, j + 1);
       let groupSum = table.slice(i, j + 1).reduce((a, b) => a + b, 0);
       if(i === 0) groupSum += oka; // トップ（同点ならトップの同順位グループ）にオカを加算
-      const split = Math.round(groupSum / groupSeats.length / 100) * 100;
-      groupSeats.forEach(s => { umaBySeat[s] = split; });
+      splitTiedUma(umaBySeat, groupSeats, groupSum, 100);
       i = j + 1;
     }
     return { ranked, umaBySeat };
@@ -8192,18 +8194,21 @@
   // 素点・合計は35,000持ち・40,000返しのハウスルールに合わせ、40,000点を原点とした±表示にする
   // （合計＝(素点-40,000)+順位点）
   function showFinalStandings(reason){
-    // 終局時に場に残った供託：leftoverKyotakuToTopのルール(赤入り無限NEO・Mリーグ NEO・3人打ちNEO)は、
-    // トップ(今の順位の決め方での1位。同点はあなた→下家→対面→上家の順)の持ち点に足してから、順位点・オカと成績の記録を数える
+    // 終局時に場に残った供託：leftoverKyotakuToTopのルール(赤入り無限NEO・Mリーグ NEO・3人打ちNEO)は、トップの持ち点に足す。
+    // 順位と順位点・オカは足す前の持ち点で決める(同点トップは同点のまま折半)。供託は100点単位で折半し、割り切れない端数は
+    // 今の順位の決め方(あなた→下家→対面→上家)で上の人に付ける(2人で1本なら500ずつ、3人で1本なら400・300・300)
+    const { ranked, umaBySeat } = computeUmaBySeat(scores);
     let kyotakuToTop = null;
     if(ruleConfig.leftoverKyotakuToTop && riichiSticks > 0){
-      const top = computeUmaBySeat(scores).ranked[0];
-      kyotakuToTop = { seat: top, count: riichiSticks };
-      scores[top] += riichiSticks * 1000;
+      const tops = ranked.filter(s => scores[s] === scores[ranked[0]]);
+      const total = riichiSticks * 1000;
+      const base = Math.floor(total / tops.length / 100) * 100;
+      tops.forEach((s, i) => { scores[s] += base + (i === 0 ? total - base * tops.length : 0); });
+      kyotakuToTop = { seats: tops, count: riichiSticks };
       riichiSticks = 0;
       updateKyotakuDisplay();
       renderScores();
     }
-    const { ranked, umaBySeat } = computeUmaBySeat(scores);
     recordMatchResult(reason, ranked, umaBySeat);
     announceMatchEnd(reason, ranked);
     const elapsedText = formatElapsedText(Date.now() - matchStartTime); // 音声化はしないが画面には残す
@@ -8223,7 +8228,7 @@
       `<div class="final-rank-row final-rank-header">` +
       `<span></span><span></span><span>${ruleConfig.umaMode === "mcrUki" ? "素点" : "素点(" + ruleConfig.returnPoints + "基準)"}</span><span>順位点</span><span>合計</span></div>` +
       rows +
-      (kyotakuToTop ? `<div class="final-reason final-kyotaku">供託 ${kyotakuToTop.count}本 → トップ（${seatLabel[kyotakuToTop.seat]}）</div>` : "") +
+      (kyotakuToTop ? `<div class="final-reason final-kyotaku">供託 ${kyotakuToTop.count}本 → トップ（${kyotakuToTop.seats.map(s => seatLabel[s]).join("・")}）${kyotakuToTop.seats.length > 1 ? "で折半" : ""}</div>` : "") +
       (ruleConfig.umaMode === "mcrUki" ? mcrFinalRuleNote(scores) : (ruleConfig.almightyTileEnabled ? mLeagueNeoFinalRuleNote() : ""));
     document.getElementById("finalOverlay").style.display = "flex";
   }
