@@ -325,6 +325,10 @@
   html.empty-seat-top .center-info > .ring-top .nameplate{ visibility:hidden; }
   /* チーのないルール(3人打ち)は、チーのボタンを出さない */
   html.no-chi #chiBtn{ display:none; }
+  /* 北の抜きドラ(3人打ち)の「抜きドラ」ボタンは、チーのボタンの場所に出す。ほかのルールでは出さない */
+  html:not(.kita-rule) #kitaBtn{ display:none; }
+  /* 抜いた北(鳴き牌の列の端に表向きで並べる) */
+  .nuki-group{ display:flex; gap:3px; }
   /* リーチの選び方(オープンリーチのあるルールで、リーチボタンを押した時だけ出す) */
   .riichi-choice{
     position:fixed; z-index:60; display:flex; gap:6px; padding:6px; border-radius:8px;
@@ -1647,6 +1651,7 @@
     <button class="row-btn" disabled>鳴き無し</button>
     <button class="row-btn" id="throughBtn" disabled>スルー</button>
     <button class="row-btn" id="chiBtn" disabled>チー</button>
+    <button class="row-btn" id="kitaBtn" disabled>抜きドラ</button>
     <button class="row-btn" id="ponBtn" disabled>ポン</button>
     <button class="row-btn" id="kanBtn" disabled>カン</button>
     <button class="row-btn" id="riichiBtn" disabled>リーチ</button>
@@ -2052,6 +2057,10 @@
   //     activeSeats()でこの席を除いて回す
   //   manzuTerminalsOnly: 萬子を一萬・九萬だけにするか(3人打ちの108枚)。ドラ表示は一萬→九萬、九萬→一萬
   //   chiEnabled: チーがあるか。falseは自分にもCPUにもチーの選択肢を出さない(邪魔ポンも起きない)
+  //   kitaNukiEnabled: 北の抜きドラ(3人打ち)。自分の番に手の北を抜いて1枚1翻のドラにし、嶺上牌から補充する。
+  //     北のポン・明槓・暗槓はできない。抜いた北にはロンできる(槍槓にはならない)。抜くと全員の一発が消える
+  //   kitaRinshanKaihouEnabled: 北の補充牌でツモ和了した時に嶺上開花を付けるか(falseはカンの補充の時だけ)
+  //   riichiRonForced: リーチ中にロンできる時は必ず和了する(完全先付。自分にスルーのボタンを出さない)
   //   leftoverKyotakuToTop: 終局時に場に残った供託(リーチ棒)をトップが受け取るか。trueはトップの持ち点に足してから
   //     順位点・オカを数え、終了画面に「供託 ○本 → トップ(名前)」を出す。falseは今までどおり消える
   //   ukiUmaTable/okaPoints/ukiInclusive: umaMode:"ukiCount"の順位点。浮き人数→[1着,2着,…]の表と、トップに足すオカ、
@@ -2064,7 +2073,8 @@
     totalKyoku:8, minWinPoints:0, maxWinPoints:null, seatChangeEnabled:false,
     startHandSize:13, almightyTileEnabled:false, openRiichiEnabled:false,
     akaHanEnabled:false, winCallSpeech:null, emptySeat:null, manzuTerminalsOnly:false, chiEnabled:true,
-    ukiUmaTable:null, okaPoints:20000, ukiInclusive:false, leftoverKyotakuToTop:false
+    ukiUmaTable:null, okaPoints:20000, ukiInclusive:false, leftoverKyotakuToTop:false,
+    kitaNukiEnabled:false, kitaRinshanKaihouEnabled:false, riichiRonForced:false
   };
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
@@ -2218,13 +2228,14 @@
   // 無限ルールNEO(3人打ち)の設定＝赤入り無限ルールNEOの設定を3人打ちにしたもの(依頼_3人打ちNEO_仕様と段階実装.md)。
   // 対面を空ける・萬子は一萬と九萬だけ・チーなし・東南西の9局・王牌18枚(カンドラあり、リーチドラなし)。
   // 点数は4人のNEOと同じ計算で、払う人が2人になる(北家の分は誰も払わない＝ツモ損)。役なしの和了はできない(1翻縛り)。
-  // 順位点は浮き(40000点以上)の人数で引き、オカ15000をトップに足す。北の抜きドラは段階4で入れる。表紙はまだ「近日公開」のまま
+  // 順位点は浮き(40000点以上)の人数で引き、オカ15000をトップに足す。北は抜きドラ。リーチ中のロンは強制和了。表紙はまだ「近日公開」のまま
   RULESETS.find(r => r.id === "sanninNeo").ruleConfig = Object.assign({},
     RULESETS.find(r => r.id === "akaNeo").ruleConfig,
     { emptySeat:"top", manzuTerminalsOnly:true, chiEnabled:false, jamaPonEnabled:false,
       deadWallLayout:"auto18", kanDoraEnabled:true, totalKyoku:9, southRoundEnabled:true,
       yakunashiWinEnabled:false,
-      ukiUmaTable:{ 1:[40000, -10000, -30000], 2:[20000, 10000, -30000] }, okaPoints:15000, ukiInclusive:true });
+      ukiUmaTable:{ 1:[40000, -10000, -30000], 2:[20000, 10000, -30000] }, okaPoints:15000, ukiInclusive:true,
+      kitaNukiEnabled:true, kitaRinshanKaihouEnabled:false, riichiRonForced:true });
   const DEFAULT_RULE_ID = "akaNeo";
   // 表紙で選んだルールIDを覚えておくキー。半荘中(savedMatchStateがまだ無いkyoku1中)でも
   // うっかりリロードした時にルールがデフォルトへ戻らないよう、savedMatchStateとは別に
@@ -2537,6 +2548,7 @@
   // 3人打ちは空けた席の部品を見えなくする(CSSのhtml.empty-seat-top)
   if(EMPTY_SEAT) document.documentElement.classList.add("empty-seat-" + EMPTY_SEAT);
   if(!ruleConfig.chiEnabled) document.documentElement.classList.add("no-chi");
+  if(ruleConfig.kitaNukiEnabled) document.documentElement.classList.add("kita-rule");
 
   // 山の絵の基準にする、配牌直後・自摸前の生きたツモ回数（＝王牌8枚なら76、14枚なら70、12枚配りで王牌14枚なら74）
   const LIVE_WALL_TOTAL = wall.length;
@@ -2619,6 +2631,9 @@
   let furitenTemp = { top:false, left:false, right:false, bottom:false };
   let furitenRiichi = { top:false, left:false, right:false, bottom:false };
   const melds = { top: [], left: [], right: [], bottom: [] };
+  // 抜いた北(kitaNukiEnabled)。席ごとに、抜いた順の牌そのもの。meldsには入れない(鳴きではないので、
+  // 門前・天和地和・一発の「鳴き」の判定には効かない)。ドラの数え方と見えている牌には足す
+  const nukiDora = { top: [], left: [], right: [], bottom: [] };
 
   const discardElByName = {
     top: document.getElementById("discardTop"),
@@ -3369,6 +3384,20 @@
       ordered.forEach(elx => group.appendChild(elx));
       el.appendChild(group);
     });
+    // 抜いた北：鳴き牌の列の端(手牌から遠い側)に、表向きで並べる
+    if(nukiDora[name].length){
+      const group = document.createElement("div");
+      group.className = "nuki-group";
+      group.style.flexDirection = flexDir;
+      group.style.alignItems = MELD_ALIGN_ITEMS[name];
+      nukiDora[name].forEach(t => {
+        const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num) + " nuki-tile", t.red);
+        markAtari(t, tEl);
+        applyMeldRotation(tEl, baseRot, scaleVar);
+        group.appendChild(tEl);
+      });
+      el.insertBefore(group, el.firstChild);
+    }
     fitMeldRowScale(name);
   }
 
@@ -3406,14 +3435,17 @@
   function countMatching(hand, tile){
     return hand.filter(t => t.suit === tile.suit && t.num === tile.num).length;
   }
-  function canPon(hand, tile){ return countMatching(hand, tile) >= 2; }
-  function canKan(hand, tile){ return countMatching(hand, tile) >= 3; }
+  // 北の抜きドラのルールでは、北はポン・明槓・暗槓できない(抜くか、捨てるか、暗刻で持つ)
+  function isKitaTile(t){ return !!t && t.suit === "wind" && t.num === 4; }
+  function isUnmeldableKita(t){ return ruleConfig.kitaNukiEnabled && isKitaTile(t); }
+  function canPon(hand, tile){ return !isUnmeldableKita(tile) && countMatching(hand, tile) >= 2; }
+  function canKan(hand, tile){ return !isUnmeldableKita(tile) && countMatching(hand, tile) >= 3; }
   // 暗槓：鳴きを介さず、自分の手牌だけで4枚揃っている牌の種類を全て返す
   // （2種類以上同時に4枚揃うこともあるため、最初の1つだけを返さないこと）
   function findAllAnkanTiles(hand){
     const counts = countTiles(hand);
     const result = [];
-    for(const k in counts){ if(counts[k] >= 4) result.push(keyToTile(k)); }
+    for(const k in counts){ if(counts[k] >= 4 && !isUnmeldableKita(keyToTile(k))) result.push(keyToTile(k)); }
     return result;
   }
   // CPU用：候補が複数あっても選ばせる仕組みが無いため、最初の1種類だけを使う
@@ -4152,6 +4184,8 @@
 
   function cpuChooseAndDiscard(seat){
     if(gameEnded) return;
+    const kita = ruleConfig.kitaNukiEnabled ? cpuKitaChoice(seat) : null;
+    if(kita){ executeKita(seat, kita); return; }
     const hand = hands[seat];
     let discarded;
     if(riichiDeclared[seat]){
@@ -4258,7 +4292,7 @@
   // 10秒の猶予（カウントダウン付き）、無ければ従来通り550msでそのままツモ切りする。
   // pendingSelfKanは呼び出し側でupdateSelfKanOpportunity(drawnTile)済みであることが前提
   function scheduleRiichiAutoDiscard(drawnTile){
-    if(pendingSelfKan && pendingSelfKan.candidates.length > 0){
+    if((pendingSelfKan && pendingSelfKan.candidates.length > 0) || kitaTileFor("bottom")){
       startRiichiKanWindow(drawnTile);
     } else {
       setTurnIndicator("あなたの番です（リーチ中のため自動でツモ切りします）");
@@ -4283,10 +4317,14 @@
   function startRiichiKanWindow(drawnTile, durationMs){
     durationMs = durationMs || 10000;
     riichiKanDecisionPending = true;
+    updateThroughButton(); // 秒読みの間はスルー(＝カン・北抜きをせずに捨てる)を押せるようにする
     const kanBtn = document.getElementById("kanBtn");
     let remainingMs = durationMs;
+    const kitaBtn = document.getElementById("kitaBtn");
     const showRemaining = () => {
-      if(kanBtn) kanBtn.textContent = "カン（" + Math.ceil(remainingMs / 1000) + "）";
+      const sec = "（" + Math.ceil(remainingMs / 1000) + "）";
+      if(kanBtn && pendingSelfKan && pendingSelfKan.candidates.length > 0) kanBtn.textContent = "カン" + sec;
+      if(kitaBtn && kitaTileFor("bottom")) kitaBtn.textContent = "抜きドラ" + sec; // リーチ中に北を引いた：抜くか、時間切れで捨てる
     };
     showRemaining();
     riichiAutoDiscardCountdownId = setInterval(() => {
@@ -4313,6 +4351,8 @@
     if(riichiAutoDiscardCountdownId){ clearInterval(riichiAutoDiscardCountdownId); riichiAutoDiscardCountdownId = null; }
     const kanBtn = document.getElementById("kanBtn");
     if(kanBtn) kanBtn.textContent = "カン";
+    const kitaBtn = document.getElementById("kitaBtn");
+    if(kitaBtn) kitaBtn.textContent = "抜きドラ";
   }
 
   // リーチ中の暗槓猶予（カウントダウン中・選択中どちらでも）を打ち切って、その牌をツモ切りする。
@@ -4433,6 +4473,126 @@
       scheduleRiichiAutoDiscard(rinshan);
     }
     fitTileSize();
+  }
+
+  // ==================== 北の抜きドラ(kitaNukiEnabled：3人打ち) ====================
+  // seatが今、北を抜けるなら抜く北(牌そのもの)を、抜けないならnullを返す。抜けるのは自分の番でツモの後
+  // (自分は手牌にツモ牌がある時)、リーチ宣言牌を切る前でない時、山が残っていて嶺上牌もある時。
+  // リーチ中は、引いた北だけ(手の中の北は待ちに使っているので抜けない)
+  function kitaTileFor(seat){
+    if(!ruleConfig.kitaNukiEnabled || gameEnded) return null;
+    if(wall.length === 0 || deadWall.length <= DEAD_WALL_INITIAL_SIZE - RINSHAN_TILES) return null;
+    if(awaitingRiichiDiscard[seat]) return null;
+    const drawn = seat === "bottom" ? lastDrawnTile : lastDrawnCpu[seat];
+    if(!drawn || !hands[seat].includes(drawn)) return null;
+    if(riichiDeclared[seat]) return isKitaTile(drawn) ? drawn : null;
+    if(isKitaTile(drawn)) return drawn;
+    return hands[seat].slice().reverse().find(isKitaTile) || null;
+  }
+
+  // 北を抜く(自分・CPU共通)。抜いた北にロンできる人がいればロン(槍槓ではない。頭ハネ・ダブロンは打牌と同じ)、
+  // 自分がロンできる時は和了・スルーを選ばせる(3人打ちのリーチ中はスルーなし)。ロンが無ければ全員の一発を消し、
+  // 嶺上牌から1枚補充する(continueKitaDraw)。カンドラは増えない
+  function executeKita(seat, tile){
+    if(seat === "bottom"){
+      clearRiichiKanWindow();
+      pendingSelfKan = null;
+      selfKanSelecting = false;
+    }
+    const hand = hands[seat];
+    hand.splice(hand.indexOf(tile), 1);
+    nukiDora[seat].push(tile);
+    if(seat === "bottom"){ lastDrawnTile = null; renderMyHand(false); }
+    else { lastDrawnCpu[seat] = null; renderCpuHandBacks(seat); }
+    renderMelds(seat);
+    playSfx(SFX.discard);
+    setTurnIndicator(seatLabel[seat] + "が北を抜きました");
+    let winners = findAllRonWinners(headBumpOrder(seat), tile);
+    if(!ruleConfig.multiRonEnabled && winners.length > 1) winners = [winners[0]];
+    const selfWin = winners.find(w => w.seat === "bottom");
+    if(selfWin){
+      pendingRon = { discarderSeat: seat, result: selfWin.result, allWinners: winners, kitaTile: tile };
+      pendingCallOptions = { discarderSeat: seat, tile, pon: false, kan: false, chiShapes: [] };
+      pendingCallContext = { discarderSeat: seat, kitaTile: tile };
+      setTurnIndicator("和了しますか？（" + seatLabel[seat] + "の抜いた北）");
+      updateActionButtons();
+      return;
+    }
+    if(winners.length > 0){
+      finalizeKitaRon(winners, seat, tile);
+      return;
+    }
+    updateActionButtons();
+    continueKitaDraw(seat);
+  }
+
+  // 抜いた北へのロン：その北を抜いた人の抜きドラから外し、和了牌として和了者へ渡す
+  function finalizeKitaRon(winners, seat, tile){
+    const idx = nukiDora[seat].indexOf(tile);
+    if(idx >= 0) nukiDora[seat].splice(idx, 1);
+    renderMelds(seat);
+    finalizeRon(winners, seat, tile);
+  }
+
+  // 抜いた北にロンが無かった：全員の一発を消し、嶺上牌から1枚補充してから、その人の番を続ける
+  function continueKitaDraw(seat){
+    if(gameEnded) return;
+    clearAllIppatsu(); // 鳴き・カンと同じく、北を抜くと全員の一発が消える(抜いた北へのロンの判定より後)
+    const rinshan = drawRinshanTile();
+    updateRinshanVisual();
+    hands[seat].push(rinshan);
+    rinshanDraw = { seat, tile: rinshan, kita: true };
+    if(seat !== "bottom"){
+      lastDrawnCpu[seat] = rinshan;
+      renderCpuHandBacks(seat);
+      const tsumo = attemptLegalWin(seat, null, true);
+      if(tsumo){ finalizeWin(seat, seat, tsumo); return; }
+      scheduleTurnTimeout(() => cpuChooseAndDiscard(seat), DRAW_TO_DISCARD_DELAY);
+      fitTileSize();
+      return;
+    }
+    lastDrawnTile = rinshan;
+    if(riichiDeclared.bottom && !awaitingRiichiDiscard.bottom){
+      renderMyHand(true);
+      updateActionButtons();
+      if(attemptLegalWin("bottom", null, true)){
+        setTurnIndicator("あなたの番です（ツモ！）");
+        fitTileSize();
+        return;
+      }
+      updateSelfKanOpportunity(rinshan);
+      updateActionButtons();
+      scheduleRiichiAutoDiscard(rinshan);
+      fitTileSize();
+      return;
+    }
+    setTurnIndicator("北を抜きました。捨てる牌をタップしてください");
+    updateSelfKanOpportunity(rinshan);
+    renderMyHand(true);
+    updateActionButtons();
+    fitTileSize();
+  }
+
+  // 「抜きドラ」ボタン(チーのボタンの場所)。自分の番で北を抜ける時だけ押せる。リーチ中は秒読み中に押せる
+  function updateKitaButton(){
+    const btn = document.getElementById("kitaBtn");
+    if(!btn) return;
+    let tile = (!pendingCallOptions && !activeCallSelection && !selfKanSelecting && !nadaponWindow) ? kitaTileFor("bottom") : null;
+    if(tile && riichiDeclared.bottom && attemptLegalWin("bottom", null, true)) tile = null; // リーチ中に和了できる時は和了(抜けない)
+    btn.disabled = !tile;
+    btn.onclick = tile ? () => { const t = kitaTileFor("bottom"); if(t) executeKita("bottom", t); } : null;
+  }
+
+  // CPUが北を抜くか(段階4の簡単な判断。段階5で見直す)：リーチ中は引いた北を抜く。リーチしていない時は、
+  // 北が2枚以上(役牌の暗刻を狙う)か、国士無双を狙っている(么九牌が9種以上)時は抜かずに持つ
+  function cpuKitaChoice(seat){
+    const tile = kitaTileFor(seat);
+    if(!tile || riichiDeclared[seat]) return tile;
+    const hand = hands[seat];
+    if(hand.filter(isKitaTile).length >= 2) return null;
+    const yaochu = new Set(hand.filter(t => t.suit === "wind" || t.suit === "dragon" || t.num === 1 || t.num === 9).map(tileKey));
+    if(melds[seat].length === 0 && yaochu.size >= 9) return null;
+    return tile;
   }
 
   // 槍槓：自分の加槓の牌で他家（CPU）がロンできるか確認し、できればその場で和了させる。
@@ -4579,7 +4739,7 @@
       wall: cloneTileArrayRef(wall, map),
       deadWall: cloneTileArrayRef(deadWall, map),
       doraIndicatorCount: doraIndicators.length,
-      hands: {}, discards: {}, discardShadows: {}, discardHistory: {}, melds: {},
+      hands: {}, discards: {}, discardShadows: {}, discardHistory: {}, melds: {}, nukiDora: {},
       lastDrawnCpu: {}, riichiDeclareTile: {}, riichiValidDiscards: {},
       callDecisionLog: callDecisionLog.slice(),
       scores: { ...scores },
@@ -4597,6 +4757,7 @@
       snap.discards[s] = cloneTileArrayRef(discards[s], map);
       snap.discardShadows[s] = discardShadows[s].map(sh => ({ ...sh, tile: cloneTileRef(sh.tile, map) }));
       snap.discardHistory[s] = discardHistory[s].slice();
+      snap.nukiDora[s] = cloneTileArrayRef(nukiDora[s], map);
       snap.melds[s] = melds[s].map(m => ({
         ...m,
         handTiles: cloneTileArrayRef(m.handTiles, map),
@@ -4643,6 +4804,7 @@
       replaceArrayContents(discards[s], cloneTileArrayRef(snap.discards[s], map));
       replaceArrayContents(discardShadows[s], snap.discardShadows[s].map(sh => ({ ...sh, tile: cloneTileRef(sh.tile, map) })));
       replaceArrayContents(discardHistory[s], snap.discardHistory[s].slice());
+      replaceArrayContents(nukiDora[s], cloneTileArrayRef((snap.nukiDora && snap.nukiDora[s]) || [], map));
       replaceArrayContents(melds[s], snap.melds[s].map(m => ({
         ...m,
         handTiles: cloneTileArrayRef(m.handTiles, map),
@@ -5409,7 +5571,8 @@
 
     // 嶺上開花：カン後の補充ツモ（嶺上牌）で和了した時（暗槓・加槓・大明槓のどれでも）。
     // 和了牌が引いた嶺上牌そのものかを参照で比べるので、待ち一覧(getWaits)などの仮のツモ判定には付かない
-    const isRinshanWin = isTsumo && rinshanDraw !== null && rinshanDraw.seat === seat && winTile === rinshanDraw.tile;
+    const isRinshanWin = isTsumo && rinshanDraw !== null && rinshanDraw.seat === seat && winTile === rinshanDraw.tile
+      && !(rinshanDraw.kita && !ruleConfig.kitaRinshanKaihouEnabled); // 北の補充牌は、設定(kitaRinshanKaihouEnabled)がtrueの時だけ
     if(isRinshanWin) yaku.push({ name:"嶺上開花", han:1 });
 
     // 槍槓：他家の加槓の牌でロンした時（和了牌が判定中の加槓の牌そのものかを参照で比べる）
@@ -5934,8 +6097,13 @@
     return allTiles.filter(t => t.suit === doraTile.suit && t.num === doraTile.num).length;
   }
 
+  // 抜いた北(nukiDora)は1枚1翻の「抜きドラ」の行にし、ドラ・裏ドラ(カンドラ・カン裏も)の数にも入れる
+  // (表示牌が西なら、抜いた北1枚で抜きドラ1翻＋ドラ1翻)。役ではないので、役の有無(1翻縛り)には効かない
   function addDoraYaku(yaku, allTiles, seat){
-    return addIndicatorDoraYaku(yaku, allTiles, seat) + addAkaHanYaku(yaku, allTiles);
+    const nuki = (seat && nukiDora[seat]) || [];
+    if(nuki.length) yaku.push({ name:"抜きドラ", han:nuki.length });
+    const tiles = nuki.length ? allTiles.concat(nuki) : allTiles;
+    return nuki.length + addIndicatorDoraYaku(yaku, tiles, seat) + addAkaHanYaku(yaku, tiles);
   }
 
   // ruleConfig.akaHanEnabled:trueのルール(Mリーグ系)：赤牌を1枚1翻の「赤」の行にする(ドラ・裏ドラの行の後ろ)。
@@ -7378,6 +7546,7 @@
     hands[seat].forEach(add);
     activeSeats(["bottom", "top", "left", "right"]).forEach(s => {
       discards[s].forEach(add);
+      nukiDora[s].forEach(add); // 抜いた北も見えている牌
       melds[s].forEach(m => {
         m.handTiles.forEach(add);
         if(m.calledTile) add(m.calledTile);
@@ -8494,7 +8663,7 @@
       // 定額ボーナスの性格が強いので、表示上も他の役（飜数の少ない順）とは分けて末尾にまとめる
       // （赤牌ボーナスも同じ理由で、常にそのさらに後ろの行に表示する）
       // 「赤」は赤を1翻で数えるルール(Mリーグ系)の行。ドラと同じく末尾に「赤×1 1飜」と出す
-      const DORA_YAKU_NAMES = new Set(["ドラ", "カンドラ", "リーチドラ", "裏ドラ", "カン裏", "赤"]);
+      const DORA_YAKU_NAMES = new Set(["抜きドラ", "ドラ", "カンドラ", "リーチドラ", "裏ドラ", "カン裏", "赤"]);
       // 役満は固定額（親48,000点・子32,000点）で、飜×単位の線形計算に乗らない。
       // ドラの飜がhan>=13の判定に加わっただけの場合も含め、役満成立時はドラが実際の点数に
       // 一切寄与しないため、ドラの行自体を出さない（点数欄だけ空欄にすると「本来は点数が
@@ -8842,7 +9011,9 @@
         hideCallPrompt();
         // ダブロンでも自分が和了を選んだ場合は当事者全員（allWinners）分を確定する。
         // 自分だけが対象だった単独ロンではallWinners=[{seat:"bottom",...}]なので従来と同じ結果になる
-        finalizeRon(ron.allWinners || [{ seat: "bottom", result: ron.result }], ron.discarderSeat);
+        const winners = ron.allWinners || [{ seat: "bottom", result: ron.result }];
+        if(ron.kitaTile){ finalizeKitaRon(winners, ron.discarderSeat, ron.kitaTile); return; } // 抜いた北へのロン
+        finalizeRon(winners, ron.discarderSeat);
       };
       return;
     }
@@ -8887,6 +9058,12 @@
       const otherRonWinners = (hadRon && pendingRon.allWinners)
         ? pendingRon.allWinners.filter(w => w.seat !== "bottom")
         : [];
+      // リーチ中のロンは強制和了のルール(riichiRonForced：3人打ちNEO)：スルーを押せない(和了だけ)
+      if(hadRon && ruleConfig.riichiRonForced && riichiDeclared.bottom){
+        btn.disabled = true;
+        btn.onclick = null;
+        return;
+      }
       btn.disabled = false;
       btn.onclick = () => {
         if(maybeForceSankahou()) return; // 三家和確定中は選択を無視して強制流局にする
@@ -8896,6 +9073,12 @@
           furitenTemp.bottom = true;
           if(riichiDeclared.bottom) furitenRiichi.bottom = true;
           passedRon.bottom = { tile, discarderSeat: ctx.discarderSeat };
+        }
+        if(ctx.kitaTile){
+          // 抜いた北を見逃した(同巡フリテンは上で付けた)：他にロンする人がいればその人の和了、いなければ補充へ
+          if(otherRonWinners.length > 0) finalizeKitaRon(otherRonWinners, ctx.discarderSeat, ctx.kitaTile);
+          else continueKitaDraw(ctx.discarderSeat);
+          return;
         }
         if(otherRonWinners.length > 0){
           // 自分はスルーしたが、他にロン可能な席がいた（ダブロン）：そちらは確定して局を終える
@@ -8910,6 +9093,12 @@
         }
         advanceTurnAfterDiscard(ctx.discarderSeat);
       };
+      return;
+    }
+    if(riichiKanDecisionPending && !(pendingSelfKan && pendingSelfKan.candidates.length > 0)){
+      // リーチ中に北を引いた秒読み中(カンの候補は無い)：スルー＝北を抜かずに捨てる
+      btn.disabled = false;
+      btn.onclick = () => resolveRiichiKanDecision(lastDrawnTile);
       return;
     }
     if(pendingSelfKan && pendingSelfKan.candidates.length > 0){
@@ -9072,6 +9261,7 @@
     updateWinButton();
     updateThroughButton();
     updateCallButtons();
+    if(ruleConfig.kitaNukiEnabled) updateKitaButton();
     updateRiichiButton();
     updateNadaponBanner();
     updateCallDecisionPredictionMarks();
