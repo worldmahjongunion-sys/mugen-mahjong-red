@@ -1984,13 +1984,14 @@
   // 新しい半荘を始める瞬間(＝savedMatchStateが無い時)だけ呼ぶ。現在のサイクル位置を読み、
   // 今回使う起家(DEALER_SEAT)を決めたら、次回のためにサイクル位置を1つ進めて保存する
   function pickAndAdvanceStartDealerSeat(){
+    const cycle = activeSeats(START_WIND_DEALER_CYCLE); // 3人打ちは空けた席を抜いた3通りを回す
     let idx = 0;
     try {
       const raw = localStorage.getItem(START_WIND_CYCLE_KEY);
-      idx = raw === null ? 0 : ((parseInt(raw, 10) || 0) % START_WIND_DEALER_CYCLE.length);
+      idx = raw === null ? 0 : ((parseInt(raw, 10) || 0) % cycle.length);
     } catch(e){}
-    const seat = START_WIND_DEALER_CYCLE[idx];
-    try { localStorage.setItem(START_WIND_CYCLE_KEY, String((idx + 1) % START_WIND_DEALER_CYCLE.length)); } catch(e){}
+    const seat = cycle[idx];
+    try { localStorage.setItem(START_WIND_CYCLE_KEY, String((idx + 1) % cycle.length)); } catch(e){}
     return seat;
   }
 
@@ -2036,6 +2037,9 @@
   //     打牌・鳴き・カンには使えない。手牌の配列(hands)には入れず、表示と判定の時だけ足して扱う
   //   openRiichiEnabled: オープンリーチ(手牌を公開して2翻)を選べるか
   // 以下はMCR-NEOの和了の発声で加えた設定
+  // 以下は3人打ち(無限ルールNEO(3人打ち))のために加えた設定
+  //   emptySeat: 空ける席("top"等)。nullは4人打ち。手番・自風・精算・表示などの席の一覧は、
+  //     activeSeats()でこの席を除いて回す
   //   winCallSpeech: 和了の発声を、音声ファイル(「ロン」「ツモ」)の代わりにブラウザの音声合成で読む時の
   //     { text, lang }。nullは今までどおり音声ファイル。MCR-NEOはツモ・ロンとも中国語の「胡」(hú、二声)。
   //     その言語の声が端末に無い・音声合成が使えない時は、今までの音声ファイルを鳴らす
@@ -2043,7 +2047,7 @@
     riichiEnabled:true, doraEnabled:true, furitenEnabled:true, renchanEnabled:true,
     totalKyoku:8, minWinPoints:0, maxWinPoints:null, seatChangeEnabled:false,
     startHandSize:13, almightyTileEnabled:false, openRiichiEnabled:false,
-    akaHanEnabled:false, winCallSpeech:null
+    akaHanEnabled:false, winCallSpeech:null, emptySeat:null
   };
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
@@ -2214,6 +2218,11 @@
   const CURRENT_RULE_ID = pendingRuleId || DEFAULT_RULE_ID;
   const CURRENT_RULESET = RULESETS.find(r => r.id === CURRENT_RULE_ID) || RULESETS[0];
   const ruleConfig = Object.assign({}, RULE_CONFIG_DEFAULTS, CURRENT_RULESET.ruleConfig || RULESETS[0].ruleConfig);
+  // 対局に座っている席。3人打ちはruleConfig.emptySeatの席を除く。席を並べる所はactiveSeats(並び順)で
+  // 空けた席だけを抜く(並び順はそのまま)。4人打ちは今までの配列がそのまま返る
+  const EMPTY_SEAT = ruleConfig.emptySeat;
+  function activeSeats(order){ return EMPTY_SEAT ? order.filter(s => s !== EMPTY_SEAT) : order; }
+  const ACTIVE_SEATS = activeSeats(["bottom", "right", "top", "left"]); // 手番の順(あなた→下家→対面→上家)
 
   // まだ何も選ばれていない(＝真っさらな初回訪問、または「ホームページに戻る」直後)時だけ表紙を出す。
   // 対局そのものはこの下でいつも通り組み立てるが(値は選択待ちの間は捨てる前提のダミー)、
@@ -2596,8 +2605,14 @@
   const seatLabel = { right:"下家", top:"対面", left:"上家", bottom:"自家" };
 
   // 手番の順番（あなた→下家→対面→上家→あなた…）と、各自の上家（鳴き元がこの人ならチー可）
-  const NEXT_SEAT = { bottom:"right", right:"top", top:"left", left:"bottom" };
-  const KAMICHA = { bottom:"left", right:"bottom", top:"right", left:"top" };
+  // ACTIVE_SEATSの輪から作る。4人打ちは { bottom:"right", right:"top", top:"left", left:"bottom" } と、その逆向き。
+  // 3人打ち(対面を空ける)は あなた→下家→上家→あなた
+  const NEXT_SEAT = {}, KAMICHA = {};
+  ACTIVE_SEATS.forEach((s, i) => {
+    const next = ACTIVE_SEATS[(i + 1) % ACTIVE_SEATS.length];
+    NEXT_SEAT[s] = next;
+    KAMICHA[next] = s;
+  });
 
   // ==================== 席替え(seatChangeEnabled：MCR) ====================
   // P1〜P4＝東場で東・南・西・北の席にいた人(添字0〜3)。各場で東・南・西・北の席に座る人を並べた表。
@@ -2633,7 +2648,7 @@
   }
   const SEAT_PLAYERS = Object.assign({}, INITIAL_SEAT_PLAYERS, (ruleConfig.seatChangeEnabled && savedMatchState && savedMatchState.seatPlayers) || {});
   // 席替えのあるルールは、CPUを位置(下家等)ではなく名前で呼ぶ(場ごとに座る位置が変わるため)
-  if(ruleConfig.seatChangeEnabled) ["right", "top", "left"].forEach(s => { seatLabel[s] = PLAYER_NAME[SEAT_PLAYERS[s]]; });
+  if(ruleConfig.seatChangeEnabled) activeSeats(["right", "top", "left"]).forEach(s => { seatLabel[s] = PLAYER_NAME[SEAT_PLAYERS[s]]; });
 
   function updateWallCount(){
     document.getElementById("wallCountNum").textContent = wall.length;
@@ -2732,7 +2747,7 @@
 
   // 卓の上のカンの数(大明槓・暗槓・加槓)。王牌なしのルールで、山の末尾から取った嶺上牌の枚数になる
   function kanCountOnTable(){
-    return ["bottom", "right", "top", "left"].reduce((n, s) => n + melds[s].filter(m => m.type === "kan" || m.type === "ankan").length, 0);
+    return activeSeats(["bottom", "right", "top", "left"]).reduce((n, s) => n + melds[s].filter(m => m.type === "kan" || m.type === "ankan").length, 0);
   }
 
   // その山から何枚減ったか。front=通常のツモ(開門位置の側から)、back=王牌なしのルールで
@@ -3167,10 +3182,10 @@
   }
 
   function revealAllHands(){
-    ["top", "left", "right"].forEach(renderCpuHandFaces);
+    activeSeats(["top", "left", "right"]).forEach(renderCpuHandFaces);
     // gameEndedは呼び出し側で既にtrueにしてあるはずなので、ここでrenderMeldsを呼び直すと
     // 暗槓の伏せていた両端も含めて全員分が表向きに開示される
-    ["bottom", "top", "left", "right"].forEach(renderMelds);
+    activeSeats(["bottom", "top", "left", "right"]).forEach(renderMelds);
   }
 
   // 大明槓・加槓用(暗槓は4枚横一列なので使わない)：横一列3枚(rowEls)の指定位置(stackedIndex:0/1/2)の上に、
@@ -3412,12 +3427,12 @@
     handleDiscard("bottom", discarded);
   }
 
-  // 頭ハネ：放銃者の下家（NEXT_SEAT）から時計回りに、放銃者以外の3席をこの順で並べる。
+  // 頭ハネ：放銃者の下家（NEXT_SEAT）から時計回りに、放銃者以外の3席(3人打ちは2席)をこの順で並べる。
   // 「自分が優先される」ような特別扱いはせず、自分もCPUもこの同じ順番で判定する
   function headBumpOrder(discarderSeat){
     const order = [];
     let seat = NEXT_SEAT[discarderSeat];
-    for(let i = 0; i < 3; i++){ order.push(seat); seat = NEXT_SEAT[seat]; }
+    for(let i = 0; i < ACTIVE_SEATS.length - 1; i++){ order.push(seat); seat = NEXT_SEAT[seat]; }
     return order;
   }
 
@@ -3546,7 +3561,7 @@
   // discarderSeatの捨て牌をチーできる可能性がある唯一の席（CPUのみ。bottomは呼び出し側で別途扱う）。
   // リーチ後は鳴けないため対象外
   function cpuChiEligibleSeat(discarderSeat){
-    const seat = ["right", "top", "left"].find(s => KAMICHA[s] === discarderSeat);
+    const seat = activeSeats(["right", "top", "left"]).find(s => KAMICHA[s] === discarderSeat);
     return (seat && !riichiDeclared[seat]) ? seat : null;
   }
 
@@ -3554,7 +3569,7 @@
   // （discarderSeat・excludeSeat(チー予定の席)以外。同じ捨て牌に対してポン・カン両方の資格を
   // 持つ他家が複数人同時に存在することは無い前提＝存在しなければnull）
   function findDeclinedCpuResponder(discarderSeat, tile, excludeSeat){
-    const seats = ["right", "top", "left"].filter(s => s !== discarderSeat && s !== excludeSeat && !riichiDeclared[s]);
+    const seats = activeSeats(["right", "top", "left"]).filter(s => s !== discarderSeat && s !== excludeSeat && !riichiDeclared[s]);
     for(const s of seats){
       const pon = canPon(hands[s], tile);
       const kan = canKan(hands[s], tile) && rinshanAvailable();
@@ -3766,7 +3781,7 @@
   // CPUのポン・カンAI（一次判断。チーのCPU判断はshouldCpuChi、邪魔ポンの再考はshouldCpuNadaPonを参照）。
   // リーチ後は一切鳴けない（本物のルール通り）。shouldCpuCall()でシャンテンが悪化しない場合だけ検討する
   function maybeCpuCalls(discarderSeat, tile){
-    const seats = ["right", "top", "left"].filter(s => s !== discarderSeat && !riichiDeclared[s]);
+    const seats = activeSeats(["right", "top", "left"]).filter(s => s !== discarderSeat && !riichiDeclared[s]);
     for(const s of seats){
       if(canKan(hands[s], tile) && rinshanAvailable() && shouldCpuCall(s, tile, "kan")) return { seat:s, type:"kan" };
     }
@@ -4457,7 +4472,7 @@
   function clearAllIppatsu(){ ippatsuActive = { bottom:false, top:false, left:false, right:false }; }
   const scores = savedMatchState
     ? { ...savedMatchState.scores }
-    : { bottom: ruleConfig.startingPoints, top: ruleConfig.startingPoints, left: ruleConfig.startingPoints, right: ruleConfig.startingPoints };
+    : Object.fromEntries(activeSeats(["bottom", "top", "left", "right"]).map(s => [s, ruleConfig.startingPoints]));
   // 半荘（8局固定・東場2周）の進行状態。savedMatchStateが無ければ東1局・0本場・自分が親から開始
   let kyokuNumber = savedMatchState ? savedMatchState.kyokuNumber : 1; // 1〜8（連番。東1〜8局として表示。無限Original・WWスタンダードは5〜8を南1〜4局として表示）。totalKyoku:16のルール(MCR)は1〜16で、4局ごとに東南西北
   let honba = savedMatchState ? savedMatchState.honba : 0;
@@ -4512,7 +4527,7 @@
   // 現在のゲーム状態を丸ごとスナップショットする（局開始直後にも、結果画面が出た直後にも使う共通関数）
   function captureGameStateSnapshot(){
     const map = new Map();
-    const seats = ["bottom", "top", "left", "right"];
+    const seats = activeSeats(["bottom", "top", "left", "right"]);
     const snap = {
       wall: cloneTileArrayRef(wall, map),
       deadWall: cloneTileArrayRef(deadWall, map),
@@ -4554,7 +4569,7 @@
   function applyGameStateSnapshot(snap){
     rinshanDraw = null; // 配牌直後などの状態に入れ替えるので、嶺上牌のツモの目印は持ち越さない
     const map = new Map();
-    const seats = ["bottom", "top", "left", "right"];
+    const seats = activeSeats(["bottom", "top", "left", "right"]);
     replaceArrayContents(wall, cloneTileArrayRef(snap.wall, map));
     replaceArrayContents(deadWall, cloneTileArrayRef(snap.deadWall, map));
     // カンドラ(revealNextKanDora)で増えた表示牌も、スナップショットの時点の枚数に戻す。
@@ -4632,7 +4647,7 @@
   // オープンリーチの印：名札を金色に光らせ、名札の角に待ちの種類数を出す。待ちは見えている牌で変わるので、
   // 捨て牌・副露・宣言のたびに数え直す。オープンリーチしていない席は印と数を消す(リピートで戻した時も)
   function renderRiichiMarks(){
-    ["bottom", "right", "top", "left"].forEach(s => {
+    activeSeats(["bottom", "right", "top", "left"]).forEach(s => {
       const plate = nameplateElByName[s];
       if(!plate) return;
       plate.classList.toggle("riichi", !!riichiDeclared[s]);
@@ -4651,7 +4666,7 @@
 
   function renderTableFromState(){
     renderRiichiMarks();
-    ["top", "left", "right", "bottom"].forEach(renderDiscard);
+    activeSeats(["top", "left", "right", "bottom"]).forEach(renderDiscard);
     renderScores();
     updateKyotakuDisplay();
     renderMatchHeader();
@@ -4772,8 +4787,8 @@
 
     renderTableFromState();
     renderMyHand(DEALER_SEAT === "bottom");
-    ["top", "left", "right"].forEach(renderCpuHandBacks);
-    ["top", "left", "right", "bottom"].forEach(renderMelds);
+    activeSeats(["top", "left", "right"]).forEach(renderCpuHandBacks);
+    activeSeats(["top", "left", "right", "bottom"]).forEach(renderMelds);
     updateVerifyBanner();
     showVerifyResultActions();
     updateActionButtons();
@@ -4825,7 +4840,7 @@
   function computeSeatWind(dealerSeat){
     const winds = {};
     let seat = dealerSeat;
-    for(let w = 1; w <= 4; w++){ winds[seat] = w; seat = NEXT_SEAT[seat]; }
+    for(let w = 1; w <= ACTIVE_SEATS.length; w++){ winds[seat] = w; seat = NEXT_SEAT[seat]; } // 3人打ちは東・南・西
     return winds;
   }
   const SEAT_WIND = computeSeatWind(DEALER_SEAT);
@@ -4857,7 +4872,7 @@
   // 他家のネームプレートをクリック→そのネームプレートの持ち点表示だけを自分との点差表示に切り替える(再クリックで元に戻す)。
   // 中央の「残り牌」をクリック→他家3人分まとめて切り替える(3人とも点差表示中なら3人とも通常表示に戻す、それ以外は3人とも点差表示にする)
   function setupScoreDiffToggle(){
-    ["top", "left", "right"].forEach(seat => {
+    activeSeats(["top", "left", "right"]).forEach(seat => {
       const plate = nameplateElByName[seat];
       plate.classList.add("diff-clickable");
       plate.addEventListener("click", (e) => {
@@ -4870,8 +4885,8 @@
     wallEl.classList.add("diff-clickable");
     wallEl.addEventListener("click", (e) => {
       e.stopPropagation();
-      const allShown = ["top", "left", "right"].every(seat => scoreDiffShown[seat]);
-      ["top", "left", "right"].forEach(seat => {
+      const allShown = activeSeats(["top", "left", "right"]).every(seat => scoreDiffShown[seat]);
+      activeSeats(["top", "left", "right"]).forEach(seat => {
         scoreDiffShown[seat] = !allShown;
         renderOneScore(seat);
       });
@@ -5820,7 +5835,7 @@
   function tenchihouYakuName(seat, extraTile, isTsumo){
     if(!ruleConfig.tenchihouEnabled || !isTsumo || extraTile) return null;
     if(discards[seat].length !== 0) return null;
-    if(["bottom", "right", "top", "left"].some(s => melds[s].length > 0)) return null;
+    if(activeSeats(["bottom", "right", "top", "left"]).some(s => melds[s].length > 0)) return null;
     return seat === DEALER_SEAT ? "天和" : "地和";
   }
 
@@ -6111,7 +6126,7 @@
     const add = t => { if(t) seen.add(t); };
     hands[seat].forEach(add);
     (extraTiles || []).forEach(add);
-    ["bottom", "top", "left", "right"].forEach(s => {
+    activeSeats(["bottom", "top", "left", "right"]).forEach(s => {
       discards[s].forEach(add);
       melds[s].forEach(m => { m.handTiles.forEach(add); add(m.calledTile); add(m.addedTile); });
       if(s !== seat && openRiichiDeclared[s]) hands[s].forEach(add);
@@ -6158,7 +6173,7 @@
   // さらに同じなら翻、さらに同じなら符の大きい方
   function almightyResultRank(seat, r){
     if(r.yakunashi) return [-1, 0, 0, 0];
-    const other = ["bottom", "right", "top", "left"].find(s => s !== seat);
+    const other = activeSeats(["bottom", "right", "top", "left"]).find(s => s !== seat);
     const gain = r.isTsumo ? computeTsumoAmounts(seat, r, 0).nominalGain : computeRonAmount(seat, other, r, 0).nominalGain;
     const higherYakuman = r.yaku.filter(y => ALMIGHTY_HIGHER_YAKUMAN.has(y.name)).length;
     return [gain, higherYakuman, r.han, r.fu || 0];
@@ -7040,7 +7055,7 @@
   // ロンの和了牌は河に置かれているので、和了牌そのもの(参照が同じ牌)は数えない
   function mcrVisibleCopies(winTile){
     const same = t => t !== winTile && t.suit === winTile.suit && t.num === winTile.num;
-    return ["bottom", "right", "top", "left"].reduce((n, s) => n + discards[s].filter(same).length
+    return activeSeats(["bottom", "right", "top", "left"]).reduce((n, s) => n + discards[s].filter(same).length
       + meldsToSets(s).filter(m => m.open).reduce((k, m) => k + m.tiles.filter(same).length, 0), 0);
   }
   // 役の合計に上限(maxWinPoints=88)をかけて結果を作る。capped=上限で切った時true
@@ -7090,7 +7105,7 @@
   function otherSeatsWaitKeys(seat){
     const keys = new Set();
     if(HAS_ALMIGHTY) return keys;
-    ["bottom", "top", "left", "right"].forEach(s => {
+    activeSeats(["bottom", "top", "left", "right"]).forEach(s => {
       if(s === seat) return;
       getWaitsForReveal(s).forEach(w => keys.add(tileKey(w)));
     });
@@ -7308,7 +7323,7 @@
     const visible = new Array(34).fill(0);
     const add = t => { const idx = TILE_INDEX_MAP.get(tileKey(t)); if(idx !== undefined) visible[idx]++; };
     hands[seat].forEach(add);
-    ["bottom", "top", "left", "right"].forEach(s => {
+    activeSeats(["bottom", "top", "left", "right"]).forEach(s => {
       discards[s].forEach(add);
       melds[s].forEach(m => {
         m.handTiles.forEach(add);
@@ -7365,7 +7380,7 @@
   // 自分より持ち点が多い人が2人以上いる＝3着以下（沈み）かどうか。沈んでいる時は
   // 多少受け入れ枚数を犠牲にしてでもドラ・赤牌を残し、一発逆転の火力を残す判断に使う
   function isBehind(seat){
-    const better = ["bottom", "top", "left", "right"].filter(s => s !== seat && scores[s] > scores[seat]).length;
+    const better = activeSeats(["bottom", "top", "left", "right"]).filter(s => s !== seat && scores[s] > scores[seat]).length;
     return better >= 2;
   }
 
@@ -7532,7 +7547,7 @@
   // 見えているので、CPUも正確に分かる。フリテン中の人は、ロンできないので数えない
   function openRiichiDangerKeys(seat){
     const keys = new Set();
-    ["bottom", "right", "top", "left"].forEach(s => {
+    activeSeats(["bottom", "right", "top", "left"]).forEach(s => {
       if(s === seat || !openRiichiDeclared[s] || isFuriten(s)) return;
       getWaitsForReveal(s).forEach(w => keys.add(tileKey(w)));
     });
@@ -7555,7 +7570,7 @@
     const bestShanten = Math.min(...candidates.map(c => c.shanten));
 
     // 公開された待ちが分かっているオープンリーチの人は、上で扱ったので、現物で守る相手からは外す
-    const dangerousSeats = ["top", "left", "right"].filter(s => s !== seat && riichiDeclared[s] && !openRiichiDeclared[s]);
+    const dangerousSeats = activeSeats(["top", "left", "right"]).filter(s => s !== seat && riichiDeclared[s] && !openRiichiDeclared[s]);
     if(dangerousSeats.length > 0 && bestShanten >= 1){
       const safe = candidates.filter(c => dangerousSeats.every(s => isGenbutsu(c.tile, s)));
       if(safe.length > 0){
@@ -7667,7 +7682,7 @@
       waitKinds = waits.length;
       if(waitKinds > 0 && waitKinds < CPU_OPEN_RIICHI.minWaitKinds){
         riichiDeclared[seat] = true; // 普通のリーチをした時の役で数える
-        const other = ["bottom", "right", "top", "left"].find(s => s !== seat);
+        const other = activeSeats(["bottom", "right", "top", "left"]).find(s => s !== seat);
         let sumNormal = 0, sumOpen = 0, n = 0;
         waits.forEach(w => {
           const r = attemptWin(seat, w, false);
@@ -7778,7 +7793,7 @@
   // akaBonus/honbaBonusは3人合計（表示用の内訳行にそのまま使える単位）
   function computeTsumoAmounts(winnerSeat, result, honbaCount){
     const isDealer = winnerSeat === DEALER_SEAT;
-    const others = ["bottom", "top", "left", "right"].filter(s => s !== winnerSeat);
+    const others = activeSeats(["bottom", "top", "left", "right"]).filter(s => s !== winnerSeat);
     const honbaPerSeat = honbaCount > 0 ? honbaCount * ruleConfig.honbaTsumoBonusPerSeat : 0; // 旧applyHonbaBonusのツモ分岐
     let baseBySeat;
     if(ruleConfig.scoreTableMode === "mcr"){
@@ -7963,7 +7978,7 @@
   // renchan：今終わった局で親が連荘するか。renchanAtFinalKyokuEnabledのルール(無限Original・WWスタンダード)は
   // アガリ止めなしで、最終局でも親が連荘する間は終局しない（親が流れた時だけ終局）
   function checkMatchEnd(currentScores, finishedKyokuNumber, renchan){
-    const seats = ["bottom", "top", "left", "right"];
+    const seats = activeSeats(["bottom", "top", "left", "right"]);
     if(ruleConfig.earlyEndOnBust){
       const bustSeat = seats.find(s => currentScores[s] < 0);
       if(bustSeat) return { type:"bust", seat:bustSeat };
@@ -8010,7 +8025,7 @@
     const n = savedMatchState && savedMatchState.seatChangeNotice;
     if(!ruleConfig.seatChangeEnabled || !n || n.kyokuNumber !== kyokuNumber) return;
     const lines = [];
-    ["right", "top", "left"].forEach(s => {
+    activeSeats(["right", "top", "left"]).forEach(s => {
       if(n.seatMove[s] !== s) lines.push(PLAYER_NAME[n.seatPlayers[s]] + "　" + POSITION_LABEL[n.seatMove[s]] + " → " + POSITION_LABEL[s]);
     });
     const el = document.createElement("div");
@@ -8054,7 +8069,7 @@
   // 最終素点から各家の順位点を計算する。同点の場合は同順位グループとして扱い、
   // そのグループが占める順位ぶんの順位点（オカ含む）を合計してグループ人数で均等に折半する
   function computeUmaBySeat(finalScores){
-    const seats = ["bottom", "right", "top", "left"]; // 同点時：あなた→下家→対面→上家の順を優先
+    const seats = activeSeats(["bottom", "right", "top", "left"]); // 同点時：あなた→下家→対面→上家の順を優先
     const ranked = seats.slice().sort((a, b) => finalScores[b] - finalScores[a]);
     // MCR：浮き人数で表を選び、同点は占める順位の順位点を合計して人数で割る(表の値なら端数は出ない)
     if(ruleConfig.umaMode === "mcrUki"){
@@ -8154,7 +8169,7 @@
       `</ul></div>`;
   }
   function mcrFinalRuleNote(finalScores){
-    const uki = ["bottom", "right", "top", "left"].filter(s => finalScores[s] >= 0).length;
+    const uki = activeSeats(["bottom", "right", "top", "left"]).filter(s => finalScores[s] >= 0).length;
     const table = MCR_UMA_TABLE_BY_UKI[uki] || MCR_UMA_TABLE_BY_UKI[4];
     const fmt = n => (n > 0 ? "＋" : (n < 0 ? "－" : "±")) + Math.abs(n);
     return `<div class="final-rule-note"><div class="final-rule-title">MCR-NEO のルール</div><ul>` +
@@ -8235,7 +8250,7 @@
     const gainEach = penalty.gainEach;
     const lossEach = penalty.lossEach;
     // 席ごとに1行ずつ、あなた→下家→対面→上家の順（＝seats配列の順）で点数増減だけを出す
-    const rows = ["bottom", "right", "top", "left"].map(s => {
+    const rows = activeSeats(["bottom", "right", "top", "left"]).map(s => {
       const delta = tenpaiSeats.includes(s) ? gainEach : -lossEach;
       const deltaText = delta > 0 ? "＋" + delta + "点" : (delta < 0 ? "－" + (-delta) + "点" : "±0点");
       return `<div class="result-yaku">${seatLabel[s]}　${deltaText}</div>`;
@@ -8280,7 +8295,7 @@
   // （ノーテン料の精算＝settleRyuukyokuは従来通り。連荘判定にのみ影響しない）
   function handleRyuukyoku(){
     gameEnded = true;
-    const seats = ["bottom", "right", "top", "left"]; // あなた・下家・対面・上家の順で表示する
+    const seats = activeSeats(["bottom", "right", "top", "left"]); // あなた・下家・対面・上家の順で表示する
     const tenpaiSeats = seats.filter(isTenpai);
     const notenSeats = seats.filter(s => !tenpaiSeats.includes(s));
     settleRyuukyoku(tenpaiSeats, notenSeats);
@@ -8304,7 +8319,7 @@
   // （テンパイ／ノーテン判定に和了の資格自体は影響しないため、そのままisTenpaiに委ねてよい）
   function handleSankahou(discarderSeat){
     gameEnded = true;
-    const seats = ["bottom", "right", "top", "left"];
+    const seats = activeSeats(["bottom", "right", "top", "left"]);
     const tenpaiSeats = seats.filter(isTenpai);
     const notenSeats = seats.filter(s => !tenpaiSeats.includes(s));
     settleRyuukyoku(tenpaiSeats, notenSeats);
@@ -8456,7 +8471,7 @@
 
     let totalHtml;
     if(result.isTsumo){
-      const others = ["bottom", "top", "left", "right"].filter(s => s !== seat);
+      const others = activeSeats(["bottom", "top", "left", "right"]).filter(s => s !== seat);
       const amounts = others.map(s => paymentsBySeat[s]);
       const allSame = amounts.every(a => a === amounts[0]);
       const splitText = allSame
@@ -8512,7 +8527,7 @@
     const sumRow = result.mcr
       ? `<div class="pr-yaku-row pr-sum"><span>合計</span><span class="pr-han">${result.capped ? result.points + "点(上限)" : result.points + "点"}</span></div>`
       : ((result.han && !isYakumanResult(result)) ? `<div class="pr-yaku-row pr-sum"><span>合計</span><span class="pr-han">${result.han}飜</span></div>` : "");
-    const players = ["bottom", "right", "top", "left"].map(s => {
+    const players = activeSeats(["bottom", "right", "top", "left"]).map(s => {
       const diff = s === seat ? totalGain : -(paymentsBySeat[s] || 0);
       const cls = diff > 0 ? "plus" : (diff < 0 ? "minus" : "zero");
       const sign = diff > 0 ? "+" : (diff < 0 ? "−" : "±");
@@ -8570,7 +8585,7 @@
     gameEnded = true;
     playWinCall(true); // ツモの瞬間（誰の和了でも）に鳴らす(MCR-NEOは音声合成の「胡」)
 
-    const seats = ["bottom", "top", "left", "right"];
+    const seats = activeSeats(["bottom", "top", "left", "right"]);
     const scoresBefore = {};
     seats.forEach(s => { scoresBefore[s] = scores[s]; });
 
@@ -8649,7 +8664,7 @@
       else lastDrawnCpu[primarySeat] = ronTile;
     }
 
-    const seats = ["bottom", "top", "left", "right"];
+    const seats = activeSeats(["bottom", "top", "left", "right"]);
     const scoresBefore = {};
     seats.forEach(s => { scoresBefore[s] = scores[s]; });
 
@@ -9127,7 +9142,7 @@
 
     // --tile-h（ひいては--table-width）が変わると鳴き面子行の縮小要否・縮小率も
     // 変わるため、4方向とも計算し直す
-    ["top", "bottom", "left", "right"].forEach(fitMeldRowScale);
+    activeSeats(["top", "bottom", "left", "right"]).forEach(fitMeldRowScale);
   }
 
   // --- スマホ縦向きだけ、自分の手牌・鳴き牌と操作ボタンを卓の外の下段(#portraitDock)へ移す ---
