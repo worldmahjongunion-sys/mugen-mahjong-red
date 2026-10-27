@@ -2052,6 +2052,8 @@
   //     activeSeats()でこの席を除いて回す
   //   manzuTerminalsOnly: 萬子を一萬・九萬だけにするか(3人打ちの108枚)。ドラ表示は一萬→九萬、九萬→一萬
   //   chiEnabled: チーがあるか。falseは自分にもCPUにもチーの選択肢を出さない(邪魔ポンも起きない)
+  //   ukiUmaTable/okaPoints/ukiInclusive: umaMode:"ukiCount"の順位点。浮き人数→[1着,2着,…]の表と、トップに足すオカ、
+  //     浮きを返し点「以上」で数えるか(falseは「超え」)。nullは4人のNEOの表(UMA_TABLE_BY_UKI_COUNT・オカ20000・超え)
   //   winCallSpeech: 和了の発声を、音声ファイル(「ロン」「ツモ」)の代わりにブラウザの音声合成で読む時の
   //     { text, lang }。nullは今までどおり音声ファイル。MCR-NEOはツモ・ロンとも中国語の「胡」(hú、二声)。
   //     その言語の声が端末に無い・音声合成が使えない時は、今までの音声ファイルを鳴らす
@@ -2059,7 +2061,8 @@
     riichiEnabled:true, doraEnabled:true, furitenEnabled:true, renchanEnabled:true,
     totalKyoku:8, minWinPoints:0, maxWinPoints:null, seatChangeEnabled:false,
     startHandSize:13, almightyTileEnabled:false, openRiichiEnabled:false,
-    akaHanEnabled:false, winCallSpeech:null, emptySeat:null, manzuTerminalsOnly:false, chiEnabled:true
+    akaHanEnabled:false, winCallSpeech:null, emptySeat:null, manzuTerminalsOnly:false, chiEnabled:true,
+    ukiUmaTable:null, okaPoints:20000, ukiInclusive:false
   };
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
@@ -2211,11 +2214,14 @@
     { startHandSize:12, almightyTileEnabled:true, openRiichiEnabled:true });
   // 無限ルールNEO(3人打ち)の設定＝赤入り無限ルールNEOの設定を3人打ちにしたもの(依頼_3人打ちNEO_仕様と段階実装.md)。
   // 対面を空ける・萬子は一萬と九萬だけ・チーなし・東南西の9局・王牌18枚(カンドラあり、リーチドラなし)。
-  // 点数(ツモ損・順位点など)は段階3、北の抜きドラは段階4で入れる。表紙はまだ「近日公開」のまま
+  // 点数は4人のNEOと同じ計算で、払う人が2人になる(北家の分は誰も払わない＝ツモ損)。役なしの和了はできない(1翻縛り)。
+  // 順位点は浮き(40000点以上)の人数で引き、オカ15000をトップに足す。北の抜きドラは段階4で入れる。表紙はまだ「近日公開」のまま
   RULESETS.find(r => r.id === "sanninNeo").ruleConfig = Object.assign({},
     RULESETS.find(r => r.id === "akaNeo").ruleConfig,
     { emptySeat:"top", manzuTerminalsOnly:true, chiEnabled:false, jamaPonEnabled:false,
-      deadWallLayout:"auto18", kanDoraEnabled:true, totalKyoku:9, southRoundEnabled:true });
+      deadWallLayout:"auto18", kanDoraEnabled:true, totalKyoku:9, southRoundEnabled:true,
+      yakunashiWinEnabled:false,
+      ukiUmaTable:{ 1:[40000, -10000, -30000], 2:[20000, 10000, -30000] }, okaPoints:15000, ukiInclusive:true });
   const DEFAULT_RULE_ID = "akaNeo";
   // 表紙で選んだルールIDを覚えておくキー。半荘中(savedMatchStateがまだ無いkyoku1中)でも
   // うっかりリロードした時にルールがデフォルトへ戻らないよう、savedMatchStateとは別に
@@ -2332,6 +2338,8 @@
     try { localStorage.setItem(MATCH_LOG_KEY, JSON.stringify(log)); } catch(e){}
   }
   // 集計に使える行だけを、形をそろえて返す。同じ半荘(id)が2回入っていたら後の1行だけ残す
+  // そのルールで卓に座る人数(3人打ちは3)。成績の順位の数に使う
+  function seatCountOf(rule){ return rule && rule.ruleConfig && rule.ruleConfig.emptySeat ? 3 : 4; }
   function cleanMatchLog(log){
     const byId = new Map();
     log.forEach(e => {
@@ -2342,7 +2350,7 @@
       const hands = Number(e.hands);
       const rule = RULESETS.find(r => r.id === e.ruleId);
       if(!rule || !Number.isFinite(endedAt) || endedAt <= 0) return;
-      if(![1, 2, 3, 4].includes(rank) || !Number.isFinite(total) || !(hands >= 1)) return;
+      if(!(Number.isInteger(rank) && rank >= 1 && rank <= seatCountOf(rule)) || !Number.isFinite(total) || !(hands >= 1)) return;
       const d = new Date(endedAt);
       const month = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
       byId.set(String(e.id || endedAt), { month, ruleId: rule.id, ruleLabel: rule.label, rank, total, hands });
@@ -2355,7 +2363,7 @@
     rows.forEach(r => {
       const key = r.month + "|" + r.ruleId;
       if(!groups.has(key)){
-        groups.set(key, { month: r.month, ruleId: r.ruleId, ruleLabel: r.ruleLabel, matches: 0, rankCounts: [0, 0, 0, 0], rankSum: 0, totalSum: 0, handsSum: 0 });
+        groups.set(key, { month: r.month, ruleId: r.ruleId, ruleLabel: r.ruleLabel, matches: 0, rankCounts: new Array(seatCountOf(RULESETS.find(x => x.id === r.ruleId))).fill(0), rankSum: 0, totalSum: 0, handsSum: 0 });
       }
       const g = groups.get(key);
       g.matches++;
@@ -5437,6 +5445,8 @@
         if(t.suit === "dragon") yaku.push({ name:"役牌（三元牌）", han:1 });
         if(t.suit === "wind" && t.num === SEAT_WIND[seat]) yaku.push({ name:"役牌（自風）", han:1 });
         if(t.suit === "wind" && t.num === ROUND_WIND) yaku.push({ name:"役牌（場風）", han:1 });
+        // 3人打ちは北家がいないので、北の刻子はいつも役牌(北)1翻
+        if(EMPTY_SEAT && t.suit === "wind" && t.num === 4) yaku.push({ name:"役牌（北）", han:1 });
       }
     });
 
@@ -7932,7 +7942,7 @@
     if(reason.type === "bust") speakZundamon("bust");
     else if(reason.type === "over70000") speakZundamon("cold");
     const myRank = ranked.indexOf("bottom") + 1;
-    speakZundamon("rank" + myRank);
+    speakZundamon("rank" + (myRank === ranked.length ? 4 : myRank)); // 最下位は「ラスなのだ」(3人打ちの3着も)
   }
 
   // ==================== 効果音・鳴きボイス(ユーザー提供の音声ファイル) ====================
@@ -8144,12 +8154,15 @@
       }
       return { ranked, umaBySeat };
     }
-    const ukiCount = seats.filter(s => finalScores[s] > ruleConfig.returnPoints).length;
-    const table = ukiCount === 0 ? OKA_ONLY_TABLE : UMA_TABLE_BY_UKI_COUNT[ukiCount];
+    // 3人打ちは浮きを返し点「以上」で数え、3人用の表とオカ15000を使う(ukiUmaTable/okaPoints/ukiInclusive)
+    const isUki = s => ruleConfig.ukiInclusive ? finalScores[s] >= ruleConfig.returnPoints : finalScores[s] > ruleConfig.returnPoints;
+    const ukiCount = seats.filter(isUki).length;
+    const okaOnly = ruleConfig.ukiUmaTable ? [ruleConfig.okaPoints].concat(seats.slice(1).map(() => 0)) : OKA_ONLY_TABLE;
+    const table = ukiCount === 0 ? okaOnly : (ruleConfig.ukiUmaTable || UMA_TABLE_BY_UKI_COUNT)[ukiCount];
     // UMA_TABLE_BY_UKI_COUNT は純粋なウマ（合計0）のみを表しており、オカ20,000点分は
     // 含まれていない。浮き0人の場合はOKA_ONLY_TABLEに20,000点が既に含まれているため、
     // それ以外（浮きが1人以上）の場合のみ、トップのグループにオカ20,000点を追加する
-    const oka = ukiCount === 0 ? 0 : 20000;
+    const oka = ukiCount === 0 ? 0 : ruleConfig.okaPoints;
     const umaBySeat = {};
     let i = 0;
     while(i < ranked.length){
@@ -8379,7 +8392,7 @@
   // 役名の括弧書き（例:「役牌（三元牌）」の（三元牌）部分）は表示しない
   function stripParen(name){ return name.replace(/（[^）]*）/g, ""); }
   // 表示だけの短縮名（役判定側のnameキーは変更しない）
-  const DISPLAY_NAME_ALIAS = { "門前清自摸和": "門前清", "リーチドラ": "Rドラ" };
+  const DISPLAY_NAME_ALIAS = { "門前清自摸和": "門前清", "リーチドラ": "Rドラ", "役牌（北）": "役牌（北）" };
   function displayNameOf(name){ return DISPLAY_NAME_ALIAS[name] || stripParen(name); }
   function row(name, hanText, pts, cls){
     return `<div class="result-row${cls ? " " + cls : ""}">` +
