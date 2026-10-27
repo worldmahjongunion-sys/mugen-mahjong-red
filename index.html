@@ -1020,6 +1020,12 @@
   /* 結果パネルの「万能→5萬(赤)」の行(Mリーグ NEO) */
   .result-row.almighty-row .col-name, .pr-yaku-row.almighty-row span{ color:#FFD54A; font-weight:bold; }
   .final-standings .final-rule-note ul{ margin:0; padding-left:1.2em; }
+  /* 3人打ちNEOのルールの要点：同じ枠を、大きく太い文字で読みやすくする */
+  /* width:0＋min-width:100%：長い行で終了画面の枠を広げず、順位の表の幅の中で折り返す */
+  .final-standings .final-rule-note.big{ font-size:14px; font-weight:bold; line-height:1.6; opacity:1; width:0; min-width:100%; }
+  /* 枠が画面の高さに収まらない時(スマホ横)は、終了画面の中をスクロールする */
+  .final-standings:has(.final-rule-note.big){ max-height:calc(100vh - 16px); overflow-y:auto; box-sizing:border-box; }
+  .final-standings .final-rule-note.big .final-rule-title{ font-size:15px; color:#FFD54A; }
 
   /* .boardの左上（和了結果表示＝右上の対角）に固定表示する。中身は.center-midのレイアウトを流用する。
      局・供託・ドラを表示する枠(.top-left-info)と、その下の操作ボタン行(.result-actions)を
@@ -8429,7 +8435,7 @@
       `<span></span><span></span><span>${ruleConfig.umaMode === "mcrUki" ? "素点" : "素点(" + ruleConfig.returnPoints + "基準)"}</span><span>順位点</span><span>合計</span></div>` +
       rows +
       (kyotakuToTop ? `<div class="final-reason final-kyotaku">供託 ${kyotakuToTop.count}本 → トップ（${kyotakuToTop.seats.map(s => seatLabel[s]).join("・")}）${kyotakuToTop.seats.length > 1 ? "で折半" : ""}</div>` : "") +
-      (ruleConfig.umaMode === "mcrUki" ? mcrFinalRuleNote(scores) : (ruleConfig.almightyTileEnabled ? mLeagueNeoFinalRuleNote() : ""));
+      (ruleConfig.umaMode === "mcrUki" ? mcrFinalRuleNote(scores) : (ruleConfig.almightyTileEnabled ? mLeagueNeoFinalRuleNote() : (EMPTY_SEAT ? sanninNeoFinalRuleNote() : "")));
     document.getElementById("finalOverlay").style.display = "flex";
   }
 
@@ -8441,6 +8447,21 @@
       `<li>オープンリーチあり(手牌を公開して2翻)</li>` +
       `<li>天和・地和あり、人和なし</li>` +
       `<li>そのほかは Mリーグ Original と同じ</li>` +
+      `</ul></div>`;
+  }
+  // 3人打ちNEOの終了画面に出すルールの要点(遊ぶ人に必要な点だけ。大きく太い文字の枠)
+  function sanninNeoFinalRuleNote(){
+    return `<div class="final-rule-note big"><div class="final-rule-title">無限ルールNEO(3人打ち) のルール</div><ul>` +
+      `<li>持ち点35000・返し40000</li>` +
+      `<li>東場・南場・西場の9局</li>` +
+      `<li>チーなし</li>` +
+      `<li>北は抜きドラ(1枚1翻)</li>` +
+      `<li>1翻縛り(ドラ・赤・抜きドラだけでは和了できない)</li>` +
+      `<li>ツモ損あり(北家の分は誰も払わない)</li>` +
+      `<li>赤ご祝儀：ロン2000点、ツモ2000点×2人</li>` +
+      `<li>順位点(浮き＝40000点以上)<br>一人浮き ＋40000／−10000／−30000<br>二人浮き ＋20000／＋10000／−30000</li>` +
+      `<li>オカ15000はトップへ</li>` +
+      `<li>終局時の供託はトップへ。同点は折半</li>` +
       `</ul></div>`;
   }
   function mcrFinalRuleNote(finalScores){
