@@ -4539,7 +4539,7 @@
     if(seat === "bottom"){ lastDrawnTile = null; renderMyHand(false); }
     else { lastDrawnCpu[seat] = null; renderCpuHandBacks(seat); }
     renderMelds(seat);
-    playSfx(SFX.discard);
+    playSfx(SFX.callPei); // 自分・CPU問わず、北を抜いた瞬間に「ペーなのだ！」と発声する
     clearAllIppatsu(); // 鳴き・カンと同じく、北を抜いた瞬間に全員の一発が消える(抜いた北へのロンにも一発は付かない)
     setTurnIndicator(seatLabel[seat] + "が北を抜きました");
     let winners = findAllRonWinners(headBumpOrder(seat), tile);
@@ -8203,6 +8203,7 @@
     callRiichi: "sounds/call-riichi.ogg",  // 「リーチ」ボイス
     callRon: "sounds/call-ron.ogg",        // 「ロン」ボイス
     callTsumo: "sounds/call-tsumo.ogg",    // 「ツモ」ボイス
+    callPei: "sounds/call-pei.ogg",        // 「ペーなのだ！」ボイス(北を抜いた時。VOICEVOXのずんだもん(ノーマル・初期設定)で作り、ほかの発声と同じ大きさにそろえた)
     shuffle: "sounds/sfx-shuffle.ogg",     // 牌をまぜる音（新しい局の開始＝ページ読込のたび、配牌後に1回）
     points: ["sounds/sfx-points-1.ogg", "sounds/sfx-points-2.ogg", "sounds/sfx-points-3.ogg"] // 点棒を置く音（3種からランダム）
   };
