@@ -2192,7 +2192,7 @@
       // 符計算あり(切り上げ満貫あり)。名の付いた役満は固定額、役の合計だけで13翻以上は三倍満止め(数え役満なし)
       scoreTableMode:"fu", scoreTableKiriage:true, yakumanMultiplierEnabled:false, countedYakumanCapped:true
     } },
-    { id:"sanninNeo", label:"無限ルールNEO(3人打ち)", titleLines:["無限ルールNEO", "(3人打ち)"], status:"comingSoon", ruleConfig:null },
+    { id:"sanninNeo", label:"無限ルールNEO(3人打ち)", titleLines:["無限ルールNEO", "(3人打ち)"], status:"ready", ruleConfig:null }, // 設定はRULESETSの下で赤入り無限NEOから作る(段階6で表紙から選べるようにした)
     { id:"zanLeague", label:"ザンリーグルール", status:"comingSoon", ruleConfig:null },
     // MCR-NEO(国際公式麻雀ベース)。段階7で表紙から選べるようにした(status:"ready")。
     // 役・点は日本式の判定(computeYaku)を使わず、scoreTableMode:"mcr"の関数群(mcrEvaluate)で数える。
@@ -2228,7 +2228,7 @@
   // 無限ルールNEO(3人打ち)の設定＝赤入り無限ルールNEOの設定を3人打ちにしたもの(依頼_3人打ちNEO_仕様と段階実装.md)。
   // 対面を空ける・萬子は一萬と九萬だけ・チーなし・東南西の9局・王牌18枚(カンドラあり、リーチドラなし)。
   // 点数は4人のNEOと同じ計算で、払う人が2人になる(北家の分は誰も払わない＝ツモ損)。役なしの和了はできない(1翻縛り)。
-  // 順位点は浮き(40000点以上)の人数で引き、オカ15000をトップに足す。北は抜きドラ。リーチ中のロンは強制和了。表紙はまだ「近日公開」のまま
+  // 順位点は浮き(40000点以上)の人数で引き、オカ15000をトップに足す。北は抜きドラ。リーチ中のロンは強制和了
   RULESETS.find(r => r.id === "sanninNeo").ruleConfig = Object.assign({},
     RULESETS.find(r => r.id === "akaNeo").ruleConfig,
     { emptySeat:"top", manzuTerminalsOnly:true, chiEnabled:false, jamaPonEnabled:false,
