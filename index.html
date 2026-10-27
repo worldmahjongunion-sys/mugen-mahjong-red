@@ -6050,7 +6050,9 @@
     if(!ruleConfig.tenchihouEnabled || !isTsumo || extraTile) return null;
     if(discards[seat].length !== 0) return null;
     if(activeSeats(["bottom", "right", "top", "left"]).some(s => melds[s].length > 0)) return null;
-    if(nukiDora[seat].length > 0) return null; // 北を抜いた人は、補充牌でツモ和了しても天和・地和にしない(3人打ち)
+    // 3人打ち：最初の1周の間に誰かが北を抜いたら、全員の天和・地和が消える(抜いた本人だけでなく、ほかの人も)。
+    // 捨て牌がまだ無い人にとっては、それまでに抜かれた北はすべて最初の1周の間のものなので、卓に抜いた北があるかで見る
+    if(activeSeats(["bottom", "right", "top", "left"]).some(s => nukiDora[s].length > 0)) return null;
     return seat === DEALER_SEAT ? "天和" : "地和";
   }
 
