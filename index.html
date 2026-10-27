@@ -4491,8 +4491,8 @@
   }
 
   // 北を抜く(自分・CPU共通)。抜いた北にロンできる人がいればロン(槍槓ではない。頭ハネ・ダブロンは打牌と同じ)、
-  // 自分がロンできる時は和了・スルーを選ばせる(3人打ちのリーチ中はスルーなし)。ロンが無ければ全員の一発を消し、
-  // 嶺上牌から1枚補充する(continueKitaDraw)。カンドラは増えない
+  // 自分がロンできる時は和了・スルーを選ばせる(3人打ちのリーチ中はスルーなし)。全員の一発は抜いた瞬間に消え、
+  // ロンが無ければ嶺上牌から1枚補充する(continueKitaDraw)。カンドラは増えない
   function executeKita(seat, tile){
     if(seat === "bottom"){
       clearRiichiKanWindow();
@@ -4506,6 +4506,7 @@
     else { lastDrawnCpu[seat] = null; renderCpuHandBacks(seat); }
     renderMelds(seat);
     playSfx(SFX.discard);
+    clearAllIppatsu(); // 鳴き・カンと同じく、北を抜いた瞬間に全員の一発が消える(抜いた北へのロンにも一発は付かない)
     setTurnIndicator(seatLabel[seat] + "が北を抜きました");
     let winners = findAllRonWinners(headBumpOrder(seat), tile);
     if(!ruleConfig.multiRonEnabled && winners.length > 1) winners = [winners[0]];
@@ -4534,10 +4535,9 @@
     finalizeRon(winners, seat, tile);
   }
 
-  // 抜いた北にロンが無かった：全員の一発を消し、嶺上牌から1枚補充してから、その人の番を続ける
+  // 抜いた北にロンが無かった：嶺上牌から1枚補充してから、その人の番を続ける
   function continueKitaDraw(seat){
     if(gameEnded) return;
-    clearAllIppatsu(); // 鳴き・カンと同じく、北を抜くと全員の一発が消える(抜いた北へのロンの判定より後)
     const rinshan = drawRinshanTile();
     updateRinshanVisual();
     hands[seat].push(rinshan);
@@ -6050,6 +6050,7 @@
     if(!ruleConfig.tenchihouEnabled || !isTsumo || extraTile) return null;
     if(discards[seat].length !== 0) return null;
     if(activeSeats(["bottom", "right", "top", "left"]).some(s => melds[s].length > 0)) return null;
+    if(nukiDora[seat].length > 0) return null; // 北を抜いた人は、補充牌でツモ和了しても天和・地和にしない(3人打ち)
     return seat === DEALER_SEAT ? "天和" : "地和";
   }
 
