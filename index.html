@@ -2052,6 +2052,8 @@
   //     activeSeats()でこの席を除いて回す
   //   manzuTerminalsOnly: 萬子を一萬・九萬だけにするか(3人打ちの108枚)。ドラ表示は一萬→九萬、九萬→一萬
   //   chiEnabled: チーがあるか。falseは自分にもCPUにもチーの選択肢を出さない(邪魔ポンも起きない)
+  //   leftoverKyotakuToTop: 終局時に場に残った供託(リーチ棒)をトップが受け取るか。trueはトップの持ち点に足してから
+  //     順位点・オカを数え、終了画面に「供託 ○本 → トップ(名前)」を出す。falseは今までどおり消える
   //   ukiUmaTable/okaPoints/ukiInclusive: umaMode:"ukiCount"の順位点。浮き人数→[1着,2着,…]の表と、トップに足すオカ、
   //     浮きを返し点「以上」で数えるか(falseは「超え」)。nullは4人のNEOの表(UMA_TABLE_BY_UKI_COUNT・オカ20000・超え)
   //   winCallSpeech: 和了の発声を、音声ファイル(「ロン」「ツモ」)の代わりにブラウザの音声合成で読む時の
@@ -2062,7 +2064,7 @@
     totalKyoku:8, minWinPoints:0, maxWinPoints:null, seatChangeEnabled:false,
     startHandSize:13, almightyTileEnabled:false, openRiichiEnabled:false,
     akaHanEnabled:false, winCallSpeech:null, emptySeat:null, manzuTerminalsOnly:false, chiEnabled:true,
-    ukiUmaTable:null, okaPoints:20000, ukiInclusive:false
+    ukiUmaTable:null, okaPoints:20000, ukiInclusive:false, leftoverKyotakuToTop:false
   };
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
@@ -2089,6 +2091,7 @@
       umaMode:"ukiCount", fixedUmaTable:null,
       honbaRonBonus:1500, honbaTsumoBonusPerSeat:500,
       earlyEndOnBust:true, earlyEndOnOver70000:true, tobiEnabled:true,
+      leftoverKyotakuToTop:true, // 終局時に残った供託はトップへ(3人打ちNEOも同じ)
       yakunashiWinEnabled:true, multiRonEnabled:true, jamaPonEnabled:true,
       tenpaiRenchanEnabled:false, honbaResetOnDealerChange:true, honbaResetOnChildWin:true,
       southRoundEnabled:false, renchanAtFinalKyokuEnabled:false,
@@ -2211,7 +2214,7 @@
   // Mリーグ NEOの設定＝Mリーグ Originalの設定＋少牌・オールマイティー牌・オープンリーチ
   RULESETS.find(r => r.id === "mLeagueNeo").ruleConfig = Object.assign({},
     RULESETS.find(r => r.id === "mLeagueOriginal").ruleConfig,
-    { startHandSize:12, almightyTileEnabled:true, openRiichiEnabled:true });
+    { startHandSize:12, almightyTileEnabled:true, openRiichiEnabled:true, leftoverKyotakuToTop:true });
   // 無限ルールNEO(3人打ち)の設定＝赤入り無限ルールNEOの設定を3人打ちにしたもの(依頼_3人打ちNEO_仕様と段階実装.md)。
   // 対面を空ける・萬子は一萬と九萬だけ・チーなし・東南西の9局・王牌18枚(カンドラあり、リーチドラなし)。
   // 点数は4人のNEOと同じ計算で、払う人が2人になる(北家の分は誰も払わない＝ツモ損)。役なしの和了はできない(1翻縛り)。
@@ -8189,6 +8192,17 @@
   // 素点・合計は35,000持ち・40,000返しのハウスルールに合わせ、40,000点を原点とした±表示にする
   // （合計＝(素点-40,000)+順位点）
   function showFinalStandings(reason){
+    // 終局時に場に残った供託：leftoverKyotakuToTopのルール(赤入り無限NEO・Mリーグ NEO・3人打ちNEO)は、
+    // トップ(今の順位の決め方での1位。同点はあなた→下家→対面→上家の順)の持ち点に足してから、順位点・オカと成績の記録を数える
+    let kyotakuToTop = null;
+    if(ruleConfig.leftoverKyotakuToTop && riichiSticks > 0){
+      const top = computeUmaBySeat(scores).ranked[0];
+      kyotakuToTop = { seat: top, count: riichiSticks };
+      scores[top] += riichiSticks * 1000;
+      riichiSticks = 0;
+      updateKyotakuDisplay();
+      renderScores();
+    }
     const { ranked, umaBySeat } = computeUmaBySeat(scores);
     recordMatchResult(reason, ranked, umaBySeat);
     announceMatchEnd(reason, ranked);
@@ -8208,7 +8222,9 @@
       `<div class="final-reason">${finalReasonText(reason)}／${handsPlayedCount}局 ${elapsedText}</div>` +
       `<div class="final-rank-row final-rank-header">` +
       `<span></span><span></span><span>${ruleConfig.umaMode === "mcrUki" ? "素点" : "素点(" + ruleConfig.returnPoints + "基準)"}</span><span>順位点</span><span>合計</span></div>` +
-      rows + (ruleConfig.umaMode === "mcrUki" ? mcrFinalRuleNote(scores) : (ruleConfig.almightyTileEnabled ? mLeagueNeoFinalRuleNote() : ""));
+      rows +
+      (kyotakuToTop ? `<div class="final-reason final-kyotaku">供託 ${kyotakuToTop.count}本 → トップ（${seatLabel[kyotakuToTop.seat]}）</div>` : "") +
+      (ruleConfig.umaMode === "mcrUki" ? mcrFinalRuleNote(scores) : (ruleConfig.almightyTileEnabled ? mLeagueNeoFinalRuleNote() : ""));
     document.getElementById("finalOverlay").style.display = "flex";
   }
 
