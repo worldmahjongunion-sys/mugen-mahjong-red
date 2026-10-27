@@ -2044,8 +2044,9 @@
   //     (左から1・2山目=嶺上牌、3山目の上=表ドラ表示牌・下=裏ドラ表示牌、4〜7山目=カンドラと
   //     その下の裏ドラ)。auto14の裏ドラは伏せたままで、リーチして和了した人だけが数える。
   //     "none"=王牌なし(MCR)。牌山136枚すべてをツモ山にし、カンの補充は山の末尾から取る。
-  //     "auto18"=3人打ち。auto14と同じ全自動卓風で、嶺上牌を4山8枚にした9山18枚
-  //     (嶺上4山・表ドラ1山・カンドラ4山。上段が表示牌、下段が裏ドラ)
+  //     "auto18"=3人打ち。auto14と同じ全自動卓風の9山(嶺上4山・表ドラ1山・カンドラ用4山)。
+  //     カンドラ用の4山(8枚)は、カンが起きるまではツモの最後に使う(KAN_DORA_FROM_LIVE_WALL)。
+  //     カンのたびに、表ドラの隣の山(ツモの最後の2枚)を上段=カンドラ表示牌・下段=カン裏にする
   // 以下はMCR系で加えた設定。日本式のルールは書かずに、RULE_CONFIG_DEFAULTSの値(今までの挙動)を使う
   //   riichiEnabled/doraEnabled/furitenEnabled: リーチ(と供託)・ドラ・フリテンがあるか
   //   renchanEnabled: 親の和了で連荘するか。falseは和了・流局とも親が次の席へ回る
@@ -2503,12 +2504,16 @@
   // 判定するのに使う基準値。deadWallはpop()で縮んでいくため、開始時点の枚数を控えておく。
   // ruleConfig.deadWallLayout:"auto14"のルール(全自動卓風)は、カンドラの有無によらず14枚
   // (並びは上の14枚の内訳と同じ。王牌の7山との対応はbuildAutoDeadWallDom()の説明を参照)
-  // auto18(3人打ち)はauto14と同じ作りで、嶺上牌だけ4山8枚にしたもの
+  // auto18(3人打ち)はauto14と同じ作りで、嶺上牌を4山8枚にしたもの。ただしカンドラ用の4山(8枚)は王牌に取らず、
+  // ツモの山の最後に置いてツモに使う(KAN_DORA_FROM_LIVE_WALL)。王牌は表ドラの山2枚＋嶺上牌8枚の10枚で、
+  // ツモはカンが0回なら59枚(配牌のあと69枚−10枚)、カンのたびに山の最後の2枚がカンドラ・カン裏になって2枚減る
   const IS_AUTO_DEAD_WALL = ruleConfig.deadWallLayout === "auto14" || ruleConfig.deadWallLayout === "auto18";
   const RINSHAN_TILES = ruleConfig.deadWallLayout === "auto18" ? 8 : 4; // 嶺上牌の枚数(王牌の末尾)
+  const KAN_DORA_FROM_LIVE_WALL = ruleConfig.deadWallLayout === "auto18";
+  const KAN_TAIL_TILES = KAN_DORA_FROM_LIVE_WALL ? 8 : 0; // ツモの山の最後にあるカンドラ用の4山の枚数
   // deadWallLayout:"none"(MCR)：王牌を取らない。嶺上牌はdrawRinshanTile()が山(wall)の末尾から取る
   const NO_DEAD_WALL = ruleConfig.deadWallLayout === "none";
-  const DEAD_WALL_INITIAL_SIZE = NO_DEAD_WALL ? 0 : ((IS_AUTO_DEAD_WALL || ruleConfig.kanDoraEnabled) ? 10 + RINSHAN_TILES : 8);
+  const DEAD_WALL_INITIAL_SIZE = NO_DEAD_WALL ? 0 : (KAN_DORA_FROM_LIVE_WALL ? 2 + RINSHAN_TILES : ((IS_AUTO_DEAD_WALL || ruleConfig.kanDoraEnabled) ? 10 + RINSHAN_TILES : 8));
   // auto14のルールでは、riichiDoraIndicatorsは伏せたままの裏ドラ表示牌として扱う。画面にも
   // 出さず、手牌の色分け・CPUの読み(見えている牌・ドラの種類)にも使わない。数えるのは
   // リーチして和了した人の和了時だけ(addDoraYaku)で、役名も「裏ドラ」にする
@@ -2531,8 +2536,16 @@
     if(!ruleConfig.kanDoraEnabled) return;
     const kanIndex = doraIndicators.length - 1; // 0始まり。今回が何回目のカンドラ追加かを表す
     if(kanIndex >= 4) return;
-    doraIndicators.push(deadWall[2 + kanIndex]);
-    riichiDoraIndicators.push(deadWall[6 + kanIndex]);
+    if(KAN_DORA_FROM_LIVE_WALL){
+      // 3人打ち：表ドラの隣の山(ツモの山の最後の2枚)を、上段=カンドラ表示牌・下段=カン裏にする(ツモが2枚減る)
+      const ura = wall.pop(), top = wall.pop();
+      doraIndicators.push(top);
+      riichiDoraIndicators.push(ura);
+      updateWallCount();
+    } else {
+      doraIndicators.push(deadWall[2 + kanIndex]);
+      riichiDoraIndicators.push(deadWall[6 + kanIndex]);
+    }
     if(IS_AUTO_DEAD_WALL){
       updateAutoDeadWallVisual(); // 4山目から順にカンドラを表にする
       renderTopLeftKanDora();
@@ -2719,7 +2732,8 @@
   // 親の前は自摸山2山(4枚)・空き2山・王牌7山の11山、他の3人は自摸山11山(22枚)にする
   // 王牌なし(NO_DEAD_WALL)も同じ回り方・同じ4辺の作り方にする(王牌の山が0山で、親の前は自摸山9山・空き2山)
   // 3人打ち(auto18)も山は卓の4辺に置く(空けた席の前にも山がある)。親の辺は自摸山2山・王牌9山の11山、
-  // 他の3辺は自摸山8山(16枚)。生きたツモは51枚と奇数なので、最初の1山は上段を取った後(WALL_FRONT_OFFSET)から始める
+  // 他の3辺は自摸山8山(16枚)。ツモは59枚(カンドラ用の4山を含む)と奇数なので、最初の1山は上段を取った後(WALL_FRONT_OFFSET)から始める。
+  // カンドラ用の4山は王牌の9山の中に描き(updateAutoDeadWallVisual)、4辺の自摸山にはそれを除いた51枚(＋1)を割り振る
   const AUTO_WALL_RING = IS_AUTO_DEAD_WALL || NO_DEAD_WALL;
   const WALL_RING_KAMICHA = { bottom:"left", left:"top", top:"right", right:"bottom" }; // 卓の辺の並び(空けた席も含む)
   const WALL_PILE_ORDER = AUTO_WALL_RING
@@ -2728,7 +2742,7 @@
   const WALL_SIDE_TILES = EMPTY_SEAT ? 16 : 22; // 親以外の辺の自摸山の枚数
   const WALL_FRONT_OFFSET = (LIVE_WALL_TOTAL % 2 === 1) ? 1 : 0;
   const WALL_PILE_SIZE = AUTO_WALL_RING
-    ? Object.fromEntries(["bottom", "left", "top", "right"].map(s => [s, s === DEALER_SEAT ? LIVE_WALL_TOTAL + WALL_FRONT_OFFSET - WALL_SIDE_TILES * 3 : WALL_SIDE_TILES]))
+    ? Object.fromEntries(["bottom", "left", "top", "right"].map(s => [s, s === DEALER_SEAT ? LIVE_WALL_TOTAL - KAN_TAIL_TILES + WALL_FRONT_OFFSET - WALL_SIDE_TILES * 3 : WALL_SIDE_TILES]))
     : { bottom:10, left:22, top:22, right:22 };
   const WALL_PILE_EL_ID = { bottom:"wallBottomLive", left:"wallLeft", top:"wallTop", right:"wallRight" };
   // 各山のどちら側（DOM順の先頭 or 末尾）から減っていくか。
@@ -2802,10 +2816,18 @@
         node = document.createElement("div");
         node.className = backCls;
         if(n <= RINSHAN_STACKS) applyStackVisual(node, Math.max(0, Math.min(2, rinshanUsed - (n - 1) * 2)));
+        // 3人打ち：カンドラ用の4山はツモの最後に使う。山の奥(n=9)から表ドラの隣(n=6)へ順に減る
+        else if(KAN_DORA_FROM_LIVE_WALL && faceIdx > 0) applyStackVisual(node, Math.max(0, Math.min(2, kanTailDrawn() - (AUTO_DEAD_WALL_STACKS - n) * 2)));
       }
       nodes[autoDeadWallStackIndex(n)] = node;
     }
     el.replaceChildren(...nodes);
+  }
+
+  // 3人打ち：カンドラ用の4山のうち、ツモで取った枚数(4辺の自摸山51枚を取り切った後のツモ)
+  function kanTailDrawn(){
+    const kans = doraIndicators.length - 1; // カンのたびに山の最後の2枚がカンドラになった分
+    return Math.max(0, LIVE_WALL_TOTAL - wall.length - kans * 2 - (LIVE_WALL_TOTAL - KAN_TAIL_TILES));
   }
 
   // 卓の上のカンの数(大明槓・暗槓・加槓)。王牌なしのルールで、山の末尾から取った嶺上牌の枚数になる
@@ -2817,7 +2839,9 @@
   // 嶺上牌として山の末尾(最後の山の終わりの側)から取った分
   function wallPileConsumption(pileName){
     const tailDrawn = NO_DEAD_WALL ? kanCountOnTable() : 0;
-    const frontDrawn = LIVE_WALL_TOTAL - wall.length - tailDrawn + WALL_FRONT_OFFSET;
+    // 3人打ち：カンドラにした山の最後の2枚はツモではないので、ツモで取った枚数から除く
+    const kanTail = KAN_DORA_FROM_LIVE_WALL ? (doraIndicators.length - 1) * 2 : 0;
+    const frontDrawn = LIVE_WALL_TOTAL - wall.length - tailDrawn - kanTail + WALL_FRONT_OFFSET;
     const idx = WALL_PILE_ORDER.indexOf(pileName);
     const size = WALL_PILE_SIZE[pileName];
     const preceding = WALL_PILE_ORDER.slice(0, idx).reduce((a, n) => a + WALL_PILE_SIZE[n], 0);
@@ -2855,6 +2879,7 @@
         applyStackVisual(tile, Math.min(2, fromFront + fromBack));
       });
     });
+    if(KAN_DORA_FROM_LIVE_WALL) updateAutoDeadWallVisual(); // カンドラ用の4山もツモで減る
   }
 
   // 嶺上牌（王牌の開門側、表示2枚＝物理4枚）：カンで王牌からツモるたびにdeadWall.lengthが
@@ -3463,8 +3488,11 @@
   // 嶺上牌は常に末尾4枚(auto18は8枚)。王牌の開始枚数(DEAD_WALL_INITIAL_SIZE)から4を引いた分より
   // deadWallが減っていなければ、まだ嶺上牌が残っている
   // 嶺上牌が8枚あるルール(auto18)も、カンは卓全体で4回まで
+  // 3人打ち(KAN_DORA_FROM_LIVE_WALL)は、カンドラにする山(ツモの最後の2枚)をカンドラにしてもツモが1枚以上残る時、
+  // つまり残り牌が3枚以上の時だけカンできる(暗槓・加槓・大明槓、自分にもCPUにも同じ。海底でカンできないのと同じ考え方)
   function rinshanAvailable(){
     if(NO_DEAD_WALL) return wall.length > 0;
+    if(KAN_DORA_FROM_LIVE_WALL && wall.length < 3) return false;
     return deadWall.length > DEAD_WALL_INITIAL_SIZE - RINSHAN_TILES && (RINSHAN_TILES === 4 || kanCountOnTable() < 4);
   }
   // 嶺上牌を1枚取る。王牌なし(NO_DEAD_WALL)のルールは山の末尾から取る(4回までの制限もない)
@@ -4765,6 +4793,9 @@
       wall: cloneTileArrayRef(wall, map),
       deadWall: cloneTileArrayRef(deadWall, map),
       doraIndicatorCount: doraIndicators.length,
+      // 3人打ちのカンドラ・カン裏は山の最後から取るので、王牌の決まった位置からは作り直せない。牌そのものを残す
+      kanDoraTiles: KAN_DORA_FROM_LIVE_WALL ? cloneTileArrayRef(doraIndicators.slice(1), map) : null,
+      kanUraTiles: KAN_DORA_FROM_LIVE_WALL ? cloneTileArrayRef(riichiDoraIndicators.slice(1), map) : null,
       hands: {}, discards: {}, discardShadows: {}, discardHistory: {}, melds: {}, nukiDora: {},
       lastDrawnCpu: {}, riichiDeclareTile: {}, riichiValidDiscards: {},
       callDecisionLog: callDecisionLog.slice(),
@@ -4812,9 +4843,14 @@
       const count = snap.doraIndicatorCount || 1;
       replaceArrayContents(doraIndicators, [deadWall[0]]);
       replaceArrayContents(riichiDoraIndicators, [deadWall[1]]);
-      for(let k = 0; k < count - 1; k++){
-        doraIndicators.push(deadWall[2 + k]);
-        riichiDoraIndicators.push(deadWall[6 + k]);
+      if(KAN_DORA_FROM_LIVE_WALL){
+        doraIndicators.push(...cloneTileArrayRef(snap.kanDoraTiles || [], map));
+        riichiDoraIndicators.push(...cloneTileArrayRef(snap.kanUraTiles || [], map));
+      } else {
+        for(let k = 0; k < count - 1; k++){
+          doraIndicators.push(deadWall[2 + k]);
+          riichiDoraIndicators.push(deadWall[6 + k]);
+        }
       }
       if(IS_AUTO_DEAD_WALL){
         uraDoraRevealed = false; // 配牌直後などに戻すので、和了後にめくった裏ドラも伏せ直す
