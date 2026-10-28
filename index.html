@@ -382,6 +382,13 @@
     display:block;
   }
   .tile.man{ color:var(--man); }
+  /* 花牌(ザンリーグ)の「花」の字と、白ポッチの点。絵の真ん中に重ねる(鳴き牌などで向きが変わっても真ん中のまま) */
+  .tile .flower-mark{ position:absolute; left:50%; top:50%; transform:translate(-50%, -50%); z-index:1;
+    width:calc(var(--tile-w) * 0.62); height:calc(var(--tile-w) * 0.62); border-radius:50%;
+    background:rgba(255,255,255,0.92); border:1.5px solid #C23B3B; color:#C23B3B;
+    font-size:calc(var(--tile-w) * 0.42); font-weight:bold; line-height:1; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+  .tile .pochi-dot{ position:absolute; left:50%; top:50%; transform:translate(-50%, -50%); z-index:1;
+    width:calc(var(--tile-w) * 0.24); height:calc(var(--tile-w) * 0.24); border-radius:50%; background:#C23B3B; pointer-events:none; }
   .tile.red-five{ box-shadow:0 0 0 1px rgba(194,59,59,0.7), 0 2px 0 rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.8); }
   .tile.pin{ color:var(--pin); }
   .tile.sou{ color:var(--sou); }
@@ -1884,11 +1891,14 @@
     return suit + num; // man/pin/sou の通常牌
   }
 
-  function tileEl(suit, num, cls, isRed){
+  // src(牌そのもの。省略可)が花牌なら赤五萬の絵に「花」の字を、白ポッチなら小さな点を重ねる
+  function tileEl(suit, num, cls, isRed, src){
     const div = document.createElement("div");
     div.className = "tile " + cls + (isRed ? " red-five" : "");
     const imgName = tileImageName(suit, num, isRed);
-    div.innerHTML = `<img src="images/tiles/${imgName}.png">`;
+    div.innerHTML = `<img src="images/tiles/${imgName}.png">`
+      + (src && src.flower ? `<span class="flower-mark">花</span>` : "")
+      + (src && src.pochi ? `<span class="pochi-dot"></span>` : "");
     return div;
   }
 
@@ -1966,6 +1976,8 @@
         if(ruleConfig.akaDoraEnabled && t.num === 5 && (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && (i === 0 || ruleConfig.redFivesAll)){
           tile.red = true;
         }
+        // 白ポッチ(ザンリーグ)：白の1枚に印を付ける(tile.pochi)
+        if(ruleConfig.whitePochiEnabled && t.suit === "dragon" && t.num === 1 && i === 0) tile.pochi = true;
         wall.push(tile);
       }
     });
@@ -2088,7 +2100,10 @@
   //     浮きを返し点「以上」で数えるか(falseは「超え」)。nullは4人のNEOの表(UMA_TABLE_BY_UKI_COUNT・オカ20000・超え)
   // 以下はザンリーグで加えた設定
   //   redFivesAll: 赤を筒子・索子の5の4枚ともにするか(萬子の5は使わない)。falseは各色の5の1枚だけ
-  //   flowerTileCount: 花牌(五萬を赤く塗ったもの、tile.flower)の枚数。0は花牌なし
+  //   flowerTileCount: 花牌(五萬を赤く塗ったもの、tile.flower)の枚数。0は花牌なし。花牌は引いたら自動で抜いて
+  //     嶺上牌から補充する(pullFlowers)。4枚とも抜いて和了したら「華4」4翻(ドラと同じく役にはならない)
+  //   whitePochiEnabled: 白の1枚を白ポッチ(tile.pochi)にするか。リーチ後に引いたら、待ちの中で点数が
+  //     いちばん高くなる牌としてツモ和了する(attemptWinPochi)。リーチ前・リーチ後に引いた以外は普通の白
   //   scoreTableId: scoreTableMode:"lookup"で引く固定点表。null=Mリーグ・WWの表(SCORE_TABLE_KIRIAGE等)、"zan"=ZAN_SCORE_TABLE
   //   kyotakuToAnyWinner: 供託(リーチ棒)を、リーチしていない和了者も受け取るか。falseはリーチした和了者だけ(NEO)
   //   multiRonHeadTakesAll: ダブロンの時、供託・積み棒・親権を頭ハネで先の1人(上家取り)だけにするか。
@@ -2107,7 +2122,7 @@
     akaHanEnabled:false, winCallSpeech:null, emptySeat:null, manzuTerminalsOnly:false, chiEnabled:true,
     ukiUmaTable:null, okaPoints:20000, ukiInclusive:false, leftoverKyotakuToTop:false,
     kitaNukiEnabled:false, kitaRinshanKaihouEnabled:false, riichiRonForced:false,
-    redFivesAll:false, flowerTileCount:0,
+    redFivesAll:false, flowerTileCount:0, whitePochiEnabled:false,
     scoreTableId:null, kyotakuToAnyWinner:false, multiRonHeadTakesAll:false, bustAtZero:false, tobiBonusPoints:10000,
     topOnlyYameChoice:false
   };
@@ -2279,7 +2294,7 @@
   // トップの時だけのアガリやめ・聴牌やめ。チップなどは後の段階で入れる
   RULESETS.find(r => r.id === "zanLeague").ruleConfig = Object.assign({},
     RULESETS.find(r => r.id === "sanninNeo").ruleConfig,
-    { redFivesAll:true, flowerTileCount:4, kitaNukiEnabled:false,
+    { redFivesAll:true, flowerTileCount:4, whitePochiEnabled:true, kitaNukiEnabled:false,
       totalKyoku:6, startingPoints:50000, returnPoints:50000, earlyEndOnOver70000:false,
       scoreTableMode:"lookup", scoreTableId:"zan", countedYakumanCapped:false, yakumanMultiplierEnabled:false, akaHanEnabled:true,
       honbaRonBonus:1000, honbaTsumoBonusPerSeat:1000, notenPenaltyMode:"pool", notenPenaltyPool:2000,
@@ -2570,6 +2585,27 @@
   // 必要になる(手牌のドラ色分け表示用)ため、宣言だけこの時点まで前倒しする）。
   // 単一値ではなく配列にし、カンのたびにrevealNextKanDora()が予備領域から1枚ずつ追加する
   // ruleConfig.doraEnabled:falseのルール(MCR)は表示牌を持たない(数える処理は空の配列で0になる)
+  // 花牌(flowerTileCount)：表ドラ・裏ドラの位置の牌が花牌なら、その花牌は使わずに(空気扱い。誰も引かない)、
+  // 山の次の牌(カンドラと同じ側＝ツモの山の最後)をめくって表示牌にする。次の牌も花牌ならもう1枚。
+  // 表示牌から外した花牌はindicatorFlowersに残す。配牌の前に済ませるので、ツモの枚数はその分だけ少なくなる
+  const indicatorFlowers = [];
+  if(ruleConfig.flowerTileCount && ruleConfig.doraEnabled){
+    [0, 1].forEach(i => {
+      while(deadWall[i].flower && wall.length > 0){ indicatorFlowers.push(deadWall[i]); deadWall[i] = wall.pop(); }
+    });
+  }
+  // カンドラ・カン裏(3人打ちはツモの山の最後から取る)で、花牌を飛ばすために余分に取った枚数。山の見た目に使う
+  let flowerIndicatorTail = 0;
+  // 表示牌にする牌をツモの山の最後から1枚取る。花牌なら外して(indicatorFlowers)、次の牌を取る
+  function popIndicatorFromWallTail(){
+    let t = wall.pop();
+    while(t && t.flower && ruleConfig.flowerTileCount && wall.length > 0){
+      indicatorFlowers.push(t);
+      flowerIndicatorTail++;
+      t = wall.pop();
+    }
+    return t;
+  }
   const doraIndicators = ruleConfig.doraEnabled ? [deadWall[0]] : [];
   const riichiDoraIndicators = ruleConfig.doraEnabled ? [deadWall[1]] : [];
   // カンが成立するたびに呼ぶ。kanDoraEnabled:falseなら何もしない。予備4組(カン最大4回ぶん)を
@@ -2580,7 +2616,7 @@
     if(kanIndex >= 4) return;
     if(KAN_DORA_FROM_LIVE_WALL){
       // 3人打ち：表ドラの隣の山(ツモの山の最後の2枚)を、上段=カンドラ表示牌・下段=カン裏にする(ツモが2枚減る)
-      const ura = wall.pop(), top = wall.pop();
+      const ura = popIndicatorFromWallTail(), top = popIndicatorFromWallTail();
       doraIndicators.push(top);
       riichiDoraIndicators.push(ura);
       updateWallCount();
@@ -2601,6 +2637,20 @@
   const cpuRightTiles = wall.splice(0, START_HAND_SIZE);
   const cpuTopTiles = EMPTY_SEAT === "top" ? [] : wall.splice(0, START_HAND_SIZE); // 3人打ちは対面を空ける
   const cpuLeftTiles = wall.splice(0, START_HAND_SIZE);
+  // 抜いた花牌(flowerTileCount)。席ごとに、抜いた順の牌そのもの。鳴きではないので門前・一発・天和・地和には効かない
+  const flowers = { top: [], left: [], right: [], bottom: [] };
+  // 配牌に花牌が入っていたら、親から順に(手番の順に)抜いて嶺上牌から補充する。補充した牌も花牌なら続けて抜く
+  if(ruleConfig.flowerTileCount){
+    const dealt = { bottom: myTiles13, right: cpuRightTiles, top: cpuTopTiles, left: cpuLeftTiles };
+    const order = activeSeats(["bottom", "right", "top", "left"]);
+    const start = order.indexOf(DEALER_SEAT);
+    order.slice(start).concat(order.slice(0, start)).forEach(seat => {
+      const hand = dealt[seat];
+      for(let i = 0; i < hand.length; i++){
+        while(hand[i].flower){ flowers[seat].push(hand[i]); hand[i] = drawRinshanTile(); }
+      }
+    });
+  }
   // オールマイティー牌(万能)：各自1枚ずつ、局の間ずっと持っている(捨てられない・鳴きに使えない)ので、
   // 枚数を数える状態は持たず、ルールの設定だけで決める。hands[]には入れない
   const HAS_ALMIGHTY = !!ruleConfig.almightyTileEnabled;
@@ -2843,12 +2893,12 @@
       let node;
       if(faceIdx >= 0 && faceIdx < doraIndicators.length){
         const t = doraIndicators[faceIdx];
-        node = tileEl(t.suit, t.num, tileClass(t.suit, t.num) + " wall-indicator", t.red);
+        node = tileEl(t.suit, t.num, tileClass(t.suit, t.num) + " wall-indicator", t.red, t);
         applyMeldRotation(node, DISCARD_ROTATION[DEALER_SEAT]);
         // 和了後：その山の下の牌(裏ドラ表示牌)をめくり、山の外側(親の手牌の側)に並べて見せる
         const u = riichiDoraIndicators[faceIdx];
         if(uraDoraRevealed && u){
-          const uraEl = tileEl(u.suit, u.num, tileClass(u.suit, u.num) + " wall-indicator wall-ura-indicator", u.red);
+          const uraEl = tileEl(u.suit, u.num, tileClass(u.suit, u.num) + " wall-indicator wall-ura-indicator", u.red, u);
           applyMeldRotation(uraEl, DISCARD_ROTATION[DEALER_SEAT]);
           const wrap = document.createElement("div");
           wrap.className = "wall-open-stack ura-" + DEALER_SEAT;
@@ -2870,7 +2920,8 @@
   // 3人打ち：カンドラ用の4山のうち、ツモで取った枚数(4辺の自摸山51枚を取り切った後のツモ)
   function kanTailDrawn(){
     const kans = doraIndicators.length - 1; // カンのたびに山の最後の2枚がカンドラになった分
-    return Math.max(0, LIVE_WALL_TOTAL - wall.length - kans * 2 - (LIVE_WALL_TOTAL - KAN_TAIL_TILES));
+    // flowerIndicatorTail：カンドラ・カン裏の位置の花牌を飛ばして余分に取った枚数(ザンリーグ)
+    return Math.max(0, LIVE_WALL_TOTAL - wall.length - kans * 2 - flowerIndicatorTail - (LIVE_WALL_TOTAL - KAN_TAIL_TILES));
   }
 
   // 卓の上のカンの数(大明槓・暗槓・加槓)。王牌なしのルールで、山の末尾から取った嶺上牌の枚数になる
@@ -2883,7 +2934,7 @@
   function wallPileConsumption(pileName){
     const tailDrawn = NO_DEAD_WALL ? kanCountOnTable() : 0;
     // 3人打ち：カンドラにした山の最後の2枚はツモではないので、ツモで取った枚数から除く
-    const kanTail = KAN_DORA_FROM_LIVE_WALL ? (doraIndicators.length - 1) * 2 : 0;
+    const kanTail = KAN_DORA_FROM_LIVE_WALL ? (doraIndicators.length - 1) * 2 + flowerIndicatorTail : 0;
     const frontDrawn = LIVE_WALL_TOTAL - wall.length - tailDrawn - kanTail + WALL_FRONT_OFFSET;
     const idx = WALL_PILE_ORDER.indexOf(pileName);
     const size = WALL_PILE_SIZE[pileName];
@@ -3055,7 +3106,7 @@
     // 鳴きで手牌が減っても常に卓の中央に来るよう、幅の確保は.hand-rowのCSS(min-width)に任せ、
     // ここでは実際の牌だけを並べる（枠の中央寄せはCSSのjustify-content:centerが行う）
     sorted.forEach(t => {
-      const el = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+      const el = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red, t);
       applyHandDoraHighlight(el, t, doraKey, riichiDoraKey);
       if(atariKeys) applyAtariHighlight(el, t, atariKeys);
       if(!predictedRealMarked && predictedReal && !predictedReal.tsumogiri
@@ -3087,7 +3138,7 @@
 
     // ツモ枠は常に同じ幅を確保する（自摸っていない間は透明なプレースホルダーを置き、手牌全体の幅が変わってズレないようにする）
     if(lastDrawnTile){
-      const el = tileEl(lastDrawnTile.suit, lastDrawnTile.num, tileClass(lastDrawnTile.suit, lastDrawnTile.num), lastDrawnTile.red);
+      const el = tileEl(lastDrawnTile.suit, lastDrawnTile.num, tileClass(lastDrawnTile.suit, lastDrawnTile.num), lastDrawnTile.red, lastDrawnTile);
       applyHandDoraHighlight(el, lastDrawnTile, doraKey, riichiDoraKey);
       if(atariKeys) applyAtariHighlight(el, lastDrawnTile, atariKeys);
       el.classList.add("drawn");
@@ -3188,7 +3239,7 @@
         rows[groupIdx] = rowDiv;
         el.appendChild(rowDiv);
       }
-      const tileElx = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+      const tileElx = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red, t);
       const baseRot = DISCARD_ROTATION[name];
       if(entry.shadow){
         tileElx.classList.add("discard-called-shadow"); // 鳴かれて消えた捨て牌の影（ドラ・ツモ切り色分けは付けない）
@@ -3285,7 +3336,7 @@
     const { doraKey, riichiDoraKey } = currentDoraKeys();
     const atariKeys = otherSeatsWaitKeys(name); // このseat以外の待ち牌一覧（renderCpuHandFacesは終局時にしか呼ばれない）
     function makeFace(t){
-      const d = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+      const d = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red, t);
       applyHandDoraHighlight(d, t, doraKey, riichiDoraKey); // 流局・和了で手牌を公開する時も色分けする
       applyAtariHighlight(d, t, atariKeys); // 他家の待ち牌と一致する牌を光らせる
       applyMeldRotation(d, rotationDeg);
@@ -3380,7 +3431,7 @@
         m.handTiles.slice(0, 4).forEach((t, i) => {
           if(revealAll || i === 1 || i === 2){
             const ft = revealAll ? t : faceTiles[i - 1];
-            const tEl = tileEl(ft.suit, ft.num, tileClass(ft.suit, ft.num), ft.red);
+            const tEl = tileEl(ft.suit, ft.num, tileClass(ft.suit, ft.num), ft.red, ft);
             markAtari(ft, tEl);
             applyMeldRotation(tEl, baseRot, scaleVar);
             group.appendChild(tEl);
@@ -3399,12 +3450,12 @@
         // 大明槓：手牌にあった3枚を表向きで横一列に並べ、鳴かれた1枚を横向きにして上に積む。
         // 積む位置で誰から鳴いたかを示す（上家=左端／対面=中央／下家=右端、既存のpon/chiと同じ判定）
         const rowEls = m.handTiles.map(t => {
-          const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+          const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red, t);
           markAtari(t, tEl);
           applyMeldRotation(tEl, baseRot, scaleVar);
           return tEl;
         });
-        const stackedEl = tileEl(m.calledTile.suit, m.calledTile.num, tileClass(m.calledTile.suit, m.calledTile.num), m.calledTile.red);
+        const stackedEl = tileEl(m.calledTile.suit, m.calledTile.num, tileClass(m.calledTile.suit, m.calledTile.num), m.calledTile.red, m.calledTile);
         stackedEl.classList.add("meld-called");
         if(m.calledTile.tsumogiri) stackedEl.classList.add("discard-tsumogiri"); // 鳴かれる前がツモ切りだった牌は、この面子側に薄い水色を残す
         markAtari(m.calledTile, stackedEl);
@@ -3416,7 +3467,7 @@
         return;
       }
 
-      const calledEl = tileEl(m.calledTile.suit, m.calledTile.num, tileClass(m.calledTile.suit, m.calledTile.num), m.calledTile.red);
+      const calledEl = tileEl(m.calledTile.suit, m.calledTile.num, tileClass(m.calledTile.suit, m.calledTile.num), m.calledTile.red, m.calledTile);
       calledEl.classList.add("meld-called"); // 誰から鳴いたか分かるよう、その席の向きからさらに横向きにする
       if(m.calledTile.tsumogiri) calledEl.classList.add("discard-tsumogiri"); // 鳴かれる前がツモ切りだった牌は、この面子側に薄い水色を残す
       markAtari(m.calledTile, calledEl);
@@ -3425,7 +3476,7 @@
       applyMeldRotation(calledEl, baseRot - 90, scaleVar);
 
       const handEls = m.handTiles.map(t => {
-        const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red);
+        const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num), t.red, t);
         markAtari(t, tEl);
         applyMeldRotation(tEl, baseRot, scaleVar);
         return tEl;
@@ -3448,7 +3499,7 @@
       // これでcalledEl自体は隠れず、下段3枚（表向き2枚＋横向き1枚）がそのまま見え、
       // その横向き牌の上にaddedElが重なる形になる
       if(m.addedTile){
-        const addedEl = tileEl(m.addedTile.suit, m.addedTile.num, tileClass(m.addedTile.suit, m.addedTile.num), m.addedTile.red);
+        const addedEl = tileEl(m.addedTile.suit, m.addedTile.num, tileClass(m.addedTile.suit, m.addedTile.num), m.addedTile.red, m.addedTile);
         addedEl.classList.add("meld-called");
         markAtari(m.addedTile, addedEl);
         applyMeldRotation(addedEl, baseRot - 90, scaleVar);
@@ -3465,8 +3516,21 @@
       group.style.flexDirection = flexDir;
       group.style.alignItems = MELD_ALIGN_ITEMS[name];
       nukiDora[name].forEach(t => {
-        const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num) + " nuki-tile", t.red);
+        const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num) + " nuki-tile", t.red, t);
         markAtari(t, tEl);
+        applyMeldRotation(tEl, baseRot, scaleVar);
+        group.appendChild(tEl);
+      });
+      el.insertBefore(group, el.firstChild);
+    }
+    // 抜いた花牌：抜いた北と同じく、鳴き牌の列の端に表向きで並べる(赤五萬の絵に「花」の字)
+    if(flowers[name].length){
+      const group = document.createElement("div");
+      group.className = "nuki-group flower-group";
+      group.style.flexDirection = flexDir;
+      group.style.alignItems = MELD_ALIGN_ITEMS[name];
+      flowers[name].forEach(t => {
+        const tEl = tileEl(t.suit, t.num, tileClass(t.suit, t.num) + " nuki-tile", t.red, t);
         applyMeldRotation(tEl, baseRot, scaleVar);
         group.appendChild(tEl);
       });
@@ -3540,6 +3604,32 @@
   }
   // 嶺上牌を1枚取る。王牌なし(NO_DEAD_WALL)のルールは山の末尾から取る(4回までの制限もない)
   function drawRinshanTile(){ return NO_DEAD_WALL ? wall.pop() : deadWall.pop(); }
+  // 花牌(flowerTileCount)：引いた牌が花牌なら抜いて(flowers[seat])嶺上牌から補充し、補充した牌も花牌なら
+  // もう一度抜いて補充する。手に入れる牌(花牌ではない)を返す。花牌は4枚・カンは4回までなので、
+  // 補充(花牌の数＋カンの数)は嶺上牌8枚を超えない。一発は消さない(鳴きではない)
+  function pullFlowers(seat, tile){
+    let pulled = false;
+    while(tile && tile.flower){
+      flowers[seat].push(tile);
+      tile = drawRinshanTile();
+      pulled = true;
+    }
+    if(pulled){
+      updateRinshanVisual();
+      renderMelds(seat);
+    }
+    return tile;
+  }
+  // 山からの通常のツモ。花牌なら抜いて補充し、補充した牌には目印(rinshanDraw.flower)を付ける。
+  // 花牌は空気扱いなので、補充した牌は普通のツモと同じ(嶺上開花は付けない。山の最後なら海底摸月)
+  function drawFromWall(seat){
+    const drawn = wall.shift();
+    rinshanDraw = null; // 山からの通常のツモ
+    if(!drawn.flower) return drawn;
+    const tile = pullFlowers(seat, drawn);
+    rinshanDraw = { seat, tile, flower: true };
+    return tile;
+  }
   function findChiShapes(hand, tile){
     if(tile.suit !== "man" && tile.suit !== "pin" && tile.suit !== "sou") return [];
     const has = n => hand.some(t => t.suit === tile.suit && t.num === n);
@@ -4119,7 +4209,7 @@
 
     // カンをしたら王牌から嶺上牌を1枚ツモる（山からの補充はしない）
     if(type === "kan"){
-      const rinshan = drawRinshanTile();
+      const rinshan = pullFlowers(callerSeat, drawRinshanTile()); // 嶺上牌が花牌なら抜いてもう1枚補充する
       revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
       updateRinshanVisual();
       hand.push(rinshan);
@@ -4228,8 +4318,7 @@
     furitenTemp[seat] = false; // 同巡内フリテンは自分の次のツモで解除（リーチ後の永続フリテンは触らない）
     setTurnIndicator(seatLabel[seat] + "の番です");
     playSfx(SFX.draw, DRAW_SFX_VOLUME);
-    const drawn = wall.shift();
-    rinshanDraw = null; // 山からの通常のツモ
+    const drawn = drawFromWall(seat);
     hands[seat].push(drawn);
     lastDrawnCpu[seat] = drawn;
     updateWallCount();
@@ -4307,8 +4396,8 @@
     melds[seat].push({ type:"ankan", handTiles: removed });
     renderMelds(seat);
 
-    // 嶺上牌をツモる（山からの補充はしない）
-    const rinshan = drawRinshanTile();
+    // 嶺上牌をツモる（山からの補充はしない）。花牌なら抜いてもう1枚補充する
+    const rinshan = pullFlowers(seat, drawRinshanTile());
     revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
     updateRinshanVisual();
     hand.push(rinshan);
@@ -4335,8 +4424,7 @@
     }
     furitenTemp.bottom = false; // 同巡内フリテンは自分の次のツモで解除（リーチ後の永続フリテンは触らない）
     playSfx(SFX.draw, DRAW_SFX_VOLUME);
-    const drawn = wall.shift();
-    rinshanDraw = null; // 山からの通常のツモ
+    const drawn = drawFromWall("bottom");
     myHandTiles.push(drawn);
     lastDrawnTile = drawn;
     updateWallCount();
@@ -4531,8 +4619,8 @@
     melds.bottom.push({ type:"ankan", handTiles: removed });
     renderMelds("bottom");
 
-    // 嶺上牌をツモる（山からの補充はしない）
-    const rinshan = drawRinshanTile();
+    // 嶺上牌をツモる（山からの補充はしない）。花牌なら抜いてもう1枚補充する
+    const rinshan = pullFlowers("bottom", drawRinshanTile());
     revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
     updateRinshanVisual();
     myHandTiles.push(rinshan);
@@ -4734,8 +4822,8 @@
     meld.addedTile = drawnTile;
     renderMelds("bottom");
 
-    // 嶺上牌をツモる（山からの補充はしない）
-    const rinshan = drawRinshanTile();
+    // 嶺上牌をツモる（山からの補充はしない）。花牌なら抜いてもう1枚補充する
+    const rinshan = pullFlowers("bottom", drawRinshanTile());
     revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
     updateRinshanVisual();
     myHandTiles.push(rinshan);
@@ -4839,7 +4927,8 @@
       // 3人打ちのカンドラ・カン裏は山の最後から取るので、王牌の決まった位置からは作り直せない。牌そのものを残す
       kanDoraTiles: KAN_DORA_FROM_LIVE_WALL ? cloneTileArrayRef(doraIndicators.slice(1), map) : null,
       kanUraTiles: KAN_DORA_FROM_LIVE_WALL ? cloneTileArrayRef(riichiDoraIndicators.slice(1), map) : null,
-      hands: {}, discards: {}, discardShadows: {}, discardHistory: {}, melds: {}, nukiDora: {},
+      hands: {}, discards: {}, discardShadows: {}, discardHistory: {}, melds: {}, nukiDora: {}, flowers: {},
+      indicatorFlowers: cloneTileArrayRef(indicatorFlowers, map), flowerIndicatorTail,
       lastDrawnCpu: {}, riichiDeclareTile: {}, riichiValidDiscards: {},
       callDecisionLog: callDecisionLog.slice(),
       scores: { ...scores },
@@ -4858,6 +4947,7 @@
       snap.discardShadows[s] = discardShadows[s].map(sh => ({ ...sh, tile: cloneTileRef(sh.tile, map) }));
       snap.discardHistory[s] = discardHistory[s].slice();
       snap.nukiDora[s] = cloneTileArrayRef(nukiDora[s], map);
+      snap.flowers[s] = cloneTileArrayRef(flowers[s], map);
       snap.melds[s] = melds[s].map(m => ({
         ...m,
         handTiles: cloneTileArrayRef(m.handTiles, map),
@@ -4903,6 +4993,8 @@
         updateRinshanVisual(); // 王牌8枚(無限系)：嶺上牌の見た目も、戻したdeadWallの枚数(カン前)に合わせて作り直す
       }
     }
+    replaceArrayContents(indicatorFlowers, cloneTileArrayRef(snap.indicatorFlowers || [], map));
+    flowerIndicatorTail = snap.flowerIndicatorTail || 0;
     replaceArrayContents(callDecisionLog, snap.callDecisionLog.slice());
     seats.forEach(s => {
       replaceArrayContents(hands[s], cloneTileArrayRef(snap.hands[s], map));
@@ -4910,6 +5002,7 @@
       replaceArrayContents(discardShadows[s], snap.discardShadows[s].map(sh => ({ ...sh, tile: cloneTileRef(sh.tile, map) })));
       replaceArrayContents(discardHistory[s], snap.discardHistory[s].slice());
       replaceArrayContents(nukiDora[s], cloneTileArrayRef((snap.nukiDora && snap.nukiDora[s]) || [], map));
+      replaceArrayContents(flowers[s], cloneTileArrayRef((snap.flowers && snap.flowers[s]) || [], map));
       replaceArrayContents(melds[s], snap.melds[s].map(m => ({
         ...m,
         handTiles: cloneTileArrayRef(m.handTiles, map),
@@ -5709,7 +5802,8 @@
     // 嶺上開花：カン後の補充ツモ（嶺上牌）で和了した時（暗槓・加槓・大明槓のどれでも）。
     // 和了牌が引いた嶺上牌そのものかを参照で比べるので、待ち一覧(getWaits)などの仮のツモ判定には付かない
     const isRinshanWin = isTsumo && rinshanDraw !== null && rinshanDraw.seat === seat && winTile === rinshanDraw.tile
-      && !(rinshanDraw.kita && !ruleConfig.kitaRinshanKaihouEnabled); // 北の補充牌は、設定(kitaRinshanKaihouEnabled)がtrueの時だけ
+      && !(rinshanDraw.kita && !ruleConfig.kitaRinshanKaihouEnabled) // 北の補充牌は、設定(kitaRinshanKaihouEnabled)がtrueの時だけ
+      && !rinshanDraw.flower; // 山から引いた花牌の補充牌には付けない(カンの嶺上牌が花牌で補充した時は付く)
     if(isRinshanWin) yaku.push({ name:"嶺上開花", han:1 });
 
     // 槍槓：他家の加槓の牌でロンした時（和了牌が判定中の加槓の牌そのものかを参照で比べる）
@@ -6243,7 +6337,10 @@
     const nuki = (seat && nukiDora[seat]) || [];
     if(nuki.length) yaku.push({ name:"抜きドラ", han:nuki.length });
     const tiles = nuki.length ? allTiles.concat(nuki) : allTiles;
-    return nuki.length + addIndicatorDoraYaku(yaku, tiles, seat) + addAkaHanYaku(yaku, tiles);
+    // 華4(花牌を4枚とも抜いて和了)：4翻をドラと同じ扱いで足す。役ではないので、ほかの役が1つ必要
+    const hana4 = (ruleConfig.flowerTileCount && seat && flowers[seat].length >= 4) ? 4 : 0;
+    if(hana4) yaku.push({ name:"華4", han:hana4 });
+    return nuki.length + hana4 + addIndicatorDoraYaku(yaku, tiles, seat) + addAkaHanYaku(yaku, tiles);
   }
 
   // ruleConfig.akaHanEnabled:trueのルール(Mリーグ系)：赤牌を1枚1翻の「赤」の行にする(ドラ・裏ドラの行の後ろ)。
@@ -6615,7 +6712,47 @@
   // オールマイティー牌(万能)のあるルールは、万能をどの牌にするかを選んだうえで今の判定を使う
   function attemptWin(seat, extraTile, isTsumo){
     if(HAS_ALMIGHTY && ruleConfig.scoreTableMode !== "mcr") return attemptWinAlmighty(seat, extraTile, isTsumo);
+    const pochi = pochiDrawnAfterRiichi(seat, extraTile, isTsumo);
+    if(pochi) return attemptWinPochi(seat, pochi);
     return attemptWinCore(seat, extraTile, isTsumo, null);
+  }
+
+  // 白ポッチ(whitePochiEnabled)：リーチ後(宣言牌を切った後)に引いた白ポッチなら、その牌を返す(違えばnull)。
+  // ロン(extraTileあり)や待ちの判定などの仮の判定には使わない。リーチ前・リーチ後でも手の中にあった白ポッチは普通の白
+  function pochiDrawnAfterRiichi(seat, extraTile, isTsumo){
+    if(!ruleConfig.whitePochiEnabled || !isTsumo || extraTile) return null;
+    if(!riichiDeclared[seat] || awaitingRiichiDiscard[seat]) return null;
+    const drawn = seat === "bottom" ? lastDrawnTile : lastDrawnCpu[seat];
+    return (drawn && drawn.pochi && hands[seat].includes(drawn)) ? drawn : null;
+  }
+
+  // 白ポッチのツモ和了：白ポッチを手から外し、牌を1種ずつ和了牌にして判定し、点数がいちばん高いもの
+  // (同じ点なら翻の多い方、さらに同じなら先に見た牌)を選ぶ。結果のpochiTileに選んだ牌を入れる。
+  // 筒子・索子の5が4枚とも赤のルール(redFivesAll)は、5は赤として数える。リーチしているので役なしにはならず、
+  // 聴牌しているので必ずどれかの牌で和了になる(リーチ中に白ポッチを引いたら必ず和了)
+  function attemptWinPochi(seat, pochi){
+    const hand = hands[seat];
+    const idx = hand.indexOf(pochi);
+    hand.splice(idx, 1);
+    const savedRinshan = rinshanDraw;
+    let best = null, bestRank = null;
+    try {
+      ALL_TILE_TYPES.forEach(t => {
+        if(ruleConfig.manzuTerminalsOnly && t.suit === "man" && t.num !== 1 && t.num !== 9) return;
+        const v = { suit:t.suit, num:t.num };
+        if(ruleConfig.redFivesAll && t.num === 5 && (t.suit === "pin" || t.suit === "sou")) v.red = true;
+        // カンの嶺上牌で引いた白ポッチなら、化けた牌も嶺上牌として判定する(嶺上開花)
+        rinshanDraw = (savedRinshan && savedRinshan.tile === pochi) ? { ...savedRinshan, tile: v } : savedRinshan;
+        const r = attemptWinCore(seat, v, true, null);
+        if(!r || r.yakunashi) return;
+        const rank = [computeTsumoAmounts(seat, r, 0).nominalGain, r.han];
+        if(!best || almightyRankGreater(rank, bestRank)){ best = r; bestRank = rank; r.pochiTile = v; }
+      });
+    } finally {
+      hand.splice(idx, 0, pochi);
+      rinshanDraw = savedRinshan;
+    }
+    return best;
   }
 
   // 今までの和了の判定。almightyTileは万能が化けた仮の牌(万能のあるルールだけ。手牌に1枚足して判定する)
@@ -8866,6 +9003,8 @@
     let rowsHtml = "";
     // オールマイティー牌(万能)のあるルール：役の行の前に、万能が何に化けたかを1行出す(スマホ縦の表示にもそのまま載る)
     if(result.almightyTile) rowsHtml += row("万能→" + almightyTileText(result.almightyTile), "", "", "almighty-row");
+    // 白ポッチのツモ和了：白ポッチを何の牌として和了したかを1行出す
+    if(result.pochiTile) rowsHtml += row("白ポッチ→" + almightyTileText(result.pochiTile), "", "", "almighty-row");
     if(result.mcr){
       // MCR：役名と点を点の大きい順に並べ(同じ役をまとめた「×2」の行は合計の点で並べる。同点は判定の順のまま)、
       // 最後に合計の行(上限で切った時は「88点(上限)」)
@@ -8891,7 +9030,7 @@
       // 定額ボーナスの性格が強いので、表示上も他の役（飜数の少ない順）とは分けて末尾にまとめる
       // （赤牌ボーナスも同じ理由で、常にそのさらに後ろの行に表示する）
       // 「赤」は赤を1翻で数えるルール(Mリーグ系)の行。ドラと同じく末尾に「赤×1 1飜」と出す
-      const DORA_YAKU_NAMES = new Set(["抜きドラ", "ドラ", "カンドラ", "リーチドラ", "裏ドラ", "カン裏", "赤"]);
+      const DORA_YAKU_NAMES = new Set(["抜きドラ", "華4", "ドラ", "カンドラ", "リーチドラ", "裏ドラ", "カン裏", "赤"]);
       // 役満は固定額（親48,000点・子32,000点）で、飜×単位の線形計算に乗らない。
       // ドラの飜がhan>=13の判定に加わっただけの場合も含め、役満成立時はドラが実際の点数に
       // 一切寄与しないため、ドラの行自体を出さない（点数欄だけ空欄にすると「本来は点数が
@@ -8905,7 +9044,8 @@
         const isDoraRow = DORA_YAKU_NAMES.has(y.name);
         // リーチドラの「Rドラ」部分だけ赤くする。通常のドラ・他の役名は素のまま
         const namePart = (y.name === "リーチドラ" || y.name === "赤") ? `<span class="bonus-red-text">${displayNameOf(y.name)}</span>` : displayNameOf(y.name);
-        const displayName = isDoraRow ? (namePart + "×" + y.han) : namePart;
+        // 華4は枚数ではなく4翻ひとまとまりなので「×枚数」を付けない
+        const displayName = (isDoraRow && y.name !== "華4") ? (namePart + "×" + y.han) : namePart;
         const hanText = isYakuman ? "役満" : (y.han + "飜");
         // 役ごとの点数は、翻×単位の線形計算(無限ルール)でだけ意味があるので出す。符計算・固定点数表の
         // ルールでは役の行は役名と翻数だけにし、点数は最後の合計の行にまとめる
@@ -9518,7 +9658,7 @@
     paintTileInto(document.getElementById(elId), tile, extraClass);
   }
   function paintTileInto(el, tile, extraClass){
-    const temp = tileEl(tile.suit, tile.num, tileClass(tile.suit, tile.num) + " " + extraClass, tile.red);
+    const temp = tileEl(tile.suit, tile.num, tileClass(tile.suit, tile.num) + " " + extraClass, tile.red, tile);
     el.className = temp.className;
     el.innerHTML = temp.innerHTML;
   }
@@ -9576,6 +9716,7 @@
   }
 
   updateWallCount();
+  if(ruleConfig.flowerTileCount) activeSeats(["bottom", "right", "top", "left"]).forEach(renderMelds); // 配牌で抜いた花牌
   renderScores();
   updateKyotakuDisplay();
   renderMatchHeader();
