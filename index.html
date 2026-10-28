@@ -2299,7 +2299,8 @@
       scoreTableMode:"lookup", scoreTableId:"zan", countedYakumanCapped:false, yakumanMultiplierEnabled:false, akaHanEnabled:true,
       honbaRonBonus:1000, honbaTsumoBonusPerSeat:1000, notenPenaltyMode:"pool", notenPenaltyPool:2000,
       kyotakuToAnyWinner:true, multiRonHeadTakesAll:true, bustAtZero:true, tobiBonusPoints:0,
-      tenpaiRenchanEnabled:true, renchanAtFinalKyokuEnabled:true, topOnlyYameChoice:true });
+      tenpaiRenchanEnabled:true, renchanAtFinalKyokuEnabled:true, topOnlyYameChoice:true,
+      honbaResetOnDealerChange:false, honbaResetOnChildWin:true }); // 本場は流局で親が流れても積み、和了で親が流れた時だけ0
   const DEFAULT_RULE_ID = "akaNeo";
   // 表紙で選んだルールIDを覚えておくキー。半荘中(savedMatchStateがまだ無いkyoku1中)でも
   // うっかりリロードした時にルールがデフォルトへ戻らないよう、savedMatchStateとは別に
