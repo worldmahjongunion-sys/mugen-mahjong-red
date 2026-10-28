@@ -2102,6 +2102,10 @@
   //   redFivesAll: 赤を筒子・索子の5の4枚ともにするか(萬子の5は使わない)。falseは各色の5の1枚だけ
   //   flowerTileCount: 花牌(五萬を赤く塗ったもの、tile.flower)の枚数。0は花牌なし。花牌は引いたら自動で抜いて
   //     嶺上牌から補充する(pullFlowers)。4枚とも抜いて和了したら「華4」4翻(ドラと同じく役にはならない)
+  //   zanYakuEnabled: ザンリーグの特殊役(小車輪・大車輪・萬子混一色・人和・流し役満)を使うか
+  //   openRiichiYakumanPay: オープンリーチの待ちの牌を、ほかに切れる牌があるのに切って放銃したら役満払い
+  //     (手詰まり＝切れる牌がすべて待ちの牌の時は普通の点数)。自分が切ろうとした時は確かめる
+  //   kokushiAnkanRonEnabled: 国士無双の聴牌の人だけ、ほかの人が暗槓した牌でロンできる
   //   whitePochiEnabled: 白の1枚を白ポッチ(tile.pochi)にするか。リーチ後に引いたら、待ちの中で点数が
   //     いちばん高くなる牌としてツモ和了する(attemptWinPochi)。リーチ前・リーチ後に引いた以外は普通の白
   //   scoreTableId: scoreTableMode:"lookup"で引く固定点表。null=Mリーグ・WWの表(SCORE_TABLE_KIRIAGE等)、"zan"=ZAN_SCORE_TABLE
@@ -2123,6 +2127,7 @@
     ukiUmaTable:null, okaPoints:20000, ukiInclusive:false, leftoverKyotakuToTop:false,
     kitaNukiEnabled:false, kitaRinshanKaihouEnabled:false, riichiRonForced:false,
     redFivesAll:false, flowerTileCount:0, whitePochiEnabled:false,
+    zanYakuEnabled:false, openRiichiYakumanPay:false, kokushiAnkanRonEnabled:false,
     scoreTableId:null, kyotakuToAnyWinner:false, multiRonHeadTakesAll:false, bustAtZero:false, tobiBonusPoints:10000,
     topOnlyYameChoice:false
   };
@@ -2300,7 +2305,12 @@
       honbaRonBonus:1000, honbaTsumoBonusPerSeat:1000, notenPenaltyMode:"pool", notenPenaltyPool:2000,
       kyotakuToAnyWinner:true, multiRonHeadTakesAll:true, bustAtZero:true, tobiBonusPoints:0,
       tenpaiRenchanEnabled:true, renchanAtFinalKyokuEnabled:true, topOnlyYameChoice:true,
-      honbaResetOnDealerChange:false, honbaResetOnChildWin:true }); // 本場は流局で親が流れても積み、和了で親が流れた時だけ0
+      honbaResetOnDealerChange:false, honbaResetOnChildWin:true, // 本場は流局で親が流れても積み、和了で親が流れた時だけ0
+      // 段階4：役は標準役＋三連刻・三風刻・四連刻＋ザンリーグの特殊役。七対子に混一色などを重ねる(小車輪・大車輪のため)。
+      // オープンリーチ(2翻)と役満払い、国士無双の暗槓ロン
+      disabledYaku:CUSTOM_YAKU_NAMES.filter(n => !["三連刻", "三風刻", "四連刻"].includes(n)),
+      chiitoitsuStandardYakuStack:true, zanYakuEnabled:true,
+      openRiichiEnabled:true, openRiichiYakumanPay:true, kokushiAnkanRonEnabled:true });
   const DEFAULT_RULE_ID = "akaNeo";
   // 表紙で選んだルールIDを覚えておくキー。半荘中(savedMatchStateがまだ無いkyoku1中)でも
   // うっかりリロードした時にルールがデフォルトへ戻らないよう、savedMatchStateとは別に
@@ -3127,7 +3137,7 @@
         el.addEventListener("click", () => onSelectSelfKanTile(t));
       } else if(clickable && isRiichiWaitDiscardable(t)){
         el.classList.add("clickable");
-        el.addEventListener("click", () => onDiscardMyTile(myHandTiles.indexOf(t)));
+        el.addEventListener("click", () => onClickMyTile(t));
       } else if(clickable){
         el.classList.add("riichi-locked"); // 聴牌を崩すので切れないことを見た目でも示す
       }
@@ -3149,7 +3159,7 @@
         el.addEventListener("click", () => onSelectSelfKanTile(lastDrawnTile));
       } else if(clickable && isRiichiWaitDiscardable(lastDrawnTile)){
         el.classList.add("clickable");
-        el.addEventListener("click", () => onDiscardMyTile(myHandTiles.indexOf(lastDrawnTile)));
+        el.addEventListener("click", () => onClickMyTile(lastDrawnTile));
       } else if(clickable){
         el.classList.add("riichi-locked");
       }
@@ -3642,7 +3652,9 @@
   }
   // --- 自分の打牌 ---
   function onDiscardMyTile(idx){
+    const yakumanPay = yakumanPayIfDiscarded("bottom", myHandTiles[idx]); // 手牌から出す前に、ほかに切れる牌があったかを見る
     const discarded = myHandTiles.splice(idx, 1)[0];
+    if(yakumanPay) discarded.yakumanPay = true;
     // ツモ切り（ツモった牌をそのまま切った）かどうかを、捨て牌の見た目（薄いグレー）に使うため
     // ここで確定させておく（lastDrawnTileはこの後すぐnullにするので、ここで比較する必要がある）
     discarded.tsumogiri = (discarded === lastDrawnTile);
@@ -4366,7 +4378,9 @@
       // 必ず打牌(hand.splice)より前に呼ぶ
       if(chosen.declareRiichi) declareRiichi(seat, ruleConfig.openRiichiEnabled && cpuWantsOpenRiichi(seat, chosen.tile));
       const idx = hand.indexOf(chosen.tile);
+      const yakumanPay = idx >= 0 && yakumanPayIfDiscarded(seat, chosen.tile);
       discarded = hand.splice(idx >= 0 ? idx : Math.floor(Math.random() * hand.length), 1)[0];
+      if(yakumanPay) discarded.yakumanPay = true;
     }
     // ツモ切り（今ツモった牌をそのまま切った）かどうかを、捨て牌の見た目（薄いグレー）に使うため確定させる。
     // リーチ後の自動ツモ切り分岐は必ずdrawn===discardedになるので自然にtrueになる
@@ -4384,7 +4398,8 @@
     handleDiscard(seat, discarded);
   }
 
-  function executeCpuAnkan(seat, tile){
+  function executeCpuAnkan(seat, tile, skipRob){
+    if(!skipRob && tryKokushiAnkanRon(seat, tile, () => executeCpuAnkan(seat, tile, true))) return;
     clearAllIppatsu(); // 誰の暗槓であっても鳴きなので一発は消える（誰の一発権であっても）
     playSfx(SFX.callKan); // CPUの暗槓が成立した瞬間に鳴らす
     const hand = hands[seat];
@@ -4608,7 +4623,8 @@
     else executeAnkan(candidate.tile);
   }
 
-  function executeAnkan(tile){
+  function executeAnkan(tile, skipRob){
+    if(!skipRob && tryKokushiAnkanRon("bottom", tile, () => executeAnkan(tile, true))) return;
     clearAllIppatsu(); // 自分自身の暗槓でも鳴きなので一発は消える（リーチ後の暗槓も対象。誰の一発権であっても）
     playSfx(SFX.callKan); // 自分の暗槓が成立した瞬間に鳴らす
     const removed = [];
@@ -4810,6 +4826,40 @@
     }
     finalizeRon(winners, "bottom", tile);
     return true;
+  }
+
+  // 国士無双の暗槓ロン(kokushiAnkanRonEnabled)：seatが暗槓しようとした牌で、国士無双の聴牌の人(自分・CPU)がロンできるか。
+  // ロンする人がいれば暗槓は成立せず、その牌が和了牌になる(河には無いので河から取り除かない)。自分がロンできる時は
+  // 和了・スルーを選ぶ(リーチ中は和了だけ)。スルーして誰もロンしなければ、proceed()で暗槓を続ける。頭ハネ・ダブロンは打牌と同じ
+  function tryKokushiAnkanRon(seat, tileType, proceed){
+    if(!ruleConfig.kokushiAnkanRonEnabled) return false;
+    const tile = hands[seat].find(t => t.suit === tileType.suit && t.num === tileType.num);
+    if(!tile) return false;
+    let winners = findAllRonWinners(headBumpOrder(seat), tile).filter(w => w.result.yaku.some(y => y.name === "国士無双"));
+    if(!ruleConfig.multiRonEnabled && winners.length > 1) winners = [winners[0]];
+    if(winners.length === 0) return false;
+    playSfx(SFX.callKan); // 暗槓の発声はしている
+    const rob = { seat, tile, proceed };
+    if(winners.some(w => w.seat === "bottom")){
+      const selfWin = winners.find(w => w.seat === "bottom");
+      pendingRon = { discarderSeat: seat, result: selfWin.result, allWinners: winners, ankanRob: rob };
+      pendingCallOptions = { discarderSeat: seat, tile, pon: false, kan: false, chiShapes: [] };
+      pendingCallContext = { discarderSeat: seat, ankanRob: rob };
+      setTurnIndicator("和了しますか？（" + seatLabel[seat] + "の暗槓の牌）");
+      updateActionButtons();
+      return true;
+    }
+    finalizeAnkanRob(winners, rob);
+    return true;
+  }
+  // 暗槓の牌へのロン：暗槓しようとした人の手からその牌を出し、和了牌として和了者へ渡す
+  function finalizeAnkanRob(winners, rob){
+    const hand = hands[rob.seat];
+    const idx = hand.indexOf(rob.tile);
+    if(idx >= 0) hand.splice(idx, 1);
+    if(rob.seat === "bottom"){ lastDrawnTile = null; pendingSelfKan = null; selfKanSelecting = false; renderMyHand(false); }
+    else { lastDrawnCpu[rob.seat] = null; renderCpuHandBacks(rob.seat); }
+    finalizeRon(winners, rob.seat, rob.tile);
   }
 
   function executeKakan(meldIdx, drawnTile){
@@ -6288,6 +6338,33 @@
     return seat === DEALER_SEAT ? "天和" : "地和";
   }
 
+  // ザンリーグの役満を和了の読み方(r)に足す(zanYakuEnabled)。
+  //  萬子混一色：手牌と鳴いた牌がすべて萬子と字牌(萬子が1枚以上)。混一色・小車輪の代わりの1行にする
+  //  人和：子が、自分の最初のツモより前(まだ1枚も捨てていない)に、誰も鳴いていない間にロンした時。役のない形でも和了になる
+  function addZanYakuman(r, seat, concealed, extraTile, isTsumo){
+    const all = concealed.concat(meldsToSets(seat).flatMap(x => x.tiles));
+    const isHonor = t => t.suit === "wind" || t.suit === "dragon";
+    if(!r.yakunashi && all.every(t => t.suit === "man" || isHonor(t)) && all.some(t => t.suit === "man")){
+      r.yaku = r.yaku.filter(y => y.name !== "混一色" && y.name !== "小車輪");
+      r.yaku.unshift({ name:"萬子混一色", han:13 });
+      r.han = r.yaku.reduce((a, y) => a + y.han, 0);
+      r.base = calcBasePoints(r.han);
+    }
+    const renhou = !isTsumo && !!extraTile && seat !== DEALER_SEAT && discards[seat].length === 0
+      && activeSeats(["bottom", "right", "top", "left"]).every(s => melds[s].length === 0);
+    if(renhou){
+      if(r.yakunashi){
+        delete r.yakunashi;
+        delete r.indicatorDoraCount;
+        r.yaku = [];
+        r.han = 0;
+      }
+      r.yaku.unshift({ name:"人和", han:13 });
+      r.han += 13;
+      r.base = calcBasePoints(r.han);
+    }
+  }
+
   function hasAllFiveSuits(tiles){
     const cats = new Set(tiles.map(t => t.suit));
     return cats.has("man") && cats.has("pin") && cats.has("sou") && cats.has("wind") && cats.has("dragon");
@@ -6847,6 +6924,12 @@
         }
         if(concealed.every(t => t.num === 1 || t.num === 9 || isHonorTile(t))) yaku.push({ name:"混老頭", han:2 });
       }
+      // ザンリーグ：清一色の七対子は大車輪(役満。数は何でもよい)。混一色の七対子は、七対子と混一色の代わりに
+      // 「小車輪 6翻」の1行にし、ほかの役(断幺九・混老頭など)とドラは重ねる
+      if(ruleConfig.zanYakuEnabled && yaku[0].name === "七対子"){
+        if(yaku.some(y => y.name === "清一色")) yaku = [{ name:"大車輪", han:13 }];
+        else if(yaku.some(y => y.name === "混一色")) yaku = [{ name:"小車輪", han:6 }].concat(yaku.filter(y => y.name !== "七対子" && y.name !== "混一色"));
+      }
       // computeYaku()を経由しない役なので、ここでも同様にリーチ・一発をカウントする
       if(riichiDeclared[seat]) yaku.push(openRiichiDeclared[seat] ? { name:"オープンリーチ", han:2 } : { name:"リーチ", han:1 });
       if(riichiDeclared[seat] && ippatsuActive[seat] && ruleConfig.ippatsuEnabled && (ruleConfig.ippatsuOnTsumoEnabled || !isTsumo)) yaku.push({ name:"一発", han:1 });
@@ -6945,6 +7028,7 @@
         r.base = calcBasePoints(r.han);
       });
     }
+    if(ruleConfig.zanYakuEnabled) candidates.forEach(r => addZanYakuman(r, seat, concealed, extraTile, isTsumo));
     // 符計算のルールは、符も含めた基本点がいちばん高い読み方を選ぶ（同じなら翻、さらに同じなら符の大きい方）。
     // 役無し(yakunashi)は、役のある読み方より常に下にする
     if(ruleConfig.scoreTableMode === "fu"){
@@ -7648,7 +7732,30 @@
   // ロン判定はここを必ず通す：フリテン中は和了の形になっていてもロンできない
   function canRon(seat, tile){
     if(isFuriten(seat)) return false;
-    return attemptLegalWin(seat, tile, false);
+    const result = attemptLegalWin(seat, tile, false);
+    // オープンリーチへの役満払い：その牌を切った時に役満払いと決まっていれば(tile.yakumanPay)、オープンリーチの人のロンは役満の点数
+    if(result && tile.yakumanPay && openRiichiDeclared[seat]) result.yakumanPay = true;
+    return result;
+  }
+
+  // オープンリーチへの役満払い(openRiichiYakumanPay)：seatがtileを切ったら役満払いになるか。tileがオープンリーチの人
+  // (フリテンでない)の待ちの牌で、ほかに待ちでない牌を切れる時(手詰まりでない時)。リーチ後のツモ切りは、ほかに切れないので手詰まり。
+  // リーチ宣言の打牌は、聴牌を保てる牌(riichiValidDiscards)の中で見る
+  function yakumanPayIfDiscarded(seat, tile){
+    if(!ruleConfig.openRiichiYakumanPay || !tile) return false;
+    const danger = openRiichiDangerKeys(seat);
+    if(!danger.has(tileKey(tile))) return false;
+    let options;
+    if(riichiDeclared[seat] && !awaitingRiichiDiscard[seat]) options = [];
+    else if(awaitingRiichiDiscard[seat]) options = hands[seat].filter(t => riichiValidDiscards[seat].includes(tileKey(t)));
+    else options = hands[seat];
+    return options.some(t => !danger.has(tileKey(t)));
+  }
+
+  // 自分が手牌の牌をタップした時。役満払いになる牌なら、確かめてから切る
+  function onClickMyTile(t){
+    if(yakumanPayIfDiscarded("bottom", t) && !window.confirm("役満払いになります。\n（オープンリーチの待ちの牌です。ほかに切れる牌があります）\nこの牌を切りますか？")) return;
+    onDiscardMyTile(myHandTiles.indexOf(t));
   }
 
   // 門前（鳴きが無い、または暗槓のみ）かどうか。役判定側(closedHand)と同じ考え方
@@ -8293,7 +8400,8 @@
     // 固定点数早見表(SCORE_TABLE_KIRIAGE/NO_KIRIAGE)を引く。役満の複合・数え役満の三倍満止めも
     // ここで解決する
     if(ruleConfig.scoreTableMode === "lookup"){
-      const { effectiveHan, multiplier } = resolveScoreHanAndMultiplier(result);
+      // オープンリーチへの役満払い(result.yakumanPay)は、手の翻によらず役満の点数
+      const { effectiveHan, multiplier } = result.yakumanPay ? { effectiveHan:13, multiplier:1 } : resolveScoreHanAndMultiplier(result);
       const row = lookupScoreRow(effectiveHan);
       const base = row[isDealer ? 1 : 0] * multiplier;
       const akaBonus = akaBonusPerPayer(result);
@@ -8853,6 +8961,30 @@
     return deltas;
   }
 
+  // 流し役満(zanYakuEnabled)：流局の時に、捨て牌が1枚以上あってすべて么九牌で、1枚も鳴かれておらず
+  // (discardHistoryと捨て牌の数が同じ)、自分も鳴いていない(暗槓はよい)
+  function isNagashiYakuman(seat){
+    const d = discards[seat];
+    if(d.length === 0 || d.length !== discardHistory[seat].length) return false;
+    if(melds[seat].some(m => m.type !== "ankan")) return false;
+    return d.every(t => t.suit === "wind" || t.suit === "dragon" || t.num === 1 || t.num === 9);
+  }
+  // 流し役満の精算：役満のツモと同じ点数(本場は付けない)。持ち点が足りない人は持ち点まで(bustAtZero)
+  function settleNagashiYakuman(nagashiSeats){
+    const deltas = {};
+    activeSeats(["bottom", "right", "top", "left"]).forEach(s => { deltas[s] = 0; });
+    nagashiSeats.forEach(seat => {
+      const res = { seat, yaku:[{ name:"流し役満", han:13 }], han:13, base:calcBasePoints(13), isTsumo:true, akaCount:0 };
+      computeTsumoAmounts(seat, res, 0).payments.forEach(p => {
+        const pay = ruleConfig.bustAtZero ? Math.min(p.amount, Math.max(0, scores[p.seat] + deltas[p.seat])) : p.amount;
+        deltas[p.seat] -= pay;
+        deltas[seat] += pay;
+      });
+    });
+    Object.keys(deltas).forEach(s => { scores[s] += deltas[s]; });
+    return deltas;
+  }
+
   // deltas：settleRyuukyokuが返した席ごとの増減
   function showRyuukyokuResult(deltas, titleText){
     const box = document.getElementById("resultBox");
@@ -8908,11 +9040,13 @@
     const seats = activeSeats(["bottom", "right", "top", "left"]); // あなた・下家・対面・上家の順で表示する
     const tenpaiSeats = seats.filter(isTenpai);
     const notenSeats = seats.filter(s => !tenpaiSeats.includes(s));
-    const deltas = settleRyuukyoku(tenpaiSeats, notenSeats);
+    const nagashiSeats = ruleConfig.zanYakuEnabled ? seats.filter(isNagashiYakuman) : [];
+    // 流し役満(ザンリーグ)：聴牌・ノーテンの精算はせず、役満のツモと同じ点数を受け取る。連荘は聴牌連荘のまま
+    const deltas = nagashiSeats.length ? settleNagashiYakuman(nagashiSeats) : settleRyuukyoku(tenpaiSeats, notenSeats);
     renderScores();
     // テンパイ料が実際に動いた時だけ点棒の音を鳴らす（全員テンパイ・全員ノーテンは移動なし）
-    if(tenpaiSeats.length > 0 && notenSeats.length > 0 && ruleConfig.notenPenaltyMode !== "none") playRandomPoints();
-    showRyuukyokuResult(deltas);
+    if(nagashiSeats.length || (tenpaiSeats.length > 0 && notenSeats.length > 0 && ruleConfig.notenPenaltyMode !== "none")) playRandomPoints();
+    showRyuukyokuResult(deltas, nagashiSeats.length ? "流局　流し役満（" + nagashiSeats.map(s => seatLabel[s]).join("・") + "）" : undefined);
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
@@ -9004,6 +9138,8 @@
     let rowsHtml = "";
     // オールマイティー牌(万能)のあるルール：役の行の前に、万能が何に化けたかを1行出す(スマホ縦の表示にもそのまま載る)
     if(result.almightyTile) rowsHtml += row("万能→" + almightyTileText(result.almightyTile), "", "", "almighty-row");
+    // オープンリーチへの役満払い：役の行の前に1行出す(点数は役満)
+    if(result.yakumanPay) rowsHtml += row("役満払い（オープンリーチへの放銃）", "", "", "almighty-row");
     // 白ポッチのツモ和了：白ポッチを何の牌として和了したかを1行出す
     if(result.pochiTile) rowsHtml += row("白ポッチ→" + almightyTileText(result.pochiTile), "", "", "almighty-row");
     if(result.mcr){
@@ -9389,6 +9525,7 @@
         // 自分だけが対象だった単独ロンではallWinners=[{seat:"bottom",...}]なので従来と同じ結果になる
         const winners = ron.allWinners || [{ seat: "bottom", result: ron.result }];
         if(ron.kitaTile){ finalizeKitaRon(winners, ron.discarderSeat, ron.kitaTile); return; } // 抜いた北へのロン
+        if(ron.ankanRob){ finalizeAnkanRob(winners, ron.ankanRob); return; } // 国士無双の暗槓ロン
         finalizeRon(winners, ron.discarderSeat);
       };
       return;
@@ -9449,6 +9586,13 @@
           furitenTemp.bottom = true;
           if(riichiDeclared.bottom) furitenRiichi.bottom = true;
           passedRon.bottom = { tile, discarderSeat: ctx.discarderSeat };
+        }
+        if(ctx.ankanRob){
+          // 暗槓の牌を見逃した：他にロンする人がいればその人の和了、いなければ暗槓を続ける
+          const others = otherRonWinners.filter(w => w.result.yaku.some(y => y.name === "国士無双"));
+          if(others.length > 0) finalizeAnkanRob(others, ctx.ankanRob);
+          else ctx.ankanRob.proceed();
+          return;
         }
         if(ctx.kitaTile){
           // 抜いた北を見逃した(同巡フリテンは上で付けた)：他にロンする人がいればその人の和了、いなければ補充へ
