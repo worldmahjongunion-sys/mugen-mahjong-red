@@ -1950,14 +1950,17 @@
       if(ruleConfig.manzuTerminalsOnly && t.suit === "man" && t.num !== 1 && t.num !== 9) return;
       for(let i = 0; i < 4; i++){
         const tile = { suit:t.suit, num:t.num };
-        // 各色（萬子・筒子・索子）の5のうち1枚を赤ドラにする（Mリーグ方式）
-        if(ruleConfig.akaDoraEnabled && t.num === 5 && (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && i === 0){
+        // 各色（萬子・筒子・索子）の5のうち1枚を赤ドラにする（Mリーグ方式）。
+        // redFivesAll(ザンリーグ)は筒子・索子の5を4枚とも赤にする
+        if(ruleConfig.akaDoraEnabled && t.num === 5 && (t.suit === "man" || t.suit === "pin" || t.suit === "sou") && (i === 0 || ruleConfig.redFivesAll)){
           tile.red = true;
         }
         wall.push(tile);
       }
     });
-    return wall; // 34種類 × 4枚 = 136枚(3人打ちは27種類 × 4枚 = 108枚)
+    // 花牌(ザンリーグ)：五萬を赤く塗ったもの。萬子の五は花牌にだけ使う(tile.flower)
+    for(let i = 0; i < ruleConfig.flowerTileCount; i++) wall.push({ suit:"man", num:5, red:true, flower:true });
+    return wall; // 34種類 × 4枚 = 136枚(3人打ちは27種類 × 4枚 = 108枚、ザンリーグは花牌4枚を足して112枚)
   }
 
   // Fisher-Yatesシャッフル
@@ -2072,6 +2075,9 @@
   //     順位点・オカを数え、終了画面に「供託 ○本 → トップ(名前)」を出す。falseは今までどおり消える
   //   ukiUmaTable/okaPoints/ukiInclusive: umaMode:"ukiCount"の順位点。浮き人数→[1着,2着,…]の表と、トップに足すオカ、
   //     浮きを返し点「以上」で数えるか(falseは「超え」)。nullは4人のNEOの表(UMA_TABLE_BY_UKI_COUNT・オカ20000・超え)
+  // 以下はザンリーグで加えた設定
+  //   redFivesAll: 赤を筒子・索子の5の4枚ともにするか(萬子の5は使わない)。falseは各色の5の1枚だけ
+  //   flowerTileCount: 花牌(五萬を赤く塗ったもの、tile.flower)の枚数。0は花牌なし
   //   winCallSpeech: 和了の発声を、音声ファイル(「ロン」「ツモ」)の代わりにブラウザの音声合成で読む時の
   //     { text, lang }。nullは今までどおり音声ファイル。MCR-NEOはツモ・ロンとも中国語の「胡」(hú、二声)。
   //     その言語の声が端末に無い・音声合成が使えない時は、今までの音声ファイルを鳴らす
@@ -2081,7 +2087,8 @@
     startHandSize:13, almightyTileEnabled:false, openRiichiEnabled:false,
     akaHanEnabled:false, winCallSpeech:null, emptySeat:null, manzuTerminalsOnly:false, chiEnabled:true,
     ukiUmaTable:null, okaPoints:20000, ukiInclusive:false, leftoverKyotakuToTop:false,
-    kitaNukiEnabled:false, kitaRinshanKaihouEnabled:false, riichiRonForced:false
+    kitaNukiEnabled:false, kitaRinshanKaihouEnabled:false, riichiRonForced:false,
+    redFivesAll:false, flowerTileCount:0
   };
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
@@ -2243,6 +2250,13 @@
       yakunashiWinEnabled:false,
       ukiUmaTable:{ 1:[40000, -10000, -30000], 2:[20000, 10000, -30000] }, okaPoints:15000, ukiInclusive:true,
       kitaNukiEnabled:true, kitaRinshanKaihouEnabled:false, riichiRonForced:true });
+  // ザンリーグルールの設定＝3人打ちNEOの設定をもとにしたもの(依頼_ザンリーグ_仕様と段階実装.md)。
+  // 段階1：112枚(萬子は一萬・九萬だけ＋花牌4枚)・赤は筒子と索子の5の4枚ずつ(8枚)・北は全員の役牌(抜きドラなし)・
+  // 東南の6局・50000点持ち・チーなし。点数・チップなどは後の段階で入れる(それまでは3人打ちNEOの計算のまま)
+  RULESETS.find(r => r.id === "zanLeague").ruleConfig = Object.assign({},
+    RULESETS.find(r => r.id === "sanninNeo").ruleConfig,
+    { redFivesAll:true, flowerTileCount:4, kitaNukiEnabled:false,
+      totalKyoku:6, startingPoints:50000, returnPoints:50000, earlyEndOnOver70000:false });
   const DEFAULT_RULE_ID = "akaNeo";
   // 表紙で選んだルールIDを覚えておくキー。半荘中(savedMatchStateがまだ無いkyoku1中)でも
   // うっかりリロードした時にルールがデフォルトへ戻らないよう、savedMatchStateとは別に
@@ -2739,7 +2753,8 @@
   const WALL_PILE_ORDER = AUTO_WALL_RING
     ? [DEALER_SEAT, WALL_RING_KAMICHA[DEALER_SEAT], WALL_RING_KAMICHA[WALL_RING_KAMICHA[DEALER_SEAT]], WALL_RING_KAMICHA[WALL_RING_KAMICHA[WALL_RING_KAMICHA[DEALER_SEAT]]]]
     : ["bottom", "left", "top", "right"];
-  const WALL_SIDE_TILES = EMPTY_SEAT ? 16 : 22; // 親以外の辺の自摸山の枚数
+  // 親以外の辺の自摸山の枚数。花牌のある3人打ち(ザンリーグ、112枚)はツモが4枚多いので9山(18枚)にする
+  const WALL_SIDE_TILES = EMPTY_SEAT ? (ruleConfig.flowerTileCount ? 18 : 16) : 22;
   const WALL_FRONT_OFFSET = (LIVE_WALL_TOTAL % 2 === 1) ? 1 : 0;
   const WALL_PILE_SIZE = AUTO_WALL_RING
     ? Object.fromEntries(["bottom", "left", "top", "right"].map(s => [s, s === DEALER_SEAT ? LIVE_WALL_TOTAL - KAN_TAIL_TILES + WALL_FRONT_OFFSET - WALL_SIDE_TILES * 3 : WALL_SIDE_TILES]))
@@ -6153,7 +6168,7 @@
   }
 
   function countAka(allTiles){
-    return allTiles.filter(t => t.red).length;
+    return allTiles.filter(t => t.red && !t.flower).length; // 花牌(赤い五萬)は赤ドラではない
   }
 
   // 表示牌1枚が指す牌の枚数
