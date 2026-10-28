@@ -936,6 +936,13 @@
     background:transparent;
     border:1px solid var(--gold);
   }
+  /* 「やめる」(トップの時だけのアガリやめ・聴牌やめ)：「続ける」と並べて、どちらも押しやすい金の縁取りにする */
+  .result-actions .yame-btn{
+    color:var(--gold);
+    background:rgba(0,0,0,0.35);
+    border:2px solid var(--gold);
+  }
+  .yame-note{ margin-top:6px; font-size:13px; font-weight:bold; color:var(--gold); }
   /* 「ホームページに戻る」：次局へ/リピートのどちらとも紛らわしくないよう、地味な縁取りボタンにする */
   .result-actions .home-btn{
     color:var(--text-light);
@@ -1427,7 +1434,10 @@
     /* 帯の下に残る「ホームページに戻る」を結果の枠で隠さないよう、そのぶん枠を下げる */
     .result-stack:has(#resultBox:not([style*="none"]) .pr-ok){ padding-top:92px; }
     .board:has(#resultBox:not([style*="none"]) .pr-ok) #repeatBtn,
-    .board:has(#resultBox:not([style*="none"]) .pr-ok) #nextKyokuBtn{ display:none; }
+    .board:has(#resultBox:not([style*="none"]) .pr-ok) #nextKyokuBtn,
+    .board:has(#resultBox:not([style*="none"]) .pr-ok) #yameBtn{ display:none; }
+    /* 「やめる」(トップの時だけのアガリやめ・聴牌やめ)は「続ける」と見分けやすい縁取りにして、間をあける */
+    .pr-btns .pr-yame{ width:100%; height:52px; margin-bottom:10px; font-size:20px; font-weight:bold; color:var(--gold); background:rgba(0,0,0,0.35); border:2px solid var(--gold); border-radius:10px; }
     /* 「卓をチェック」(和了・流局とも)：押すと結果の枠と帯の下のボタン行を隠して卓全体を見せ、
        代わりに帯の下の同じ場所に小さなボタン3つ(結果に戻る・リピート・次局へ)を右寄せで出す */
     .result-box .table-check-btn{ display:block; margin:14px auto 0; width:70%; height:40px; font-size:15px; font-weight:bold;
@@ -1627,6 +1637,7 @@
          結果表示中も、#finalOverlayに隠れずここに表示され続けるので、最後の局もリピートできる -->
     <div class="result-actions" id="resultActions" style="display:none;">
       <button type="button" class="repeat-btn" id="repeatBtn"></button>
+      <button type="button" class="yame-btn" id="yameBtn" style="display:none;">やめる</button>
       <button type="button" class="next-kyoku-btn" id="nextKyokuBtn"></button>
       <button type="button" class="home-btn" id="homeBtn">ホームページに戻る</button>
     </div>
@@ -2078,6 +2089,14 @@
   // 以下はザンリーグで加えた設定
   //   redFivesAll: 赤を筒子・索子の5の4枚ともにするか(萬子の5は使わない)。falseは各色の5の1枚だけ
   //   flowerTileCount: 花牌(五萬を赤く塗ったもの、tile.flower)の枚数。0は花牌なし
+  //   scoreTableId: scoreTableMode:"lookup"で引く固定点表。null=Mリーグ・WWの表(SCORE_TABLE_KIRIAGE等)、"zan"=ZAN_SCORE_TABLE
+  //   kyotakuToAnyWinner: 供託(リーチ棒)を、リーチしていない和了者も受け取るか。falseはリーチした和了者だけ(NEO)
+  //   multiRonHeadTakesAll: ダブロンの時、供託・積み棒・親権を頭ハネで先の1人(上家取り)だけにするか。
+  //     falseは供託をリーチした和了者で折半し、積み棒は和了者ごと、親が和了者に入れば連荘
+  //   bustAtZero: 持ち点が0点ちょうどでもトビにするか(falseは0点未満でトビ)。流局のノーテン罰符も持ち点までしか払わない
+  //   tobiBonusPoints: トビ終了の時に、飛んだ人が和了者に払う点(飛び賞)。0は払わない
+  //   topOnlyYameChoice: オーラスの親が和了・聴牌で連荘する時に、その親がトップなら「やめる／続ける」を選べるか
+  //     (トップ時のみのアガリやめ・聴牌やめ)。CPUの親は2着とCPU_YAME_LEAD点以上の差があればやめる
   //   winCallSpeech: 和了の発声を、音声ファイル(「ロン」「ツモ」)の代わりにブラウザの音声合成で読む時の
   //     { text, lang }。nullは今までどおり音声ファイル。MCR-NEOはツモ・ロンとも中国語の「胡」(hú、二声)。
   //     その言語の声が端末に無い・音声合成が使えない時は、今までの音声ファイルを鳴らす
@@ -2088,7 +2107,9 @@
     akaHanEnabled:false, winCallSpeech:null, emptySeat:null, manzuTerminalsOnly:false, chiEnabled:true,
     ukiUmaTable:null, okaPoints:20000, ukiInclusive:false, leftoverKyotakuToTop:false,
     kitaNukiEnabled:false, kitaRinshanKaihouEnabled:false, riichiRonForced:false,
-    redFivesAll:false, flowerTileCount:0
+    redFivesAll:false, flowerTileCount:0,
+    scoreTableId:null, kyotakuToAnyWinner:false, multiRonHeadTakesAll:false, bustAtZero:false, tobiBonusPoints:10000,
+    topOnlyYameChoice:false
   };
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
@@ -2252,11 +2273,18 @@
       kitaNukiEnabled:true, kitaRinshanKaihouEnabled:false, riichiRonForced:true });
   // ザンリーグルールの設定＝3人打ちNEOの設定をもとにしたもの(依頼_ザンリーグ_仕様と段階実装.md)。
   // 段階1：112枚(萬子は一萬・九萬だけ＋花牌4枚)・赤は筒子と索子の5の4枚ずつ(8枚)・北は全員の役牌(抜きドラなし)・
-  // 東南の6局・50000点持ち・チーなし。点数・チップなどは後の段階で入れる(それまでは3人打ちNEOの計算のまま)
+  // 東南の6局・50000点持ち・チーなし。
+  // 段階2：符計算なしの固定点表(赤は1枚1翻)・積み棒はロン1000点とツモ1000点オール・ノーテン罰符は場に2000点・
+  // 供託は和了者が受け取る・ダブロンは上家取り(供託・積み棒・親権)・0点でトビ(飛び賞なし)・聴牌連荘・
+  // トップの時だけのアガリやめ・聴牌やめ。チップなどは後の段階で入れる
   RULESETS.find(r => r.id === "zanLeague").ruleConfig = Object.assign({},
     RULESETS.find(r => r.id === "sanninNeo").ruleConfig,
     { redFivesAll:true, flowerTileCount:4, kitaNukiEnabled:false,
-      totalKyoku:6, startingPoints:50000, returnPoints:50000, earlyEndOnOver70000:false });
+      totalKyoku:6, startingPoints:50000, returnPoints:50000, earlyEndOnOver70000:false,
+      scoreTableMode:"lookup", scoreTableId:"zan", countedYakumanCapped:false, yakumanMultiplierEnabled:false, akaHanEnabled:true,
+      honbaRonBonus:1000, honbaTsumoBonusPerSeat:1000, notenPenaltyMode:"pool", notenPenaltyPool:2000,
+      kyotakuToAnyWinner:true, multiRonHeadTakesAll:true, bustAtZero:true, tobiBonusPoints:0,
+      tenpaiRenchanEnabled:true, renchanAtFinalKyokuEnabled:true, topOnlyYameChoice:true });
   const DEFAULT_RULE_ID = "akaNeo";
   // 表紙で選んだルールIDを覚えておくキー。半荘中(savedMatchStateがまだ無いkyoku1中)でも
   // うっかりリロードした時にルールがデフォルトへ戻らないよう、savedMatchStateとは別に
@@ -4966,15 +4994,18 @@
 
   // 結果表示の枠(#resultBox)の外側・下に常設した操作ボタン2つ(#repeatBtn/#nextKyokuBtn)を、
   // 通常時(局が終わった直後、次局へ進むかこの局を検証するか選ぶ場面)向けの見た目・挙動にする
-  function showNormalResultActions(next){
+  // onYame：トップの時だけのアガリやめ・聴牌やめを選べる時の「やめる」の動き。この時は「次局へ」を「続ける」にし、
+  // 結果の枠にも一言と(スマホ縦は)「やめる」のボタンを出す
+  function showNormalResultActions(next, onYame){
     const actions = document.getElementById("resultActions");
     if(!actions) return;
     const repeatBtn = document.getElementById("repeatBtn");
     const nextBtn = document.getElementById("nextKyokuBtn");
     repeatBtn.textContent = "リピート";
     repeatBtn.onclick = enterVerifyMode;
-    nextBtn.textContent = "次局へ";
+    nextBtn.textContent = onYame ? "続ける" : "次局へ";
     nextBtn.onclick = () => goToNextKyoku(next);
+    showYameChoice(onYame);
     nextBtn.style.display = ""; // showFinalResultActionsで隠されている場合に備えて必ず戻す
     // 半荘の途中(まだ次局が残っている状態)なので、誤タップで打ち切ってしまわないよう確認を挟む
     const homeBtn = document.getElementById("homeBtn");
@@ -4996,6 +5027,7 @@
     const nextBtn = document.getElementById("nextKyokuBtn");
     repeatBtn.textContent = "リプレイ";
     repeatBtn.onclick = enterVerifyMode; // 対局の途中でも押した瞬間にもう一度配牌直後からやり直す
+    showYameChoice(null);
     nextBtn.textContent = "次へ";
     nextBtn.onclick = advanceFromVerifyToNextKyoku; // 対局の途中でも押した瞬間に検証を打ち切り次局へ進む
     // オーラス（次局が存在しない対局）をリピート中でも「次へ」は出す：押すと本番の状態
@@ -5021,6 +5053,7 @@
     repeatBtn.onclick = enterVerifyMode;
     nextBtn.textContent = "新しい半荘へ";
     nextBtn.onclick = () => location.reload();
+    showYameChoice(null);
     nextBtn.style.display = "";
     // 半荘は既に終了している(clearMatchState()済み)ので、確認無しでそのままホームへ戻ってよい
     const homeBtn = document.getElementById("homeBtn");
@@ -5029,6 +5062,33 @@
       homeBtn.onclick = goHome;
     }
     actions.style.display = "flex";
+  }
+  // 「やめる」のボタンと結果の枠の一言を出す(onYameがnullなら消す)
+  function showYameChoice(onYame){
+    const yameBtn = document.getElementById("yameBtn");
+    const box = document.getElementById("resultBox");
+    box.querySelectorAll(".yame-note, .pr-yame").forEach(e => e.remove());
+    if(!onYame){ yameBtn.style.display = "none"; yameBtn.onclick = null; return; }
+    yameBtn.style.display = "";
+    yameBtn.onclick = () => { showYameChoice(null); onYame(); };
+    const note = document.createElement("div");
+    note.className = "yame-note";
+    note.textContent = "トップなので、ここで終了（やめる）か、連荘（続ける）かを選べます";
+    const prBtns = box.querySelector(".pr-btns");
+    if(prBtns){
+      // スマホ縦の結果表示：「OK」を「続ける」にして、その上に「やめる」を足す
+      const ok = prBtns.querySelector(".pr-ok");
+      if(ok) ok.textContent = "続ける";
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "pr-yame"; // 「OK」(.pr-ok)とは別のボタン。.pr-okを探す所が「やめる」を拾わないようにする
+      b.textContent = "やめる";
+      b.onclick = () => yameBtn.click();
+      prBtns.insertBefore(b, prBtns.firstChild);
+      prBtns.parentNode.insertBefore(note, prBtns);
+    } else {
+      box.appendChild(note);
+    }
   }
   // 「ホームページに戻る」：進行中の半荘があれば打ち切り、location.reload()はせずに
   // 表紙画面(#titleScreen)を直接表示する分岐にする(表紙で選び直したルールが次にsavedMatchStateへ
@@ -6254,6 +6314,26 @@
     4: [7700, 11600, 2000, 3900, 3900]
   });
 
+  // ザンリーグの固定点表(公式競技規定のとおり。scoreTableId:"zan")。並びはSCORE_TABLE_KIRIAGEと同じ
+  // [子ロン, 親ロン, 子ツモ(子から受取), 子ツモ(親から受取), 親ツモ(オール)]。表に無い5・7・9・10・12翻は、
+  // 1つ下の行と同じ(5翻＝4翻、7翻＝6翻、9・10翻＝8翻、12翻＝11翻)。子の1翻ツモは1000点ずつ・親の2翻ツモは
+  // 2000点オールで、ツモの合計がロンより多くなるが、規定の数字どおりにする(2026-10-28 白石さん確認)
+  const ZAN_SCORE_TABLE = {
+    1: [1000, 2000, 1000, 1000, 1000],
+    2: [2000, 3000, 1000, 1000, 2000],
+    3: [4000, 6000, 1000, 3000, 3000],
+    4: [8000, 12000, 3000, 5000, 6000],
+    5: [8000, 12000, 3000, 5000, 6000],
+    6: [12000, 18000, 4000, 8000, 9000],
+    7: [12000, 18000, 4000, 8000, 9000],
+    8: [16000, 24000, 6000, 10000, 12000],
+    9: [16000, 24000, 6000, 10000, 12000],
+    10: [16000, 24000, 6000, 10000, 12000],
+    11: [24000, 36000, 8000, 16000, 18000],
+    12: [24000, 36000, 8000, 16000, 18000],
+    13: [32000, 48000, 12000, 20000, 24000]
+  };
+
   // 役満(han>=13)到達時、実際に何を基準額とするかを決める。
   // - yaku配列の中でhan>=13の項目(名の付いた本物の役満)が1つも無い場合(役の合算だけで
   //   13翻に達した「数え役満」)、ruleConfig.countedYakumanCapped:trueなら三倍満(12翻)止め
@@ -6275,7 +6355,7 @@
   }
 
   function lookupScoreRow(effectiveHan){
-    const table = ruleConfig.scoreTableKiriage ? SCORE_TABLE_KIRIAGE : SCORE_TABLE_NO_KIRIAGE;
+    const table = ruleConfig.scoreTableId === "zan" ? ZAN_SCORE_TABLE : (ruleConfig.scoreTableKiriage ? SCORE_TABLE_KIRIAGE : SCORE_TABLE_NO_KIRIAGE);
     return table[Math.min(Math.max(effectiveHan, 1), 13)];
   }
 
@@ -8291,7 +8371,7 @@
   function checkMatchEnd(currentScores, finishedKyokuNumber, renchan){
     const seats = activeSeats(["bottom", "top", "left", "right"]);
     if(ruleConfig.earlyEndOnBust){
-      const bustSeat = seats.find(s => currentScores[s] < 0);
+      const bustSeat = seats.find(s => ruleConfig.bustAtZero ? currentScores[s] <= 0 : currentScores[s] < 0);
       if(bustSeat) return { type:"bust", seat:bustSeat };
     }
     if(ruleConfig.earlyEndOnOver70000){
@@ -8353,7 +8433,8 @@
   }
 
   function finalReasonText(reason){
-    if(reason.type === "bust") return seatLabel[reason.seat] + "の持ち点がマイナスになったため終了（トビ）";
+    if(reason.type === "bust") return seatLabel[reason.seat] + (ruleConfig.bustAtZero ? "の持ち点が0点になったため終了（トビ）" : "の持ち点がマイナスになったため終了（トビ）");
+    if(reason.type === "yame") return seatLabel[reason.seat] + "がトップで" + (reason.byWin ? "アガリやめ" : "聴牌やめ") + "したため終了";
     if(reason.type === "over70000") return seatLabel[reason.seat] + "が70000点を超えたため終了";
     if(ruleConfig.totalKyoku === 16) return "北4局が終了したため終了";
     if(ROUND_BY_SEAT_COUNT) return WIND_CHAR[roundWindOf(ruleConfig.totalKyoku)] + ACTIVE_SEATS.length + "局が終了したため終了"; // 3人打ち：西3局
@@ -8487,7 +8568,7 @@
       `<span></span><span></span><span>${ruleConfig.umaMode === "mcrUki" ? "素点" : "素点(" + ruleConfig.returnPoints + "基準)"}</span><span>順位点</span><span>合計</span></div>` +
       rows +
       (kyotakuToTop ? `<div class="final-reason final-kyotaku">供託 ${kyotakuToTop.count}本 → トップ（${kyotakuToTop.seats.map(s => seatLabel[s]).join("・")}）${kyotakuToTop.seats.length > 1 ? "で折半" : ""}</div>` : "") +
-      (ruleConfig.umaMode === "mcrUki" ? mcrFinalRuleNote(scores) : (ruleConfig.almightyTileEnabled ? mLeagueNeoFinalRuleNote() : (EMPTY_SEAT ? sanninNeoFinalRuleNote() : "")));
+      (ruleConfig.umaMode === "mcrUki" ? mcrFinalRuleNote(scores) : (ruleConfig.almightyTileEnabled ? mLeagueNeoFinalRuleNote() : (CURRENT_RULE_ID === "sanninNeo" ? sanninNeoFinalRuleNote() : "")));
     document.getElementById("finalOverlay").style.display = "flex";
   }
 
@@ -8549,22 +8630,50 @@
     const finishedKyoku = kyokuNumber;
     const reason = bustSeat ? { type: "bust", seat: bustSeat } : checkMatchEnd(scores, finishedKyoku, renchan);
     if(reason){
-      if(reason.type === "bust" && seatsWon.length > 0){
-        const shares = splitEvenlyWithRemainderToClosestSeat(10000, seatsWon, reason.seat);
-        scores[reason.seat] -= 10000;
+      // 飛び賞(tobiBonusPoints。ザンリーグは0で払わない)
+      if(reason.type === "bust" && seatsWon.length > 0 && ruleConfig.tobiBonusPoints > 0){
+        const shares = splitEvenlyWithRemainderToClosestSeat(ruleConfig.tobiBonusPoints, seatsWon, reason.seat);
+        scores[reason.seat] -= ruleConfig.tobiBonusPoints;
         shares.forEach(sh => { scores[sh.seat] += sh.amount; });
         renderScores();
       }
-      clearMatchState();
-      lastNextMatchStateForRepeat = null; // 対局終了後は「次局」が存在しない
-      showFinalStandings(reason);
-      showFinalResultActions(); // 最後の局(オーラス等)も検証(リピート)できるようにする
+      endMatchWith(reason);
       return;
     }
     const next = computeNextMatchState({ kyokuNumber, honba, dealerSeat: DEALER_SEAT }, renchan, seatsWon.length > 0);
     if(ruleConfig.seatChangeEnabled) addSeatChangeToNext(next);
     lastNextMatchStateForRepeat = next; // 検証モード中の「次へ」が使う本番の次局状態
+    // トップの時だけのアガリやめ・聴牌やめ(topOnlyYameChoice)：オーラスの親が連荘する時、その親がトップなら選べる。
+    // トップは終了画面と同じ順位の決め方(同点は あなた→下家→対面→上家 の順)で見る
+    if(ruleConfig.topOnlyYameChoice && renchan && finishedKyoku >= ruleConfig.totalKyoku){
+      const { ranked } = computeUmaBySeat(scores);
+      if(ranked[0] === DEALER_SEAT){
+        const yameReason = { type:"yame", seat:DEALER_SEAT, byWin:seatsWon.length > 0 };
+        if(DEALER_SEAT === "bottom"){
+          showNormalResultActions(next, () => endMatchWith(yameReason));
+          return;
+        }
+        if(cpuWantsYame(ranked)){
+          endMatchWith(yameReason);
+          return;
+        }
+      }
+    }
     showNormalResultActions(next);
+  }
+
+  // 半荘を終える(最終順位の画面を出す)。トビ・規定の局の終わり・アガリやめの共通
+  function endMatchWith(reason){
+    clearMatchState();
+    lastNextMatchStateForRepeat = null; // 対局終了後は「次局」が存在しない
+    showFinalStandings(reason);
+    showFinalResultActions(); // 最後の局(オーラス等)も検証(リピート)できるようにする
+  }
+
+  // CPUの親のアガリやめ・聴牌やめ：2着との差がこの点以上ならやめる(それ未満は続ける)
+  const CPU_YAME_LEAD = 10000;
+  function cpuWantsYame(ranked){
+    return scores[ranked[0]] - scores[ranked[1]] >= CPU_YAME_LEAD;
   }
 
   // ノーテン料1人あたりの受取額・支払額を計算する。
@@ -8581,25 +8690,40 @@
     return { gainEach: 1000 * notenSeats.length, lossEach: 1000 * tenpaiSeats.length };
   }
 
-  function settleRyuukyoku(tenpaiSeats, notenSeats){
-    if(tenpaiSeats.length === 0 || notenSeats.length === 0) return;
+  // 流局の席ごとの点数の増減。bustAtZeroのルール(ザンリーグ)は、ノーテンの人は持ち点までしか払わず、
+  // 実際に集まった分をテンパイの人で分ける(100点単位、端数はノーテンの先頭の人に近い席へ)
+  function computeRyuukyokuDeltas(tenpaiSeats, notenSeats){
+    const deltas = {};
+    activeSeats(["bottom", "right", "top", "left"]).forEach(s => { deltas[s] = 0; });
+    if(tenpaiSeats.length === 0 || notenSeats.length === 0) return deltas;
     const { gainEach, lossEach } = computeNotenPenaltyAmounts(tenpaiSeats, notenSeats);
-    tenpaiSeats.forEach(s => { scores[s] += gainEach; });
-    notenSeats.forEach(s => { scores[s] -= lossEach; });
+    if(!ruleConfig.bustAtZero){
+      tenpaiSeats.forEach(s => { deltas[s] = gainEach; });
+      notenSeats.forEach(s => { deltas[s] = -lossEach; });
+      return deltas;
+    }
+    let collected = 0;
+    notenSeats.forEach(s => { const pay = Math.min(lossEach, Math.max(0, scores[s])); deltas[s] = -pay; collected += pay; });
+    if(collected === gainEach * tenpaiSeats.length) tenpaiSeats.forEach(s => { deltas[s] = gainEach; });
+    else splitEvenlyWithRemainderToClosestSeat(collected, tenpaiSeats, notenSeats[0]).forEach(sh => { deltas[sh.seat] = sh.amount; });
+    return deltas;
   }
 
-  function showRyuukyokuResult(tenpaiSeats, notenSeats, titleText){
+  function settleRyuukyoku(tenpaiSeats, notenSeats){
+    const deltas = computeRyuukyokuDeltas(tenpaiSeats, notenSeats);
+    Object.keys(deltas).forEach(s => { scores[s] += deltas[s]; });
+    return deltas;
+  }
+
+  // deltas：settleRyuukyokuが返した席ごとの増減
+  function showRyuukyokuResult(deltas, titleText){
     const box = document.getElementById("resultBox");
     box.style.display = "block";
     // 全員テンパイ／全員ノーテンは点数移動が発生しない（settleRyuukyoku側で0扱い）ので、
     // その場合は自然に±0点になる。テンパイ／ノーテンの文言は出さず点数だけを表示する
-    const hasMovement = tenpaiSeats.length > 0 && notenSeats.length > 0;
-    const penalty = hasMovement ? computeNotenPenaltyAmounts(tenpaiSeats, notenSeats) : { gainEach:0, lossEach:0 };
-    const gainEach = penalty.gainEach;
-    const lossEach = penalty.lossEach;
     // 席ごとに1行ずつ、あなた→下家→対面→上家の順（＝seats配列の順）で点数増減だけを出す
     const rows = activeSeats(["bottom", "right", "top", "left"]).map(s => {
-      const delta = tenpaiSeats.includes(s) ? gainEach : -lossEach;
+      const delta = deltas[s];
       const deltaText = delta > 0 ? "＋" + delta + "点" : (delta < 0 ? "－" + (-delta) + "点" : "±0点");
       return `<div class="result-yaku">${seatLabel[s]}　${deltaText}</div>`;
     }).join("");
@@ -8646,11 +8770,11 @@
     const seats = activeSeats(["bottom", "right", "top", "left"]); // あなた・下家・対面・上家の順で表示する
     const tenpaiSeats = seats.filter(isTenpai);
     const notenSeats = seats.filter(s => !tenpaiSeats.includes(s));
-    settleRyuukyoku(tenpaiSeats, notenSeats);
+    const deltas = settleRyuukyoku(tenpaiSeats, notenSeats);
     renderScores();
     // テンパイ料が実際に動いた時だけ点棒の音を鳴らす（全員テンパイ・全員ノーテンは移動なし）
     if(tenpaiSeats.length > 0 && notenSeats.length > 0 && ruleConfig.notenPenaltyMode !== "none") playRandomPoints();
-    showRyuukyokuResult(tenpaiSeats, notenSeats);
+    showRyuukyokuResult(deltas);
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
@@ -8670,10 +8794,10 @@
     const seats = activeSeats(["bottom", "right", "top", "left"]);
     const tenpaiSeats = seats.filter(isTenpai);
     const notenSeats = seats.filter(s => !tenpaiSeats.includes(s));
-    settleRyuukyoku(tenpaiSeats, notenSeats);
+    const deltas = settleRyuukyoku(tenpaiSeats, notenSeats);
     renderScores();
     if(tenpaiSeats.length > 0 && notenSeats.length > 0) playRandomPoints();
-    showRyuukyokuResult(tenpaiSeats, notenSeats, "三家和により流局");
+    showRyuukyokuResult(deltas, "三家和により流局");
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
@@ -8942,7 +9066,7 @@
     scores[winnerSeat] += tsumo.nominalGain;
 
     let collectedKyotaku = 0; // この和了で実際に受け取った供託額（表示用。riichiSticksをリセットする前に控えておく）
-    if(riichiSticks > 0 && riichiDeclared[winnerSeat]){
+    if(riichiSticks > 0 && (riichiDeclared[winnerSeat] || ruleConfig.kyotakuToAnyWinner)){
       collectedKyotaku = riichiSticks * 1000;
       scores[winnerSeat] += riichiSticks * 1000;
       riichiSticks = 0;
@@ -8967,6 +9091,8 @@
           scores[s] = 0;
           scores[winnerSeat] -= shortfall;
           bustSeatThisHand = s;
+        } else if(ruleConfig.bustAtZero && scores[s] === 0){
+          bustSeatThisHand = s; // 0点ちょうどでもトビ(ザンリーグ)
         }
       });
     }
@@ -9017,7 +9143,8 @@
     seats.forEach(s => { scoresBefore[s] = scores[s]; });
 
     // 1. 全員分の名目上の請求額を先に出し切る（この時点ではscores[]に触れない）
-    const claims = winners.map(w => computeRonAmount(w.seat, loserSeat, w.result, honba));
+    // multiRonHeadTakesAll(ザンリーグ)：ダブロンの積み棒は頭ハネで先の和了者(winners[0])だけが受け取る
+    const claims = winners.map((w, i) => computeRonAmount(w.seat, loserSeat, w.result, (ruleConfig.multiRonHeadTakesAll && i > 0) ? 0 : honba));
     const totalNominal = claims.reduce((sum, c) => sum + c.nominalGain, 0);
 
     // 2. 放銃者の持ち点と比較し、実際に支払う総額を確定する
@@ -9034,7 +9161,9 @@
 
     // 4. 供託：単独ロンの既存挙動（自身がリーチを宣言している和了者だけが対象）を一般化する。
     // 該当者が複数いれば折半（端数は放銃者に近い席）、1人なら全額、0人ならこの局は供託を動かさない
-    const kyotakuEligible = winners.filter(w => riichiDeclared[w.seat]).map(w => w.seat);
+    // multiRonHeadTakesAllは頭ハネで先の1人だけ、kyotakuToAnyWinnerはリーチしていない和了者も受け取る
+    const kyotakuEligible = ruleConfig.multiRonHeadTakesAll ? [winners[0].seat]
+      : winners.filter(w => riichiDeclared[w.seat] || ruleConfig.kyotakuToAnyWinner).map(w => w.seat);
     const collectedKyotakuBySeat = {};
     let collectedKyotakuTotal = 0;
     if(riichiSticks > 0 && kyotakuEligible.length > 0){
@@ -9050,7 +9179,8 @@
       scores[a.seat] += a.amount + (collectedKyotakuBySeat[a.seat] || 0);
     });
     scores[loserSeat] -= actualTotal;
-    const bustSeatThisHand = isShort ? loserSeat : null; // ロンは放銃者が単一なので、不足時の飛びは常にこの席
+    // ロンは放銃者が単一なので、不足時の飛びは常にこの席。bustAtZeroのルールは0点ちょうどでもトビ
+    const bustSeatThisHand = (isShort || (ruleConfig.tobiEnabled && ruleConfig.bustAtZero && scores[loserSeat] <= 0)) ? loserSeat : null;
     // MCR：放銃者以外の2人も、和了者に8点ずつ払う(頭ハネで和了者は1人)
     if(ruleConfig.scoreTableMode === "mcr"){
       seats.filter(s => s !== loserSeat && s !== winners[0].seat).forEach(s => { scores[s] -= 8; scores[winners[0].seat] += 8; });
@@ -9078,7 +9208,8 @@
     renderMyHand(false);
     revealAllHands(); // 和了時も4人全員の手牌を公開する
     fitTileSize(); // 公開した牌の実寸に合わせて再計算し、自分の手牌がボタン行と被らないようにする
-    const renchan = ruleConfig.renchanEnabled && winners.some(w => w.seat === DEALER_SEAT); // 親が和了者に含まれれば連荘(連荘のないルールは常に親交代)
+    // 親が和了者に含まれれば連荘(連荘のないルールは常に親交代)。multiRonHeadTakesAllは頭ハネで先の和了者が親の時だけ
+    const renchan = ruleConfig.renchanEnabled && (ruleConfig.multiRonHeadTakesAll ? winners[0].seat === DEALER_SEAT : winners.some(w => w.seat === DEALER_SEAT));
     proceedOrEndMatch(renchan, winners.map(w => w.seat), bustSeatThisHand);
   }
 
