@@ -3975,10 +3975,17 @@
       const afterShanten = calcShanten(remaining, melds[seat].length + 1);
       // MCR：鳴いた後の手に8点の筋が見えないチーはしない
       if(ruleConfig.scoreTableMode === "mcr" && !mcrCpuCallReaches(seat, remaining, "chow", [...combo, tile])) return;
-      if(!best || afterShanten < best.afterShanten) best = { combo, afterShanten };
+      // 役なしで和了できないルール：役の見込みがないチーはしない(終盤の仮聴牌は例外)
+      let yakuCheck = "yaku";
+      if(cpuCallNeedsYaku()){
+        if(afterShanten > beforeShanten) return;
+        yakuCheck = cpuCallYakuCheck(seat, remaining, combo, tile, "chi", beforeShanten, afterShanten);
+        if(!yakuCheck) return;
+      }
+      if(!best || afterShanten < best.afterShanten) best = { combo, afterShanten, yakuCheck };
     });
     if(!best || best.afterShanten > beforeShanten) return null;
-    const prob = best.afterShanten < beforeShanten ? 0.85 : 0.25;
+    const prob = best.yakuCheck === "lateDealer" ? 1 : (best.afterShanten < beforeShanten ? 0.85 : 0.25);
     return Math.random() < prob ? best.combo : null;
   }
 
@@ -8315,6 +8322,96 @@
     return { tile: chosen.tile, declareRiichi: willRiichi };
   }
 
+  // 役なしで和了できないルール(無限Original・Mリーグ2つ・WW2つ・3人打ちNEO・ザンリーグ)のCPUの鳴き(ポン・チー・明槓)は、
+  // 鳴いた後に役が付く見込み(役牌・断幺九・混一色・対々和・三色)がある時だけにする。鳴いて聴牌になる時は、
+  // 見込みではなく本物の和了の判定で、待ちのどれかに役が付くかを確かめる。
+  // 例外：山の残りが人数×3枚以下の終盤は、役がなくても鳴いて聴牌になるなら鳴く(仮聴牌。ノーテン罰符を避ける)。
+  // 聴牌連荘のルールの親は、この終盤に聴牌になる鳴きを必ずする(子は今までどおりの確率)。
+  // 赤入り無限NEO(役なしでも和了できる)とMCR-NEO(8点縛りの別の判断)は対象外
+  const CPU_CALL_LATE_WALL_PER_PLAYER = 3;
+  function cpuCallNeedsYaku(){
+    return !ruleConfig.yakunashiWinEnabled && ruleConfig.scoreTableMode !== "mcr";
+  }
+  // 鳴いた後の形(remaining：手に残る牌、called：鳴いた面子の牌)で、役の見込みがあるか(聴牌前の目安)
+  function cpuCallYakuProspect(seat, remaining, called, type){
+    const isHonor = t => t.suit === "wind" || t.suit === "dragon";
+    const isSimple = t => !isHonor(t) && t.num !== 1 && t.num !== 9;
+    const isYakuhai = t => t.suit === "dragon" || (t.suit === "wind" && (t.num === SEAT_WIND[seat] || t.num === ROUND_WIND || (EMPTY_SEAT && t.num === 4)));
+    const key = t => t.suit + t.num;
+    const sets = melds[seat].map(m => ({ type: m.type, tiles: m.handTiles.concat(m.calledTile ? [m.calledTile] : [], m.addedTile ? [m.addedTile] : []) }));
+    sets.push({ type, tiles: called });
+    const count = {};
+    remaining.forEach(t => { count[key(t)] = (count[key(t)] || 0) + 1; });
+    const has = t => (count[key(t)] || 0) > 0 || sets.some(st => st.tiles.some(u => key(u) === key(t)));
+    const wild = HAS_ALMIGHTY ? 1 : 0; // Mリーグ NEOの万能は手牌の外の1枚で、どの牌にもなる
+    // 役牌：役牌の鳴き、または手に役牌の対子
+    if(sets.some(st => st.type !== "chi" && isYakuhai(st.tiles[0])) || remaining.some(t => isYakuhai(t) && count[key(t)] >= 2)) return true;
+    // 断幺九：鳴き面子がすべて2〜8で、手に残る么九牌が2枚以下
+    if(sets.every(st => st.tiles.every(isSimple)) && remaining.filter(t => !isSimple(t)).length <= 2 + wild) return true;
+    // 混一色・清一色：鳴き面子が1色(と字牌)で、手に残るほかの色の数牌が3枚以下
+    const meldSuits = new Set(sets.flatMap(st => st.tiles).filter(t => !isHonor(t)).map(t => t.suit));
+    if(meldSuits.size <= 1){
+      const bySuit = {};
+      remaining.filter(t => !isHonor(t)).forEach(t => { bySuit[t.suit] = (bySuit[t.suit] || 0) + 1; });
+      const main = meldSuits.size ? [...meldSuits][0] : Object.keys(bySuit).sort((a, b) => bySuit[b] - bySuit[a])[0];
+      if(remaining.filter(t => !isHonor(t) && t.suit !== main).length <= 3 + wild) return true;
+    }
+    // 対々和：チーがなく、手の対子・刻子が足りない面子の数以上
+    if(sets.every(st => st.type !== "chi") && Object.values(count).filter(c => c >= 2).length + wild >= 4 - sets.length) return true;
+    // 三色：チーした順子と同じ数の順子の牌が、ほかの2色に6枚中4枚以上。ポンした刻子と同じ数の牌が、ほかの2色に2枚ずつ
+    const numSuits = ["man", "pin", "sou"];
+    for(const st of sets){
+      const t0 = st.tiles.reduce((a, b) => (b.num < a.num ? b : a));
+      if(isHonor(t0)) continue;
+      const others = numSuits.filter(x => x !== t0.suit);
+      if(st.type === "chi"){
+        const got = others.reduce((n, x) => n + [0, 1, 2].filter(d => has({ suit: x, num: t0.num + d })).length, 0);
+        if(got + wild >= 4) return true;
+      } else if(others.every(x => (count[x + t0.num] || 0) >= 2 || sets.some(o => o.type !== "chi" && o.tiles[0].suit === x && o.tiles[0].num === t0.num))){
+        return true;
+      }
+    }
+    return false;
+  }
+  // 鳴いた後に聴牌になる打牌があるか(明槓は嶺上の前の形のまま)。withYaku:trueの時は、待ちのどれかで
+  // 本当に和了できる(役が付く)ものに限る。手牌・鳴き面子は判定の間だけ鳴いた後の形にして、必ず元に戻す
+  function cpuCallTenpaiAfter(seat, remaining, used, tile, type, withYaku){
+    const hand = hands[seat];
+    const saved = hand.slice();
+    melds[seat].push({ type, handTiles: used, calledTile: tile, calledFrom: null });
+    try {
+      const ok = () => {
+        const waits = getWaits(seat);
+        return waits.length > 0 && (!withYaku || waits.some(w => attemptLegalWin(seat, w, false) || attemptLegalWin(seat, w, true)));
+      };
+      if(type === "kan"){ replaceArrayContents(hand, remaining); return ok(); }
+      const tried = new Set();
+      for(let i = 0; i < remaining.length; i++){
+        const k = tileKey(remaining[i]) + (remaining[i].red ? "r" : "");
+        if(tried.has(k)) continue;
+        tried.add(k);
+        replaceArrayContents(hand, remaining.filter((_, j) => j !== i));
+        if(ok()) return true;
+      }
+      return false;
+    } finally {
+      melds[seat].pop();
+      replaceArrayContents(hand, saved);
+    }
+  }
+  // 役なしで和了できないルールで、この鳴きをしてよいか。false：しない、"yaku"：役の見込みがある、
+  // "late"：終盤の仮聴牌、"lateDealer"：終盤の仮聴牌で聴牌連荘の親(必ず鳴く)
+  function cpuCallYakuCheck(seat, remaining, used, tile, type, beforeShanten, afterShanten){
+    const called = used.concat([tile]);
+    const lateTenpai = afterShanten === 0
+      && wall.length <= activeSeats(["bottom", "right", "top", "left"]).length * CPU_CALL_LATE_WALL_PER_PLAYER;
+    const dealerPush = lateTenpai && beforeShanten > 0 && ruleConfig.tenpaiRenchanEnabled && seat === DEALER_SEAT;
+    if(afterShanten === 0 && cpuCallTenpaiAfter(seat, remaining, used, tile, type, true)) return dealerPush ? "lateDealer" : "yaku";
+    if(lateTenpai && cpuCallTenpaiAfter(seat, remaining, used, tile, type, false)) return dealerPush ? "lateDealer" : "late";
+    if(afterShanten > 0 && cpuCallYakuProspect(seat, remaining, called, type)) return "yaku";
+    return false;
+  }
+
   // CPUが他家の捨て牌にポン/カンを掛けるべきか。掛けた場合のシャンテン数が今より
   // 良くなる(または変わらない)場合だけ検討し、確率で実際に鳴くかを決める
   // （ポン/カンは手を進める代わりに門前を失うため、シャンテンが変わらない時は控えめにする）
@@ -8330,7 +8427,10 @@
     if(afterShanten > beforeShanten) return false;
     // MCR：鳴いた後の手に8点の筋が見えない鳴きはしない
     if(ruleConfig.scoreTableMode === "mcr" && !mcrCpuCallReaches(seat, remaining, type === "kan" ? "kong" : "pung", [tile])) return false;
-    const prob = afterShanten < beforeShanten ? 0.85 : 0.25;
+    // 役なしで和了できないルール：役の見込みがない鳴きはしない(終盤の仮聴牌は例外。上のcpuCallYakuCheck)
+    const yakuCheck = cpuCallNeedsYaku() ? cpuCallYakuCheck(seat, remaining, used, tile, type, beforeShanten, afterShanten) : "yaku";
+    if(!yakuCheck) return false;
+    const prob = yakuCheck === "lateDealer" ? 1 : (afterShanten < beforeShanten ? 0.85 : 0.25);
     return Math.random() < prob;
   }
 
