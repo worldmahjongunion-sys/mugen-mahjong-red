@@ -1052,6 +1052,13 @@
   /* 枠が画面の高さに収まらない時(スマホ横)は、終了画面の中をスクロールする */
   .final-standings:has(.final-rule-note.big){ max-height:calc(100vh - 16px); overflow-y:auto; box-sizing:border-box; }
   .final-standings .final-rule-note.big .final-rule-title{ font-size:15px; color:#FFD54A; }
+  /* ザンリーグの要点は長いので、PC・スマホ横では結果の枠の下の残りの高さに収め、その中をスクロールする
+     (スマホ縦は結果の画面ごとスクロールする。3人打ちNEOの枠は今のまま) */
+  @media not ((orientation: portrait) and (max-width: 600px)){
+    .result-stack:has(.final-rule-note.fit){ max-height:calc(100dvh - 2 * clamp(4px, 1dvh, 10px)); }
+    .result-stack:has(.final-rule-note.fit) > .final-overlay{ min-height:0; flex-direction:column; }
+    .final-standings:has(.final-rule-note.fit){ min-height:0; }
+  }
 
   /* .boardの左上（和了結果表示＝右上の対角）に固定表示する。中身は.center-midのレイアウトを流用する。
      局・供託・ドラを表示する枠(.top-left-info)と、その下の操作ボタン行(.result-actions)を
@@ -2262,7 +2269,7 @@
       scoreTableMode:"fu", scoreTableKiriage:true, yakumanMultiplierEnabled:false, countedYakumanCapped:true
     } },
     { id:"sanninNeo", label:"無限ルールNEO(3人打ち)", titleLines:["無限ルールNEO", "(3人打ち)"], status:"ready", ruleConfig:null }, // 設定はRULESETSの下で赤入り無限NEOから作る(段階6で表紙から選べるようにした)
-    { id:"zanLeague", label:"ザンリーグルール", status:"comingSoon", ruleConfig:null },
+    { id:"zanLeague", label:"ザンリーグルール", status:"ready", ruleConfig:null }, // 設定はRULESETSの下で3人打ちNEOから作る(段階7で表紙から選べるようにした)
     // MCR-NEO(国際公式麻雀ベース)。段階7で表紙から選べるようにした(status:"ready")。
     // 役・点は日本式の判定(computeYaku)を使わず、scoreTableMode:"mcr"の関数群(mcrEvaluate)で数える。
     // 天和・地和なし、王牌なし、リーチ・ドラ・赤・フリテン・本場・連荘なし、東南西北の16局で終わる
@@ -8948,7 +8955,7 @@
           `<span></span><span></span><span>${ruleConfig.umaMode === "mcrUki" ? "素点" : "素点(" + ruleConfig.returnPoints + "基準)"}</span><span>順位点</span><span>合計</span></div>`) +
       rows +
       (kyotakuToTop ? `<div class="final-reason final-kyotaku">供託 ${kyotakuToTop.count}本 → トップ（${kyotakuToTop.seats.map(s => seatLabel[s]).join("・")}）${kyotakuToTop.seats.length > 1 ? "で折半" : ""}</div>` : "") +
-      (ruleConfig.umaMode === "mcrUki" ? mcrFinalRuleNote(scores) : (ruleConfig.almightyTileEnabled ? mLeagueNeoFinalRuleNote() : (CURRENT_RULE_ID === "sanninNeo" ? sanninNeoFinalRuleNote() : "")));
+      (ruleConfig.umaMode === "mcrUki" ? mcrFinalRuleNote(scores) : (ruleConfig.almightyTileEnabled ? mLeagueNeoFinalRuleNote() : (CURRENT_RULE_ID === "sanninNeo" ? sanninNeoFinalRuleNote() : (CURRENT_RULE_ID === "zanLeague" ? zanLeagueFinalRuleNote() : ""))));
     document.getElementById("finalOverlay").style.display = "flex";
   }
 
@@ -8975,6 +8982,20 @@
       `<li>順位点(浮き＝40000点以上)<br>一人浮き ＋40000／−10000／−30000<br>二人浮き ＋20000／＋10000／−30000</li>` +
       `<li>オカ15000はトップへ</li>` +
       `<li>終局時の供託はトップへ。同点は折半</li>` +
+      `</ul></div>`;
+  }
+  // ザンリーグの終了画面に出すルールの要点(ザンリーグの特徴だけ。3人打ちNEOと同じ大きく太い文字の枠)
+  function zanLeagueFinalRuleNote(){
+    return `<div class="final-rule-note big fit"><div class="final-rule-title">ザンリーグルール のルール</div><ul>` +
+      `<li>3人打ち・112枚(萬子は一萬と九萬だけ)</li>` +
+      `<li>花牌(赤い五萬)4枚は、引いたら自動で抜いて、1枚補充。点数にはならない。4枚とも抜いて和了すると華4(4翻・役満のチップ)</li>` +
+      `<li>50000点持ち・東南の6局</li>` +
+      `<li>点数ではなく、チップの枚数で競う<br>局ごと：一発・裏ドラ・白ポッチ 1枚、役満 ロン10枚／ツモ5枚ずつ、飛ばし 2枚<br>終局：2着・3着は素点の帯で決まり、1着はその反対</li>` +
+      `<li>固定点表(符計算なし)・ツモ損なし</li>` +
+      `<li>白ポッチ：リーチ後に引くと、待ちの中で一番高い牌としてツモ和了</li>` +
+      `<li>オープンリーチは2翻。オープンリーチの人の待ちの牌で放銃すると役満払い(手詰まりの時は普通の点数)</li>` +
+      `<li>アガリやめ・聴牌やめは、オーラスの親がトップの時だけ</li>` +
+      `<li>同点の着順は、あなた→下家→上家</li>` +
       `</ul></div>`;
   }
   function mcrFinalRuleNote(finalScores){
