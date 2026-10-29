@@ -1032,33 +1032,8 @@
   .final-standings .final-rank-row.final-rank-header + .final-rank-row{
     border-top:1px solid rgba(255,255,255,0.15);
   }
-  /* MCR-NEO：終了画面の下に添えるルールの要点 */
-  .final-standings .final-rule-note{
-    margin-top:8px;
-    padding-top:6px;
-    border-top:1px solid rgba(255,255,255,0.15);
-    font-size:11px;
-    line-height:1.5;
-    opacity:0.85;
-    text-align:left;
-  }
-  .final-standings .final-rule-note .final-rule-title{ font-weight:bold; margin-bottom:2px; }
   /* 結果パネルの「万能→5萬(赤)」の行(Mリーグ NEO) */
   .result-row.almighty-row .col-name, .pr-yaku-row.almighty-row span{ color:#FFD54A; font-weight:bold; }
-  .final-standings .final-rule-note ul{ margin:0; padding-left:1.2em; }
-  /* 3人打ちNEOのルールの要点：同じ枠を、大きく太い文字で読みやすくする */
-  /* width:0＋min-width:100%：長い行で終了画面の枠を広げず、順位の表の幅の中で折り返す */
-  .final-standings .final-rule-note.big{ font-size:14px; font-weight:bold; line-height:1.6; opacity:1; width:0; min-width:100%; }
-  /* 枠が画面の高さに収まらない時(スマホ横)は、終了画面の中をスクロールする */
-  .final-standings:has(.final-rule-note.big){ max-height:calc(100vh - 16px); overflow-y:auto; box-sizing:border-box; }
-  .final-standings .final-rule-note.big .final-rule-title{ font-size:15px; color:#FFD54A; }
-  /* ザンリーグの要点は長いので、PC・スマホ横では結果の枠の下の残りの高さに収め、その中をスクロールする
-     (スマホ縦は結果の画面ごとスクロールする。3人打ちNEOの枠は今のまま) */
-  @media not ((orientation: portrait) and (max-width: 600px)){
-    .result-stack:has(.final-rule-note.fit){ max-height:calc(100dvh - 2 * clamp(4px, 1dvh, 10px)); }
-    .result-stack:has(.final-rule-note.fit) > .final-overlay{ min-height:0; flex-direction:column; }
-    .final-standings:has(.final-rule-note.fit){ min-height:0; }
-  }
 
   /* .boardの左上（和了結果表示＝右上の対角）に固定表示する。中身は.center-midのレイアウトを流用する。
      局・供託・ドラを表示する枠(.top-left-info)と、その下の操作ボタン行(.result-actions)を
@@ -1656,7 +1631,7 @@
         </div>
       </div>
     </div>
-    <!-- 局表示の枠(.top-left-info)の外側・下に置く操作ボタン。通常時は「リピート」「次局へ」、
+    <!-- 局表示の枠(.top-left-info)の外側・下に置く操作ボタン。通常時は「リプレイ」「次局へ」、
          検証(リピート)モード中は「リプレイ」「次へ」に文言・挙動を切り替えて使い回す
          （切り替えはJS側のshowNormalResultActions/showVerifyResultActions/showFinalResultActions）。
          検証モード中は対局の途中でも常時表示・常時押せる状態にする。対局終了後(オーラス)の
@@ -1670,7 +1645,7 @@
     <!-- スマホ縦の「卓をチェック」中だけ、#resultActionsの代わりに出す小さなボタン3つ -->
     <div class="table-check-bar" id="tableCheckBar">
       <button type="button" class="back-btn" id="tableCheckBackBtn">結果に戻る</button>
-      <button type="button" class="repeat-btn" id="tableCheckRepeatBtn">リピート</button>
+      <button type="button" class="repeat-btn" id="tableCheckRepeatBtn">リプレイ</button>
       <button type="button" class="next-kyoku-btn" id="tableCheckNextBtn">次局へ</button>
     </div>
   </div>
@@ -5192,7 +5167,7 @@
     if(!actions) return;
     const repeatBtn = document.getElementById("repeatBtn");
     const nextBtn = document.getElementById("nextKyokuBtn");
-    repeatBtn.textContent = "リピート";
+    repeatBtn.textContent = "リプレイ";
     repeatBtn.onclick = enterVerifyMode;
     nextBtn.textContent = onYame ? "続ける" : "次局へ";
     nextBtn.onclick = () => goToNextKyoku(next);
@@ -5234,13 +5209,13 @@
   // 右のボタンは「次局へ」ではなく「新しい半荘へ」に差し替える（押すとリロードして
   // 新しい半荘を最初から始める。対局終了時に既にclearMatchState()済みなので、
   // 保存された対局状態は無く、リロードすれば自然に新しい半荘が始まる）。
-  // これが無いと、最後の局の結果画面に「リピート」しか出ず、半荘を終える手段が無くなってしまう
+  // これが無いと、最後の局の結果画面に「リプレイ」しか出ず、半荘を終える手段が無くなってしまう
   function showFinalResultActions(){
     const actions = document.getElementById("resultActions");
     if(!actions) return;
     const repeatBtn = document.getElementById("repeatBtn");
     const nextBtn = document.getElementById("nextKyokuBtn");
-    repeatBtn.textContent = "リピート";
+    repeatBtn.textContent = "リプレイ";
     repeatBtn.onclick = enterVerifyMode;
     nextBtn.textContent = "新しい半荘へ";
     nextBtn.onclick = () => location.reload();
@@ -9054,61 +9029,8 @@
         : `<div class="final-rank-row final-rank-header">` +
           `<span></span><span></span><span>${ruleConfig.umaMode === "mcrUki" ? "素点" : "素点(" + ruleConfig.returnPoints + "基準)"}</span><span>順位点</span><span>合計</span></div>`) +
       rows +
-      (kyotakuToTop ? `<div class="final-reason final-kyotaku">供託 ${kyotakuToTop.count}本 → トップ（${kyotakuToTop.seats.map(s => seatLabel[s]).join("・")}）${kyotakuToTop.seats.length > 1 ? "で折半" : ""}</div>` : "") +
-      (ruleConfig.umaMode === "mcrUki" ? mcrFinalRuleNote(scores) : (ruleConfig.almightyTileEnabled ? mLeagueNeoFinalRuleNote() : (CURRENT_RULE_ID === "sanninNeo" ? sanninNeoFinalRuleNote() : (CURRENT_RULE_ID === "zanLeague" ? zanLeagueFinalRuleNote() : ""))));
+      (kyotakuToTop ? `<div class="final-reason final-kyotaku">供託 ${kyotakuToTop.count}本 → トップ（${kyotakuToTop.seats.map(s => seatLabel[s]).join("・")}）${kyotakuToTop.seats.length > 1 ? "で折半" : ""}</div>` : "");
     document.getElementById("finalOverlay").style.display = "flex";
-  }
-
-  // MCR-NEO：終了画面の下に添えるルールの要点。順位点は今回の浮き(0点以上)の人数で引いた表も出す
-  // Mリーグ NEOの終了画面に出すルールの要点
-  function mLeagueNeoFinalRuleNote(){
-    return `<div class="final-rule-note"><div class="final-rule-title">Mリーグ NEO のルール</div><ul>` +
-      `<li>配牌は12枚＋各自1枚の万能(オールマイティー牌)。万能はどの牌にもなる(ドラ・赤にもなる)</li>` +
-      `<li>オープンリーチあり(手牌を公開して2翻)</li>` +
-      `<li>天和・地和あり、人和なし</li>` +
-      `<li>そのほかは Mリーグ Original と同じ</li>` +
-      `</ul></div>`;
-  }
-  // 3人打ちNEOの終了画面に出すルールの要点(遊ぶ人に必要な点だけ。大きく太い文字の枠)
-  function sanninNeoFinalRuleNote(){
-    return `<div class="final-rule-note big"><div class="final-rule-title">無限ルールNEO(3人打ち) のルール</div><ul>` +
-      `<li>持ち点35000・返し40000</li>` +
-      `<li>東場・南場・西場の9局</li>` +
-      `<li>チーなし</li>` +
-      `<li>北は抜きドラ(1枚1翻)</li>` +
-      `<li>1翻縛り(ドラ・赤・抜きドラだけでは和了できない)</li>` +
-      `<li>ツモ損あり(北家の分は誰も払わない)</li>` +
-      `<li>赤ご祝儀：ロン2000点、ツモ2000点×2人</li>` +
-      `<li>順位点(浮き＝40000点以上)<br>一人浮き ＋40000／−10000／−30000<br>二人浮き ＋20000／＋10000／−30000</li>` +
-      `<li>オカ15000はトップへ</li>` +
-      `<li>終局時の供託はトップへ。同点は折半</li>` +
-      `</ul></div>`;
-  }
-  // ザンリーグの終了画面に出すルールの要点(ザンリーグの特徴だけ。3人打ちNEOと同じ大きく太い文字の枠)
-  function zanLeagueFinalRuleNote(){
-    return `<div class="final-rule-note big fit"><div class="final-rule-title">ザンリーグルール のルール</div><ul>` +
-      `<li>3人打ち・112枚(萬子は一萬と九萬だけ)</li>` +
-      `<li>花牌(赤い五萬)4枚は、引いたら自動で抜いて、1枚補充。点数にはならない。4枚とも抜いて和了すると華4(4翻・役満のチップ)</li>` +
-      `<li>50000点持ち・東南の6局</li>` +
-      `<li>点数ではなく、チップの枚数で競う<br>局ごと：一発・裏ドラ・白ポッチ 1枚、役満 ロン10枚／ツモ5枚ずつ、飛ばし 2枚<br>終局：2着・3着は素点の帯で決まり、1着はその反対</li>` +
-      `<li>固定点表(符計算なし)・ツモ損なし</li>` +
-      `<li>白ポッチ：リーチ後に引くと、待ちの中で一番高い牌としてツモ和了</li>` +
-      `<li>オープンリーチは2翻。オープンリーチの人の待ちの牌で放銃すると役満払い(手詰まりの時は普通の点数)</li>` +
-      `<li>アガリやめ・聴牌やめは、オーラスの親がトップの時だけ</li>` +
-      `<li>同点の着順は、あなた→下家→上家</li>` +
-      `</ul></div>`;
-  }
-  function mcrFinalRuleNote(finalScores){
-    const uki = activeSeats(["bottom", "right", "top", "left"]).filter(s => finalScores[s] >= 0).length;
-    const table = MCR_UMA_TABLE_BY_UKI[uki] || MCR_UMA_TABLE_BY_UKI[4];
-    const fmt = n => (n > 0 ? "＋" : (n < 0 ? "－" : "±")) + Math.abs(n);
-    return `<div class="final-rule-note"><div class="final-rule-title">MCR-NEO のルール</div><ul>` +
-      `<li>8点縛り(役の合計が8点未満では和了できない。上限88点)</li>` +
-      `<li>フリテンなし・リーチなし・ドラなし</li>` +
-      `<li>一荘戦(東南西北の16局)。流局でも親は次の人へ</li>` +
-      `<li>4局ごとに席替え(公式の表どおり)</li>` +
-      `<li>順位点は浮き(0点以上)の人数で決まる。今回は浮き${uki}人：${table.map(fmt).join("／")}</li>` +
-      `</ul></div>`;
   }
 
   // 局終了後の共通処理：終了条件を満たしていれば最終順位画面を出し、満たしていなければ
@@ -9259,8 +9181,8 @@
 
   // スマホ縦の「卓をチェック」：結果の枠の中にボタンを足す(PC・横向きではCSSで出さない)。
   // 押すとbody.table-peekで結果の枠と帯の下のボタン行を隠し、卓全体を見せる。その間に出す
-  // 小さなボタン3つのうち「リピート」「次局へ」は、帯の下の#repeatBtn/#nextKyokuBtn
-  // (＝結果の枠の「この局をリピート」「OK」)を押したのと同じ動きにする
+  // 小さなボタン3つのうち「リプレイ」「次局へ」は、帯の下の#repeatBtn/#nextKyokuBtn
+  // (＝結果の枠の「この局をリプレイ」「OK」)を押したのと同じ動きにする
   function addTableCheckButton(box){
     setTablePeek(false);
     const btn = document.createElement("button");
@@ -9553,8 +9475,8 @@
       `<div class="pr-yaku">${rows}${sumRow}</div>` + (chipEl ? chipEl.outerHTML : "") +
       `<div class="pr-players">${players}</div>` +
       `<div class="pr-btns"><button type="button" class="pr-ok">OK</button>` +
-      `<button type="button" class="pr-repeat">この局をリピート</button></div>`;
-    // 「OK」「この局をリピート」は、帯の下の操作ボタン(次局へ/次へ/新しい半荘へ・リピート/リプレイ)を
+      `<button type="button" class="pr-repeat">この局をリプレイ</button></div>`;
+    // 「OK」「この局をリプレイ」は、帯の下の操作ボタン(次局へ/次へ/新しい半荘へ・リプレイ)を
     // 押したのと同じ動きにする（ボタンの中身はshowNormal/Verify/FinalResultActionsが場面ごとに切り替える）。
     // 帯の下の同じ2つは、この表示が出ている間だけCSSで隠す
     box.querySelector(".pr-ok").onclick = () => document.getElementById("nextKyokuBtn").click();
