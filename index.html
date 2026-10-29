@@ -2660,6 +2660,7 @@
   const cpuLeftTiles = wall.splice(0, START_HAND_SIZE);
   // 抜いた花牌(flowerTileCount)。席ごとに、抜いた順の牌そのもの。鳴きではないので門前・一発・天和・地和には効かない
   const flowers = { top: [], left: [], right: [], bottom: [] };
+  let dealtFlowerPulled = false; // 配牌で花牌を抜いたか(局の始めに「ぬきどらなのだ！」を1回だけ鳴らす)
   // 配牌に花牌が入っていたら、親から順に(手番の順に)抜いて嶺上牌から補充する。補充した牌も花牌なら続けて抜く
   if(ruleConfig.flowerTileCount){
     const dealt = { bottom: myTiles13, right: cpuRightTiles, top: cpuTopTiles, left: cpuLeftTiles };
@@ -2668,7 +2669,7 @@
     order.slice(start).concat(order.slice(0, start)).forEach(seat => {
       const hand = dealt[seat];
       for(let i = 0; i < hand.length; i++){
-        while(hand[i].flower){ flowers[seat].push(hand[i]); hand[i] = drawRinshanTile(); }
+        while(hand[i].flower){ flowers[seat].push(hand[i]); hand[i] = drawRinshanTile(); dealtFlowerPulled = true; }
       }
     });
   }
@@ -3632,6 +3633,7 @@
     let pulled = false;
     while(tile && tile.flower){
       flowers[seat].push(tile);
+      playNukidoraVoice(); // 自分・CPU問わず、1枚抜くごとに1回(補充した牌も花牌なら、前の声の後にもう1回)
       tile = drawRinshanTile();
       pulled = true;
     }
@@ -8703,6 +8705,18 @@
   function speakZundamon(key){
     playSfx(ZUNDAMON_VOICE[key]);
   }
+  // 花牌を抜いた時の「ぬきどらなのだ！」(花牌のあるルール＝ザンリーグだけ)。続けて何枚抜いても声が重ならないよう、
+  // 前の声が鳴っている間に来た分は、前の声が終わってから順に鳴らす
+  const NUKIDORA_VOICE_MS = 1400; // 音声(約1.3秒)の長さ＋少しの間
+  let nukidoraVoiceFreeAt = 0;
+  function playNukidoraVoice(){
+    if(!ruleConfig.flowerTileCount) return;
+    const now = Date.now();
+    const at = Math.max(now, nukidoraVoiceFreeAt);
+    nukidoraVoiceFreeAt = at + NUKIDORA_VOICE_MS;
+    if(at === now) playSfx(SFX.callNukidora);
+    else setTimeout(() => playSfx(SFX.callNukidora), at - now);
+  }
 
   // 局の節目のセリフ。honba===0は「この局数に入った最初の手（連荘で戻ってきたのではない）」を
   // 意味するので、これで判定すれば同じ局に連荘で何度いても1回しか鳴らない
@@ -8749,6 +8763,7 @@
     callRon: "sounds/call-ron.ogg",        // 「ロン」ボイス
     callTsumo: "sounds/call-tsumo.ogg",    // 「ツモ」ボイス
     callPei: "sounds/call-pei.ogg",        // 「ペーなのだ！」ボイス(北を抜いた時。VOICEVOXのずんだもん(ノーマル・初期設定)で作り、ほかの発声と同じ大きさにそろえた)
+    callNukidora: "sounds/call-nukidora.ogg", // 「ぬきどらなのだ！」ボイス(ザンリーグで花牌を抜いた時。作り方・大きさは「ペーなのだ！」と同じ)
     shuffle: "sounds/sfx-shuffle.ogg",     // 牌をまぜる音（新しい局の開始＝ページ読込のたび、配牌後に1回）
     points: ["sounds/sfx-points-1.ogg", "sounds/sfx-points-2.ogg", "sounds/sfx-points-3.ogg"] // 点棒を置く音（3種からランダム）
   };
@@ -10061,6 +10076,7 @@
   renderMatchHeader();
   showSeatChangeNotice();
   playSfx(SFX.shuffle); // 新しい局の開始（ページ読込）ごとに牌をまぜる音を1回鳴らす
+  if(dealtFlowerPulled) playNukidoraVoice(); // 配牌で花牌を抜いた時は、何枚抜いても1回だけ
   announceKyokuMilestone(); // 裏入・ラス前・オーラスのセリフ（honba===0で該当局の最初の1回だけ）
 
   // 検証(リピート)用に、配牌・自摸山が確定した直後・誰も牌を引く前の状態をここで確定させておく
