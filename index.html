@@ -958,6 +958,9 @@
   }
   /* スマホ縦だけの「卓をチェック」とその間の小さなボタン3つ。PC・横向きでは出さない(出し方は縦向きの@media側) */
   .table-check-btn, .table-check-bar{ display:none; }
+  /* ザンリーグの結果パネルの「チップ」の行 */
+  .result-box .result-chip{ font-size:13px; margin-top:4px; text-align:left; }
+  .result-box .result-chip .result-chip-label{ color:var(--gold); font-weight:bold; margin-right:8px; }
 
   /* 半荘終了時の最終順位画面。以前は卓全体を暗転させる全画面オーバーレイだったが、
      卓全体を暗くしないでほしいとの要望で撤廃。今は.result-stack内で#resultBoxの
@@ -1010,6 +1013,15 @@
   .final-standings .final-rank-row .final-rank-total{
     font-weight:bold;
     color:var(--gold);
+  }
+  /* ザンリーグの終了画面：素点・終局のチップ・局のチップの合計・合計チップの4列 */
+  .final-standings .final-rank-row.chip-cols{
+    grid-template-columns:2em 3.6em auto auto auto auto;
+  }
+  .final-standings .final-rank-row.chip-cols:not(.final-rank-header) > span{ white-space:nowrap; }
+  .final-standings .final-rank-row.chip-cols.final-rank-header > span{ text-align:right; }
+  @media (orientation: portrait) and (max-width: 600px){
+    .final-standings .final-rank-row.chip-cols{ grid-template-columns:2em 2.6em auto auto auto auto; gap:0 6px; font-size:14px; }
   }
   .final-standings .final-rank-row.final-rank-header{
     border-top:none;
@@ -2114,6 +2126,8 @@
   //     falseは供託をリーチした和了者で折半し、積み棒は和了者ごと、親が和了者に入れば連荘
   //   bustAtZero: 持ち点が0点ちょうどでもトビにするか(falseは0点未満でトビ)。流局のノーテン罰符も持ち点までしか払わない
   //   tobiBonusPoints: トビ終了の時に、飛んだ人が和了者に払う点(飛び賞)。0は払わない
+  //   chipEnabled: 持ち点とは別にチップを数えるか(ザンリーグ)。局ごとのチップ(一発・裏ドラ・白ポッチ・役満祝儀・飛ばし)と、
+  //     終局のチップ(素点の帯の表)。終了画面は素点とチップの4列、成績はチップの枚数で記録する
   //   topOnlyYameChoice: オーラスの親が和了・聴牌で連荘する時に、その親がトップなら「やめる／続ける」を選べるか
   //     (トップ時のみのアガリやめ・聴牌やめ)。CPUの親は2着とCPU_YAME_LEAD点以上の差があればやめる
   //   winCallSpeech: 和了の発声を、音声ファイル(「ロン」「ツモ」)の代わりにブラウザの音声合成で読む時の
@@ -2129,7 +2143,7 @@
     redFivesAll:false, flowerTileCount:0, whitePochiEnabled:false,
     zanYakuEnabled:false, openRiichiYakumanPay:false, kokushiAnkanRonEnabled:false,
     scoreTableId:null, kyotakuToAnyWinner:false, multiRonHeadTakesAll:false, bustAtZero:false, tobiBonusPoints:10000,
-    topOnlyYameChoice:false
+    topOnlyYameChoice:false, chipEnabled:false
   };
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
@@ -2310,7 +2324,8 @@
       // オープンリーチ(2翻)と役満払い、国士無双の暗槓ロン
       disabledYaku:CUSTOM_YAKU_NAMES.filter(n => !["三連刻", "三風刻", "四連刻"].includes(n)),
       chiitoitsuStandardYakuStack:true, zanYakuEnabled:true,
-      openRiichiEnabled:true, openRiichiYakumanPay:true, kokushiAnkanRonEnabled:true });
+      openRiichiEnabled:true, openRiichiYakumanPay:true, kokushiAnkanRonEnabled:true,
+      chipEnabled:true }); // 段階5：チップ
   const DEFAULT_RULE_ID = "akaNeo";
   // 表紙で選んだルールIDを覚えておくキー。半荘中(savedMatchStateがまだ無いkyoku1中)でも
   // うっかりリロードした時にルールがデフォルトへ戻らないよう、savedMatchStateとは別に
@@ -2409,7 +2424,8 @@
     } catch(e){ return []; }
   }
   // 自分(bottom)から見た1半荘ぶんの結果を記録へ足す。rank・rawDiff・umaは最終順位画面と同じ値
-  function recordMatchResult(reason, ranked, umaBySeat){
+  // チップのルール(chipEnabled)は、totalにチップの枚数(終局のチップ＋局のチップの合計)を入れる(finalChipsBySeat)
+  function recordMatchResult(reason, ranked, umaBySeat, finalChipsBySeat){
     const rawDiff = scores.bottom - ruleConfig.returnPoints;
     const entry = {
       id: matchStartTime + "-" + CURRENT_RULE_ID,
@@ -2420,7 +2436,7 @@
       elapsedMs: Date.now() - matchStartTime,
       rank: ranked.indexOf("bottom") + 1,
       score: scores.bottom,
-      total: rawDiff + umaBySeat.bottom
+      total: finalChipsBySeat ? finalChipsBySeat.bottom + chips.bottom : rawDiff + umaBySeat.bottom
     };
     const log = loadMatchLog();
     log.push(entry);
@@ -2429,6 +2445,11 @@
   // 集計に使える行だけを、形をそろえて返す。同じ半荘(id)が2回入っていたら後の1行だけ残す
   // そのルールで卓に座る人数(3人打ちは3)。成績の順位の数に使う
   function seatCountOf(rule){ return rule && rule.ruleConfig && rule.ruleConfig.emptySeat ? 3 : 4; }
+  // チップの枚数で記録するルール(ザンリーグ)か
+  function isChipRule(ruleId){
+    const rule = RULESETS.find(x => x.id === ruleId);
+    return !!(rule && rule.ruleConfig && rule.ruleConfig.chipEnabled);
+  }
   function cleanMatchLog(log){
     const byId = new Map();
     log.forEach(e => {
@@ -2469,8 +2490,10 @@
         matches: g.matches, rankCounts: g.rankCounts,
         avgRank: Math.round(g.rankSum / g.matches * 100) / 100,
         topRate: Math.round(g.rankCounts[0] / g.matches * 1000) / 10,
-        // 平均合計は100点単位。点が数十点のMCR-NEO(一荘戦)だけ1点単位
-        avgTotal: matchUnitOf(g.ruleId) === "一荘" ? Math.round(g.totalSum / g.matches) : Math.round(g.totalSum / g.matches / 100) * 100,
+        // 平均合計は100点単位。点が数十点のMCR-NEO(一荘戦)だけ1点単位。チップのルールは平均チップ(0.1枚単位)
+        avgTotal: isChipRule(g.ruleId) ? Math.round(g.totalSum / g.matches * 10) / 10
+          : (matchUnitOf(g.ruleId) === "一荘" ? Math.round(g.totalSum / g.matches) : Math.round(g.totalSum / g.matches / 100) * 100),
+        totalSum: g.totalSum,
         avgHands: Math.round(g.handsSum / g.matches * 10) / 10
       }));
   }
@@ -2528,7 +2551,12 @@
       const rates = el("div", "stats-card-line");
       rates.append(el("span", "", "平均順位 " + r.avgRank.toFixed(2)), el("span", "", "トップ率 " + r.topRate + "%"));
       const sign = r.avgTotal > 0 ? "＋" : (r.avgTotal < 0 ? "－" : "±");
-      const total = el("div", "", "平均合計 " + sign + Math.abs(r.avgTotal) + "点");
+      // チップのルールは、チップの合計と平均チップ(枚)。ほかのルールは平均合計(点)
+      const chipSign = n => (n > 0 ? "＋" : (n < 0 ? "－" : "±")) + Math.abs(n);
+      const total = isChipRule(r.ruleId)
+        ? el("div", "stats-card-line")
+        : el("div", "", "平均合計 " + sign + Math.abs(r.avgTotal) + "点");
+      if(isChipRule(r.ruleId)) total.append(el("span", "", "チップ " + chipSign(r.totalSum || 0) + "枚"), el("span", "", "平均チップ " + chipSign(r.avgTotal) + "枚"));
       card.append(head, ranks, rates, total);
       body.appendChild(card);
     });
@@ -4916,6 +4944,9 @@
   const scores = savedMatchState
     ? { ...savedMatchState.scores }
     : Object.fromEntries(activeSeats(["bottom", "top", "left", "right"]).map(s => [s, ruleConfig.startingPoints]));
+  // チップ(ruleConfig.chipEnabled。ザンリーグ)：持ち点とは別に、席ごとの枚数を半荘を通して数える(合計はいつも0)。
+  // 次局へはbuildNextMatchStateでsessionStorageへ、リピートはスナップショットで局の始めに戻す
+  const chips = Object.fromEntries(activeSeats(["bottom", "top", "left", "right"]).map(s => [s, (savedMatchState && savedMatchState.chips && savedMatchState.chips[s]) || 0]));
   // 半荘（8局固定・東場2周）の進行状態。savedMatchStateが無ければ東1局・0本場・自分が親から開始
   let kyokuNumber = savedMatchState ? savedMatchState.kyokuNumber : 1; // 1〜8（連番。東1〜8局として表示。無限Original・WWスタンダードは5〜8を南1〜4局として表示）。totalKyoku:16のルール(MCR)は1〜16で、4局ごとに東南西北
   let honba = savedMatchState ? savedMatchState.honba : 0;
@@ -4983,6 +5014,7 @@
       lastDrawnCpu: {}, riichiDeclareTile: {}, riichiValidDiscards: {},
       callDecisionLog: callDecisionLog.slice(),
       scores: { ...scores },
+      chips: { ...chips },
       honba, riichiSticks, kyokuNumber, dealerSeat: DEALER_SEAT, gameEnded,
       lastDrawnTile: cloneTileRef(lastDrawnTile, map),
       riichiDeclared: { ...riichiDeclared },
@@ -5064,6 +5096,7 @@
       riichiValidDiscards[s] = snap.riichiValidDiscards[s].slice();
     });
     Object.assign(scores, snap.scores);
+    Object.assign(chips, snap.chips || {});
     honba = snap.honba;
     riichiSticks = snap.riichiSticks;
     kyokuNumber = snap.kyokuNumber;
@@ -5249,7 +5282,7 @@
   }
   // 次局の状態を保存してリロードする（通常時の「次局へ」・検証中の「次へ」の共通処理）
   function goToNextKyoku(next){
-    saveMatchState(buildNextMatchState(next, scores, riichiSticks));
+    saveMatchState(buildNextMatchState(next, scores, riichiSticks, chips));
     location.reload();
   }
 
@@ -5305,7 +5338,7 @@
     const next = real.nextMatchState;
     verifyMode = false;
     realStateBeforeVerify = null;
-    saveMatchState(buildNextMatchState(next, real.scores, real.riichiSticks));
+    saveMatchState(buildNextMatchState(next, real.scores, real.riichiSticks, real.chips));
     location.reload();
   }
 
@@ -8476,6 +8509,73 @@
     return sorted.map((seat, i) => ({ seat, amount: base + (i === 0 ? remainder : 0) }));
   }
 
+  // ==================== チップ(ruleConfig.chipEnabled。ザンリーグ) ====================
+  // 和了1回で、払う人1人あたりのチップの内訳。一発・白ポッチは1枚、裏ドラ(カン裏も)は1枚ごとに1枚、
+  // 名の付いた役満と華4和了は役満祝儀(ロン10枚・ツモ5枚ずつ。両方そろっても1回)。数え役満・役満払いは祝儀なし
+  function winChipItems(result){
+    const yaku = result.yaku || [];
+    const hanOf = name => yaku.filter(y => y.name === name).reduce((a, y) => a + y.han, 0);
+    const items = [];
+    if(hanOf("一発")) items.push({ label:"一発", count:1 });
+    const ura = hanOf("裏ドラ") + hanOf("カン裏");
+    if(ura) items.push({ label:"裏ドラ", count:ura });
+    if(result.pochiTile) items.push({ label:"白ポッチ", count:1 });
+    if(yaku.some(y => y.han >= 13) || hanOf("華4")) items.push({ label:"役満祝儀", count:result.isTsumo ? 5 : 10 });
+    return items;
+  }
+  const TOBI_CHIPS = 2; // 飛ばした人がもらうチップ(ダブロンは和了者で分ける)
+  // 和了者1人ぶんのチップを動かし、結果パネルに出す内訳を返す。payerSeats：ロンは放銃者、ツモはほかの2人(内訳の枚数ずつ払う)。
+  // tobiFrom：飛んだ人が払う飛ばしのチップ([{seat, count}])
+  function settleWinChips(winnerSeat, payerSeats, result, tobiFrom){
+    const items = winChipItems(result);
+    const each = items.reduce((a, it) => a + it.count, 0);
+    payerSeats.forEach(s => { chips[s] -= each; chips[winnerSeat] += each; });
+    let tobi = 0;
+    tobiFrom.forEach(t => { chips[t.seat] -= t.count; chips[winnerSeat] += t.count; tobi += t.count; });
+    return { items, payerCount: payerSeats.length, tobi, gain: each * payerSeats.length + tobi };
+  }
+  // 飛ばしのチップ(TOBI_CHIPS)を和了者で分ける。割り切れない分は、飛んだ人から見て頭ハネで先の人へ
+  function splitTobiChips(winnerSeats, bustSeat){
+    const order = headBumpOrder(bustSeat);
+    const sorted = winnerSeats.slice().sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    const base = Math.floor(TOBI_CHIPS / sorted.length);
+    return sorted.map((seat, i) => ({ seat, count: base + (i === 0 ? TOBI_CHIPS - base * sorted.length : 0) })).filter(t => t.count > 0);
+  }
+  // 結果パネルの「チップ」の行(チップが動かなければ出さない)。who：流し役満の時の和了した人の名前。
+  // 例：ロン「一発 +1・裏ドラ +2 → 合計 +3枚」、ツモ「一発 +1・裏ドラ +2（2人から） → 合計 +6枚」、トビ「…・飛ばし +2」
+  function chipRowHtml(c, who){
+    if(!c || c.gain === 0) return "";
+    let text = c.items.map(it => it.label + " +" + it.count).join("・");
+    if(c.items.length && c.payerCount > 1) text += "（" + c.payerCount + "人から）";
+    if(c.tobi) text += (text ? "・" : "") + "飛ばし +" + c.tobi;
+    return `<div class="result-chip"><span class="result-chip-label">チップ${who ? "（" + who + "）" : ""}</span>${text} → 合計 +${c.gain}枚</div>`;
+  }
+  // 流し役満のチップ：役満祝儀(ツモと同じ5枚ずつ)。この精算で0点になった人(トビ)は、流し役満の人に飛ばしのチップも払う
+  function settleNagashiChips(nagashiSeats){
+    const seats = activeSeats(["bottom", "right", "top", "left"]);
+    const bustSeats = seats.filter(s => !nagashiSeats.includes(s) && scores[s] <= 0);
+    return nagashiSeats.map(seat => {
+      const tobiFrom = bustSeats.flatMap(b => splitTobiChips(nagashiSeats, b).filter(t => t.seat === seat).map(t => ({ seat:b, count:t.count })));
+      const info = settleWinChips(seat, seats.filter(s => s !== seat), { isTsumo:true, yaku:[{ name:"流し役満", han:13 }] }, tobiFrom);
+      return chipRowHtml(info, seatLabel[seat]);
+    }).join("");
+  }
+  // 終局のチップ：素点を万点台の帯に当てはめて2着・3着の枚数を決め、1着は2人の合計を反対にした分(合計は0)。
+  // [2着, 3着]。帯は9万点台〜1万点台、千点台(1〜9999点)、0点。3着の6万点台以上・2着の10万点以上は起きない
+  const ZAN_FINAL_CHIP_TABLE = {
+    9:[8, 0], 8:[6, 0], 7:[4, 0], 6:[2, 0], 5:[0, -6], 4:[-2, -8], 3:[-4, -10], 2:[-6, -12], 1:[-8, -14],
+    thousand:[-10, -16], zero:[-12, -18]
+  };
+  function zanFinalChips(ranked, finalScores){
+    const band = p => p <= 0 ? "zero" : (p < 10000 ? "thousand" : Math.min(9, Math.floor(p / 10000)));
+    const res = {};
+    res[ranked[1]] = ZAN_FINAL_CHIP_TABLE[band(finalScores[ranked[1]])][0];
+    res[ranked[2]] = ZAN_FINAL_CHIP_TABLE[band(finalScores[ranked[2]])][1];
+    res[ranked[0]] = -(res[ranked[1]] + res[ranked[2]]);
+    return res;
+  }
+  function formatChips(n){ return (n > 0 ? "＋" : (n < 0 ? "－" : "±")) + Math.abs(n) + "枚"; }
+
   // ==================== 半荘進行ロジック（局・本場・親交代・終了判定） ====================
 
   // 流局時のテンパイ料精算：ノーテンの人がテンパイの人それぞれに1,000点ずつ払う
@@ -8645,8 +8745,9 @@
     return next;
   }
   // 次局へ保存する状態。席替えのあるルールだけ、持ち点を新しい位置へ並べ替え、席の割り当てと告知を足す
-  function buildNextMatchState(next, scoresNow, sticks){
+  function buildNextMatchState(next, scoresNow, sticks, chipsNow){
     const state = { scores: scoresNow, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks: sticks, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount, ruleId: CURRENT_RULE_ID };
+    if(ruleConfig.chipEnabled) state.chips = { ...chipsNow };
     if(!ruleConfig.seatChangeEnabled) return state;
     state.seatPlayers = next.seatPlayers;
     if(next.seatMove){
@@ -8794,10 +8895,19 @@
       updateKyotakuDisplay();
       renderScores();
     }
-    recordMatchResult(reason, ranked, umaBySeat);
+    // チップのルール(ザンリーグ)：終局のチップは、供託をトップへ足した後の素点の帯で決める(順位は足す前の持ち点のまま)
+    const finalChips = ruleConfig.chipEnabled ? zanFinalChips(ranked, scores) : null;
+    recordMatchResult(reason, ranked, umaBySeat, finalChips);
     announceMatchEnd(reason, ranked);
     const elapsedText = formatElapsedText(Date.now() - matchStartTime); // 音声化はしないが画面には残す
-    const rows = ranked.map((s, i) => {
+    const rows = finalChips ? ranked.map((s, i) =>
+      `<div class="final-rank-row chip-cols"><span class="final-rank-num">${i + 1}位</span>` +
+      `<span class="final-rank-name">${seatLabel[s]}</span>` +
+      `<span class="final-rank-pts">${scores[s]}点</span>` +
+      `<span class="final-rank-uma">${formatChips(finalChips[s])}</span>` +
+      `<span class="final-rank-uma">${formatChips(chips[s])}</span>` +
+      `<span class="final-rank-total">${formatChips(finalChips[s] + chips[s])}</span></div>`
+    ).join("") : ranked.map((s, i) => {
       const uma = umaBySeat[s];
       const rawDiff = scores[s] - ruleConfig.returnPoints;
       const total = rawDiff + uma;
@@ -8810,8 +8920,10 @@
     document.getElementById("finalStandings").innerHTML =
       `<div class="final-title">対局終了</div>` +
       `<div class="final-reason">${finalReasonText(reason)}／${handsPlayedCount}局 ${elapsedText}</div>` +
-      `<div class="final-rank-row final-rank-header">` +
-      `<span></span><span></span><span>${ruleConfig.umaMode === "mcrUki" ? "素点" : "素点(" + ruleConfig.returnPoints + "基準)"}</span><span>順位点</span><span>合計</span></div>` +
+      (finalChips
+        ? `<div class="final-rank-row chip-cols final-rank-header"><span></span><span></span><span>素点</span><span>終局の<br>チップ</span><span>局のチップ<br>の合計</span><span>合計<br>チップ</span></div>`
+        : `<div class="final-rank-row final-rank-header">` +
+          `<span></span><span></span><span>${ruleConfig.umaMode === "mcrUki" ? "素点" : "素点(" + ruleConfig.returnPoints + "基準)"}</span><span>順位点</span><span>合計</span></div>`) +
       rows +
       (kyotakuToTop ? `<div class="final-reason final-kyotaku">供託 ${kyotakuToTop.count}本 → トップ（${kyotakuToTop.seats.map(s => seatLabel[s]).join("・")}）${kyotakuToTop.seats.length > 1 ? "で折半" : ""}</div>` : "") +
       (ruleConfig.umaMode === "mcrUki" ? mcrFinalRuleNote(scores) : (ruleConfig.almightyTileEnabled ? mLeagueNeoFinalRuleNote() : (CURRENT_RULE_ID === "sanninNeo" ? sanninNeoFinalRuleNote() : "")));
@@ -8986,7 +9098,8 @@
   }
 
   // deltas：settleRyuukyokuが返した席ごとの増減
-  function showRyuukyokuResult(deltas, titleText){
+  // extraHtml：流し役満のチップの行など、点数の下に足す行
+  function showRyuukyokuResult(deltas, titleText, extraHtml){
     const box = document.getElementById("resultBox");
     box.style.display = "block";
     // 全員テンパイ／全員ノーテンは点数移動が発生しない（settleRyuukyoku側で0扱い）ので、
@@ -8997,7 +9110,7 @@
       const deltaText = delta > 0 ? "＋" + delta + "点" : (delta < 0 ? "－" + (-delta) + "点" : "±0点");
       return `<div class="result-yaku">${seatLabel[s]}　${deltaText}</div>`;
     }).join("");
-    box.innerHTML = `<div class="result-title">${titleText || "流局"}</div>` + rows;
+    box.innerHTML = `<div class="result-title">${titleText || "流局"}</div>` + rows + (extraHtml || "");
     addTableCheckButton(box);
   }
 
@@ -9046,7 +9159,8 @@
     renderScores();
     // テンパイ料が実際に動いた時だけ点棒の音を鳴らす（全員テンパイ・全員ノーテンは移動なし）
     if(nagashiSeats.length || (tenpaiSeats.length > 0 && notenSeats.length > 0 && ruleConfig.notenPenaltyMode !== "none")) playRandomPoints();
-    showRyuukyokuResult(deltas, nagashiSeats.length ? "流局　流し役満（" + nagashiSeats.map(s => seatLabel[s]).join("・") + "）" : undefined);
+    const nagashiChipHtml = (ruleConfig.chipEnabled && nagashiSeats.length) ? settleNagashiChips(nagashiSeats) : "";
+    showRyuukyokuResult(deltas, nagashiSeats.length ? "流局　流し役満（" + nagashiSeats.map(s => seatLabel[s]).join("・") + "）" : undefined, nagashiChipHtml);
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
@@ -9204,7 +9318,8 @@
   // paymentsBySeat: 各家の実際の支払額（seat -> 点数、本場ボーナス込み）
   // collectedKyotaku: この和了で供託から受け取った額（0なら「リーチ供託」の行を出さない）
   // honbaCount/honbaBonusTotal: 「◯本場」の内訳行を出すための値（0なら行を出さない）
-  function showResult(seat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat, collectedKyotaku, honbaCount, honbaBonusTotal){
+  // chipInfo：チップのルール(ザンリーグ)だけ、settleWinChipsの返した内訳(点数の下に「チップ」の行を出す)
+  function showResult(seat, result, loserSeat, bonusTotal, totalGain, paymentsBySeat, collectedKyotaku, honbaCount, honbaBonusTotal, chipInfo){
     revealUraDoraForWin();
     const box = document.getElementById("resultBox");
     box.style.display = "block";
@@ -9234,7 +9349,7 @@
     box.innerHTML =
       `<div class="result-title">${title}</div>` +
       rowsHtml + extraHtml +
-      totalHtml;
+      totalHtml + chipRowHtml(chipInfo);
 
     // スマホ縦向きでは、同じ中身を「大きな見出し＋役と飜数＋4人の増減＋OK」の形に組み直す
     if(isPortraitLayout()){
@@ -9273,6 +9388,7 @@
     }).join("");
     const splitEl = box.querySelector(".result-row.total-row .col-name");
     const splitText = splitEl ? splitEl.textContent : "";
+    const chipEl = box.querySelector(".result-chip"); // ザンリーグの「チップ」の行は、役の下にそのまま出す
     const sumRow = result.mcr
       ? `<div class="pr-yaku-row pr-sum"><span>合計</span><span class="pr-han">${result.capped ? result.points + "点(上限)" : result.points + "点"}</span></div>`
       : ((result.han && !isYakumanResult(result)) ? `<div class="pr-yaku-row pr-sum"><span>合計</span><span class="pr-han">${result.han}飜</span></div>` : "");
@@ -9291,7 +9407,7 @@
       `<div class="pr-head">${headline ? `<span class="pr-limit">${headline}</span>` : ""}` +
       `<span class="pr-points">${totalGain}<small>点</small></span>` +
       (splitText ? `<span class="pr-split">${splitText}</span>` : "") + `</div>` +
-      `<div class="pr-yaku">${rows}${sumRow}</div>` +
+      `<div class="pr-yaku">${rows}${sumRow}</div>` + (chipEl ? chipEl.outerHTML : "") +
       `<div class="pr-players">${players}</div>` +
       `<div class="pr-btns"><button type="button" class="pr-ok">OK</button>` +
       `<button type="button" class="pr-repeat">この局をリピート</button></div>`;
@@ -9304,7 +9420,7 @@
 
   // ダブロン用：和了者ごとにbuildYakuRowsで縦に積み、供託・本場・不足時の注記は
   // 全ブロックの下に1回だけ表示する（設計⑤）
-  function showMultiResult(winners, claims, loserSeat, finalAmounts, collectedKyotakuTotal, honbaCount, honbaBonusTotal, isShort){
+  function showMultiResult(winners, claims, loserSeat, finalAmounts, collectedKyotakuTotal, honbaCount, honbaBonusTotal, isShort, chipBySeat){
     revealUraDoraForWin();
     const box = document.getElementById("resultBox");
     box.style.display = "block";
@@ -9312,7 +9428,7 @@
       const claim = claims.find(c => c.seat === w.seat);
       const amount = finalAmounts.find(a => a.seat === w.seat).amount;
       const { title, rowsHtml } = buildYakuRows(w.seat, w.result, loserSeat, claim.akaBonus);
-      return `<div class="result-title">${title}</div>` + rowsHtml + row("", "", amount, "total-row");
+      return `<div class="result-title">${title}</div>` + rowsHtml + row("", "", amount, "total-row") + chipRowHtml(chipBySeat && chipBySeat[w.seat]);
     }).join("");
 
     let extraHtml = "";
@@ -9374,12 +9490,16 @@
       });
     }
 
+    // チップ(ザンリーグ)：ほかの2人が内訳の枚数ずつ払う。0点になった人(トビ)は飛ばしのチップも払う
+    const chipInfo = ruleConfig.chipEnabled ? settleWinChips(winnerSeat, seats.filter(s => s !== winnerSeat), result,
+      seats.filter(s => s !== winnerSeat && scores[s] <= 0).map(s => ({ seat:s, count:TOBI_CHIPS }))) : null;
+
     const paymentsBySeat = {};
     seats.forEach(s => { paymentsBySeat[s] = scoresBefore[s] - scores[s]; });
     const totalGain = scores[winnerSeat] - scoresBefore[winnerSeat];
     renderScores();
     playRandomPoints(); // 点棒を払う音（和了は必ず点数が動くので無条件に鳴らす）
-    showResult(winnerSeat, result, loserSeat, tsumo.akaBonus, totalGain, paymentsBySeat, collectedKyotaku, honba, tsumo.honbaBonus);
+    showResult(winnerSeat, result, loserSeat, tsumo.akaBonus, totalGain, paymentsBySeat, collectedKyotaku, honba, tsumo.honbaBonus, chipInfo);
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
@@ -9462,6 +9582,15 @@
     if(ruleConfig.scoreTableMode === "mcr"){
       seats.filter(s => s !== loserSeat && s !== winners[0].seat).forEach(s => { scores[s] -= 8; scores[winners[0].seat] += 8; });
     }
+    // チップ(ザンリーグ)：放銃者が和了者それぞれに払う。飛ばしのチップは、ダブロンなら和了者で分ける
+    const chipBySeat = {};
+    if(ruleConfig.chipEnabled){
+      const tobiShares = bustSeatThisHand ? splitTobiChips(winners.map(w => w.seat), loserSeat) : [];
+      winners.forEach(w => {
+        chipBySeat[w.seat] = settleWinChips(w.seat, [loserSeat], w.result,
+          tobiShares.filter(t => t.seat === w.seat).map(t => ({ seat:loserSeat, count:t.count })));
+      });
+    }
 
     const paymentsBySeat = {};
     seats.forEach(s => { paymentsBySeat[s] = scoresBefore[s] - scores[s]; });
@@ -9474,10 +9603,10 @@
       const claim = claims[0];
       const totalGain = scores[w.seat] - scoresBefore[w.seat];
       showResult(w.seat, w.result, loserSeat, claim.akaBonus, totalGain, paymentsBySeat,
-        collectedKyotakuBySeat[w.seat] || 0, honba, claim.honbaBonus);
+        collectedKyotakuBySeat[w.seat] || 0, honba, claim.honbaBonus, chipBySeat[w.seat]);
     } else {
       const honbaBonusTotal = claims.reduce((sum, c) => sum + c.honbaBonus, 0);
-      showMultiResult(winners, claims, loserSeat, finalAmounts, collectedKyotakuTotal, honba, honbaBonusTotal, isShort);
+      showMultiResult(winners, claims, loserSeat, finalAmounts, collectedKyotakuTotal, honba, honbaBonusTotal, isShort, chipBySeat);
     }
 
     setTurnIndicator("");
