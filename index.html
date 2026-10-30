@@ -146,6 +146,7 @@
   .center-mid .dora-label{
     font-size:0.82em; /* 親(.top-left-info)のfont-sizeに連動して卓と一緒に縮む */
     color:#ccc;
+    white-space:nowrap; /* 「リーチドラ牌」などの名前は途中で折り返さない */
   }
   .center-mid .riichi-dora-label{
     color:var(--honor-red);
@@ -1639,14 +1640,15 @@
         <div class="round" id="roundText">東1局 0本場</div>
         <div id="kyotakuCount" class="kyotaku-row">供託 0本</div>
       </div>
+      <!-- 並べる牌は表示牌ではなくドラになる牌そのものなので、名前を「〜牌」にする -->
       <div class="dora-row">
         <div class="dora-item">
           <div class="tile dora-tile" id="doraActualTile"></div>
-          <div class="dora-label">表ドラ</div>
+          <div class="dora-label">表ドラ牌</div>
         </div>
         <div class="dora-item">
           <div class="tile dora-tile riichi-dora-tile" id="riichiDoraActualTile"></div>
-          <div class="dora-label riichi-dora-label">リーチドラ</div>
+          <div class="dora-label riichi-dora-label">リーチドラ牌</div>
         </div>
       </div>
     </div>
@@ -10087,9 +10089,10 @@
       item.append(tile, label);
       row.appendChild(item);
     };
-    doraIndicators.slice(1).forEach(ind => addItem(ind, "kan-dora-item", "カンドラ"));
-    // 表ドラの裏側は「裏ドラ」、カンドラの裏側(2枚目以降)は「カン裏」と呼び分ける
-    if(uraDoraRevealed) riichiDoraIndicators.slice(0, doraIndicators.length).forEach((ind, i) => addItem(ind, "ura-dora-item", i === 0 ? "裏ドラ" : "カン裏"));
+    // 並べるのは表示牌ではなくドラになる牌そのものなので、名前は「〜牌」にする
+    doraIndicators.slice(1).forEach(ind => addItem(ind, "kan-dora-item", "カンドラ牌"));
+    // 表ドラの裏側は「裏ドラ牌」、カンドラの裏側(2枚目以降)は「カン裏牌」と呼び分ける
+    if(uraDoraRevealed) riichiDoraIndicators.slice(0, doraIndicators.length).forEach((ind, i) => addItem(ind, "ura-dora-item", i === 0 ? "裏ドラ牌" : "カン裏牌"));
   }
 
   // 和了の結果画面を出す時に呼ぶ(showResult・showMultiResult)。auto14のルールだけ、裏ドラ表示牌を見せる
