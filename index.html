@@ -1032,6 +1032,25 @@
   .final-standings .final-rank-row.final-rank-header + .final-rank-row{
     border-top:1px solid rgba(255,255,255,0.15);
   }
+  /* スマホ横の終了画面(半荘の終わり)だけ：最後の局の結果と順位の表を、文字・余白・行の高さを小さくして画面の高さに収める。
+     それでも入りきらない時は、結果の入れ物の中を上下にスクロールする。操作ボタン(左上)は押せる高さ(40px)にする */
+  @media (orientation: landscape) and (max-height: 500px){
+    .result-stack:has(> .final-overlay:not([style*="none"])){
+      max-height:calc(100dvh - 2 * clamp(4px, 1dvh, 10px));
+      overflow-y:auto;
+      overscroll-behavior:contain;
+      gap:4px;
+    }
+    .result-stack:has(> .final-overlay:not([style*="none"])) > *{ flex-shrink:0; }
+    .result-stack:has(> .final-overlay:not([style*="none"])) > .result-box{ font-size:11px; line-height:1.4; padding:0.5em 0.9em; }
+    .result-stack:has(> .final-overlay:not([style*="none"])) .result-box .result-chip{ font-size:11px; margin-top:2px; }
+    .final-standings{ padding:0.6em 1.1em; }
+    .final-standings .final-title{ font-size:16px; margin-bottom:0; }
+    .final-standings .final-reason{ font-size:11px; margin-bottom:4px; }
+    .final-standings .final-rank-row{ font-size:13px; padding:2px 0; }
+    .final-standings .final-rank-row.final-rank-header{ font-size:10px; padding:0 0 2px; }
+    body:has(#finalOverlay:not([style*="none"])) .result-actions button{ min-height:40px; }
+  }
   /* 結果パネルの「万能→5萬(赤)」の行(Mリーグ NEO) */
   .result-row.almighty-row .col-name, .pr-yaku-row.almighty-row span{ color:#FFD54A; font-weight:bold; }
 
