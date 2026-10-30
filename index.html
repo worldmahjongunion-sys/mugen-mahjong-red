@@ -5192,6 +5192,7 @@
     repeatBtn.onclick = enterVerifyMode;
     nextBtn.textContent = onYame ? "続ける" : "次局へ";
     nextBtn.onclick = () => goToNextKyoku(next);
+    setPortraitOkLabel("次局へ");
     showYameChoice(onYame);
     nextBtn.style.display = ""; // showFinalResultActionsで隠されている場合に備えて必ず戻す
     // 半荘の途中(まだ次局が残っている状態)なので、誤タップで打ち切ってしまわないよう確認を挟む
@@ -5203,6 +5204,16 @@
       };
     }
     actions.style.display = "flex";
+  }
+  // スマホ縦の局の結果の枠のボタン(.pr-ok)の文字。押すと帯の下の右のボタン(#nextKyokuBtn)と同じ動きになるので、
+  // その行き先に合わせる：次の局へ進む時は「次局へ」、半荘の最後の局(押すと新しい半荘が始まる)は「新しい半荘へ」
+  function portraitOkLabel(){
+    if(verifyMode) return (realStateBeforeVerify && realStateBeforeVerify.nextMatchState) ? "次局へ" : "新しい半荘へ";
+    return "次局へ";
+  }
+  function setPortraitOkLabel(label){
+    const ok = document.querySelector("#resultBox .pr-ok");
+    if(ok) ok.textContent = label;
   }
   // 同じボタン2つを、検証(リピート)モード中向けの見た目・挙動に切り替える。
   // 検証モード中はこのボタン行を常時表示し続け、対局の途中(CPUの手番中や自分の手牌選択中)
@@ -5240,6 +5251,7 @@
     repeatBtn.onclick = enterVerifyMode;
     nextBtn.textContent = "新しい半荘へ";
     nextBtn.onclick = () => location.reload();
+    setPortraitOkLabel("新しい半荘へ");
     showYameChoice(null);
     nextBtn.style.display = "";
     // 半荘は既に終了している(clearMatchState()済み)ので、確認無しでそのままホームへ戻ってよい
@@ -5263,7 +5275,7 @@
     note.textContent = "トップなので、ここで終了（やめる）か、連荘（続ける）かを選べます";
     const prBtns = box.querySelector(".pr-btns");
     if(prBtns){
-      // スマホ縦の結果表示：「OK」を「続ける」にして、その上に「やめる」を足す
+      // スマホ縦の結果表示：「次局へ」を「続ける」にして、その上に「やめる」を足す
       const ok = prBtns.querySelector(".pr-ok");
       if(ok) ok.textContent = "続ける";
       const b = document.createElement("button");
@@ -9508,9 +9520,9 @@
       (splitText ? `<span class="pr-split">${splitText}</span>` : "") + `</div>` +
       `<div class="pr-yaku">${rows}${sumRow}</div>` + (chipEl ? chipEl.outerHTML : "") +
       `<div class="pr-players">${players}</div>` +
-      `<div class="pr-btns"><button type="button" class="pr-ok">OK</button>` +
+      `<div class="pr-btns"><button type="button" class="pr-ok">${portraitOkLabel()}</button>` +
       `<button type="button" class="pr-repeat">この局をリプレイ</button></div>`;
-    // 「OK」「この局をリプレイ」は、帯の下の操作ボタン(次局へ/次へ/新しい半荘へ・リプレイ)を
+    // 「次局へ/新しい半荘へ」「この局をリプレイ」は、帯の下の操作ボタン(次局へ/次へ/新しい半荘へ・リプレイ)を
     // 押したのと同じ動きにする（ボタンの中身はshowNormal/Verify/FinalResultActionsが場面ごとに切り替える）。
     // 帯の下の同じ2つは、この表示が出ている間だけCSSで隠す
     box.querySelector(".pr-ok").onclick = () => document.getElementById("nextKyokuBtn").click();
