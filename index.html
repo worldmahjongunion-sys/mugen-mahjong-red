@@ -2760,9 +2760,11 @@
       if(!(Number.isInteger(rank) && rank >= 1 && rank <= seatCountOf(rule)) || !Number.isFinite(total) || !(hands >= 1)) return;
       const d = new Date(endedAt);
       const month = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
-      // 複式MCRは個人順位(16人中)も持つ
+      // 複式MCRは個人順位(16人中)と団体のIMPの合計も持つ
       const personalRank = Number(e.personalRank);
-      byId.set(String(e.id || endedAt), { month, ruleId: rule.id, ruleLabel: rule.label, rank, total, hands, personalRank: Number.isInteger(personalRank) ? personalRank : null });
+      const teamImp = e.teamImp === undefined || e.teamImp === null ? NaN : Number(e.teamImp);
+      byId.set(String(e.id || endedAt), { month, ruleId: rule.id, ruleLabel: rule.label, rank, total, hands, personalRank: Number.isInteger(personalRank) ? personalRank : null,
+        teamImp: Number.isFinite(teamImp) ? teamImp : null });
     });
     return Array.from(byId.values());
   }
@@ -2772,7 +2774,7 @@
     rows.forEach(r => {
       const key = r.month + "|" + r.ruleId;
       if(!groups.has(key)){
-        groups.set(key, { month: r.month, ruleId: r.ruleId, ruleLabel: r.ruleLabel, matches: 0, rankCounts: new Array(seatCountOf(RULESETS.find(x => x.id === r.ruleId))).fill(0), rankSum: 0, totalSum: 0, handsSum: 0, personalRankSum: 0, personalRankCount: 0 });
+        groups.set(key, { month: r.month, ruleId: r.ruleId, ruleLabel: r.ruleLabel, matches: 0, rankCounts: new Array(seatCountOf(RULESETS.find(x => x.id === r.ruleId))).fill(0), rankSum: 0, totalSum: 0, handsSum: 0, personalRankSum: 0, personalRankCount: 0, teamImpSum: 0, teamImpCount: 0 });
       }
       const g = groups.get(key);
       g.matches++;
@@ -2781,6 +2783,7 @@
       g.totalSum += r.total;
       g.handsSum += r.hands;
       if(r.personalRank){ g.personalRankSum += r.personalRank; g.personalRankCount++; }
+      if(r.teamImp !== null && r.teamImp !== undefined){ g.teamImpSum += r.teamImp; g.teamImpCount++; }
     });
     const ruleOrder = id => RULESETS.findIndex(r => r.id === id);
     return Array.from(groups.values())
@@ -2796,6 +2799,7 @@
           : isChipRule(g.ruleId) ? Math.round(g.totalSum / g.matches * 10) / 10
           : (matchUnitOf(g.ruleId) === "一荘" ? Math.round(g.totalSum / g.matches) : Math.round(g.totalSum / g.matches / 100) * 100),
         avgPersonalRank: g.personalRankCount ? Math.round(g.personalRankSum / g.personalRankCount * 100) / 100 : null,
+        avgTeamImp: g.teamImpCount ? Math.round(g.teamImpSum / g.teamImpCount * 100) / 100 : null,
         totalSum: g.totalSum,
         avgHands: Math.round(g.handsSum / g.matches * 10) / 10
       }));
@@ -2863,13 +2867,15 @@
       if(isChipRule(r.ruleId)) total.append(el("span", "", "チップ " + chipSign(r.totalSum || 0) + "枚"), el("span", "", "平均チップ " + chipSign(r.avgTotal) + "枚"));
       if(isDuplicateRule(r.ruleId)){
         // 複式MCR：1一荘の順位より、複数一荘の平均IMP(自分の個人IMPの合計の平均)を主に見せる。
-        // 「1〜4位の回数」は団体の順位、もう1行に個人順位(16人中)の平均
-        const imp = el("div", "stats-card-main", "平均IMP " + formatImp(r.avgTotal));
+        // その下に団体の平均IMP(自分のチームのIMPの合計の平均)。「1〜4位の回数」は団体の順位、もう1行に個人順位(16人中)の平均
+        const imp = el("div", "stats-card-main", "平均IMP(個人) " + formatImp(r.avgTotal));
+        const teamImp = el("div", "stats-card-line");
+        teamImp.append(el("span", "", "団体の平均IMP " + (r.avgTeamImp === null || r.avgTeamImp === undefined ? "－" : formatImp(r.avgTeamImp))));
         ranks.insertBefore(el("span", "stats-card-sub", "団体"), ranks.firstChild);
         rates.replaceChildren(el("span", "", "平均団体順位 " + r.avgRank.toFixed(2)), el("span", "", "団体トップ率 " + r.topRate + "%"));
         const personal = el("div", "stats-card-line");
         personal.append(el("span", "", "個人順位の平均 " + (r.avgPersonalRank === null || r.avgPersonalRank === undefined ? "－" : r.avgPersonalRank.toFixed(2)) + "(16人中)"));
-        card.append(head, imp, ranks, rates, personal);
+        card.append(head, imp, teamImp, ranks, rates, personal);
       } else {
         card.append(head, ranks, rates, total);
       }
@@ -9616,7 +9622,7 @@
     const myTeam = st.teams.find(t => t.team === 0);
     if(!duplicateFinalShown.recorded){
       duplicateFinalShown.recorded = true;
-      recordDuplicateMatchResult(reason, myTeam.rank, me.total, me.rank);
+      recordDuplicateMatchResult(reason, myTeam.rank, me.total, me.rank, myTeam.total);
       speakZundamon("rank" + myTeam.rank); // 団体の順位の声(4位は「ラスなのだ」)
     }
     const teamRows = st.teams.map(t => {
@@ -9635,13 +9641,14 @@
       + `<div class="dup-section-title">団体(${st.kyokuCount}局のIMPの合計)</div>` + teamRows
       + `<div class="dup-section-title">個人</div><div class="dup-players">` + playerRows + `</div>`;
   }
-  // 複式MCRの成績の記録：「1〜4位の回数」の欄に団体の順位、合計の欄に自分の個人IMPの合計、個人順位(16人中)も持つ
-  function recordDuplicateMatchResult(reason, teamRank, myImp, personalRank){
+  // 複式MCRの成績の記録：「1〜4位の回数」の欄に団体の順位、合計の欄に自分の個人IMPの合計、個人順位(16人中)と自分のチームのIMPの合計(teamImp)も持つ
+  function recordDuplicateMatchResult(reason, teamRank, myImp, personalRank, teamImp){
     if(DUP_SIM) return;
     const entry = {
       id: matchStartTime + "-" + CURRENT_RULE_ID, endedAt: Date.now(), ruleId: CURRENT_RULE_ID, endReason: reason.type,
       hands: handsPlayedCount, elapsedMs: Date.now() - matchStartTime,
-      rank: teamRank, score: Math.round(myImp * 100) / 100, total: Math.round(myImp * 100) / 100, personalRank
+      rank: teamRank, score: Math.round(myImp * 100) / 100, total: Math.round(myImp * 100) / 100, personalRank,
+      teamImp: Math.round(teamImp * 100) / 100
     };
     const log = loadMatchLog();
     log.push(entry);
