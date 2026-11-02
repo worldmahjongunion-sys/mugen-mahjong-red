@@ -8764,7 +8764,9 @@
     const others = activeSeats(["bottom", "top", "left", "right"]).filter(s => s !== winnerSeat);
     const honbaPerSeat = honbaCount > 0 ? honbaCount * ruleConfig.honbaTsumoBonusPerSeat : 0; // 旧applyHonbaBonusのツモ分岐
     let baseBySeat;
-    if(ruleConfig.scoreTableMode === "mcr"){
+    if(ruleConfig.scoreTableMode === "mcr" && ruleConfig.duplicateEnabled){
+      baseBySeat = () => Math.ceil(result.points / 3) + 8; // 複式MCRのツモ：3人とも「和了点÷3(切り上げ)＋8点」(和了者は下で和了点＋24点)
+    } else if(ruleConfig.scoreTableMode === "mcr"){
       baseBySeat = () => result.points + 8; // MCRのツモ：3人とも「和了点＋8点」
     } else if(result.yakunashi){
       // 旧settleYakunashiのツモ分岐：親子を問わず500点(+ドラ1につき500点)オールを3人から。
@@ -8790,7 +8792,10 @@
     // 役なしはbaseBySeatに赤牌ぶんを既に含むため、ここでの追加加算は0にする（二重計上防止）
     const akaPerSeat = result.yakunashi ? 0 : akaBonusPerPayer(result); // 旧settleAkaBonusのツモ分岐
     const payments = others.map(s => ({ seat: s, amount: baseBySeat(s) + akaPerSeat + honbaPerSeat }));
-    const nominalGain = payments.reduce((sum, p) => sum + p.amount, 0);
+    // 和了者の受取額。複式MCRは3人の支払いの合計ではなく「和了点＋24点」(公式どおり合計は0にならない。IMPの段階で比べる)
+    const nominalGain = (ruleConfig.scoreTableMode === "mcr" && ruleConfig.duplicateEnabled)
+      ? result.points + 24
+      : payments.reduce((sum, p) => sum + p.amount, 0);
     const akaBonus = result.yakunashi ? result.akaCount * 1000 * others.length : akaPerSeat * others.length;
     const honbaBonus = honbaPerSeat * others.length;
     return { payments, nominalGain, akaBonus, honbaBonus };
