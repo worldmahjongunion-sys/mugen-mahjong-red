@@ -3892,8 +3892,11 @@
   }
 
   // --- 打牌のあと：鳴きが入るか判定してから次に進む ---
+  // 今の捨て牌(複式MCRの海底撈月の判定用)。和了の判定で、仮の牌ではなく実際の捨て牌かを参照で比べる
+  let currentDiscard = null; // { seat, tile } | null
   function handleDiscard(discarderSeat, tile){
     rinshanDraw = null; // 打牌したので、嶺上牌のツモではなくなる
+    currentDiscard = { seat: discarderSeat, tile };
     if(gameEnded) return;
     // MCR：他家の捨て牌で自分の和了の形になっても、8点に届かなければロンできないことを知らせる
     // (自分の打牌では消す。次の打牌か自分のツモまで出したままにする)
@@ -5209,6 +5212,7 @@
   // もう一度cloneTileRef()で複製してから書き込む
   function applyGameStateSnapshot(snap){
     rinshanDraw = null; // 配牌直後などの状態に入れ替えるので、嶺上牌のツモの目印は持ち越さない
+    currentDiscard = null;
     const map = new Map();
     const seats = activeSeats(["bottom", "top", "left", "right"]);
     replaceArrayContents(wall, cloneTileArrayRef(snap.wall, map));
@@ -7854,7 +7858,14 @@
     // 和了の状況：日本式の海底摸月・嶺上開花・槍槓と同じ材料で判定する(槍槓の牌は河底にならない)
     const isReplacement = isTsumo && rinshanDraw !== null && rinshanDraw.seat === seat && winTile === rinshanDraw.tile;
     const isRobbingKong = !isTsumo && chankanTile !== null && winTile === chankanTile;
-    const isLastWall = wall.length === 0 && !isRobbingKong;
+    // 複式MCRは実際の和了の時だけ付ける：ツモは山から引いた牌そのもの(extraTileなし)で、引いた本人が最終牌の状態。
+    // ロンは今の捨て牌そのもので、捨てた人が最終牌の状態。CPUの点数の見積もり(仮の牌で試す)では付けない。
+    // ほかのルール(MCR-NEO)は今までどおり、山が0枚なら付ける
+    const isLastWall = !isRobbingKong && (ruleConfig.duplicateEnabled
+      ? (isTsumo
+        ? winTile === (seat === "bottom" ? lastDrawnTile : lastDrawnCpu[seat]) && isLastTileState(seat)
+        : !!currentDiscard && winTile === currentDiscard.tile && isLastTileState(currentDiscard.seat))
+      : wall.length === 0);
     const r = MCR_YAKU.evaluate({ concealed, melds, winTile, isTsumo, seatWind: SEAT_WIND[seat], roundWind: ROUND_WIND,
       isLastWall, isReplacement, isRobbingKong, isLastCopy: mcrVisibleCopies(winTile) === 3 });
     if(!r) return null;
