@@ -2133,6 +2133,9 @@
   //     終局のチップ(素点の帯の表)。終了画面は素点とチップの4列、成績はチップの枚数で記録する
   //   topOnlyYameChoice: オーラスの親が和了・聴牌で連荘する時に、その親がトップなら「やめる／続ける」を選べるか
   //     (トップ時のみのアガリやめ・聴牌やめ)。CPUの親は2着とCPU_YAME_LEAD点以上の差があればやめる
+  // 以下は複式MCRで加えた設定
+  //   duplicateEnabled: 複式(同じ配牌・同じ自摸を4卓で打ち、同じ風の4人の結果をIMPで比べる)にするか。
+  //     卓・席・チームの割り振りはDUPLICATE_*の関数(複式MCR：卓・席・チームの割り振り)で決める
   //   winCallSpeech: 和了の発声を、音声ファイル(「ロン」「ツモ」)の代わりにブラウザの音声合成で読む時の
   //     { text, lang }。nullは今までどおり音声ファイル。MCR-NEOはツモ・ロンとも中国語の「胡」(hú、二声)。
   //     その言語の声が端末に無い・音声合成が使えない時は、今までの音声ファイルを鳴らす
@@ -2146,7 +2149,7 @@
     redFivesAll:false, flowerTileCount:0, whitePochiEnabled:false,
     zanYakuEnabled:false, openRiichiYakumanPay:false, kokushiAnkanRonEnabled:false,
     scoreTableId:null, kyotakuToAnyWinner:false, multiRonHeadTakesAll:false, bustAtZero:false, tobiBonusPoints:10000,
-    topOnlyYameChoice:false, chipEnabled:false
+    topOnlyYameChoice:false, chipEnabled:false, duplicateEnabled:false
   };
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
@@ -2291,6 +2294,7 @@
       // 和了の発声はツモ・ロンとも中国語の「胡」(hú、二声)。「和」は hé と読まれることがあるので「胡」を読ませる
       winCallSpeech:{ text:"胡", lang:"zh-CN" }
     } },
+    // 複式MCR(依頼_複式MCR_仕様と段階実装.md)。設定はRULESETSの下でMCR-NEOから作る。まだ表紙から選べない(段階7で"ready"にする)
     { id:"mcrFukushiki", label:"複式MCR", status:"comingSoon", ruleConfig:null }
   ];
   // Mリーグ NEOの設定＝Mリーグ Originalの設定＋少牌・オールマイティー牌・オープンリーチ
@@ -2329,6 +2333,73 @@
       chiitoitsuStandardYakuStack:true, zanYakuEnabled:true,
       openRiichiEnabled:true, openRiichiYakumanPay:true, kokushiAnkanRonEnabled:true,
       chipEnabled:true }); // 段階5：チップ
+  // 複式MCRの設定＝MCR-NEOの設定＋複式。席は動かさず(席替えなし)、風だけが局ごとに回る(duplicateWindOf)。
+  // 段階1：設定と割り振りだけ。個人ツモ山・複式の点数・4卓の進行・IMPは後の段階で入れる
+  RULESETS.find(r => r.id === "mcrFukushiki").ruleConfig = Object.assign({},
+    RULESETS.find(r => r.id === "mcrNeo").ruleConfig,
+    { duplicateEnabled:true, seatChangeEnabled:false });
+
+  // ==================== 複式MCR：卓・席・チームの割り振り ====================
+  // 16人＝4チーム×4人。4卓(t=0〜3)に4席(s=0〜3)。自分はいつも1卓目(t=0)の席0。
+  // 席sは手番の順(s+1が下家)で、自分の卓では席0〜3＝画面の下・右・上・左(DUPLICATE_SEAT_POSITIONS)。
+  // 局k(0〜15)の席sの風は (s−k) mod 4(0=東)。親は毎局下家へ回り、自分は東1局の東家から始める(固定)。
+  // 場風は4局ごと(0〜3局目が東場)。
+  // チーム＝t XOR s、タイプ＝t XOR 2·s(2·sは4つの元の体GF(4)の掛け算。DUPLICATE_GF4_MUL2)。この形にすると、
+  //   ・どの卓にも4チーム・4タイプが1人ずつ座る
+  //   ・同じ局で同じ風に座る4人(4卓の同じ席)は、4チーム・4タイプが1人ずつになる
+  //   ・各チームに4タイプが1人ずつ入る(自分のチームはメンゼン型の代わりに自分)
+  // (チーム＝(t+s) mod 4では、この3つを同時に満たすタイプの並べ方が無い。段階0・AI雀士の報告で確認済み)
+  const DUPLICATE_TABLE_COUNT = 4;
+  const DUPLICATE_SEAT_POSITIONS = ["bottom", "right", "top", "left"]; // 自分の卓の席0〜3の画面の位置
+  const DUPLICATE_GF4_MUL2 = [0, 2, 3, 1]; // GF(4)で2を掛けた値(2·0, 2·1, 2·2, 2·3)
+  const DUPLICATE_TEAMS = [ // チーム名は四神。0が自分のチーム
+    { name:"青龍" }, { name:"白虎" }, { name:"朱雀" }, { name:"玄武" }
+  ];
+  // 打ち筋のタイプ。mark：ネームプレートに出す1文字。個性の値(AI_PERSONALITIES)は段階5の後で入れる
+  const AI_TYPES = {
+    menzen: { label:"メンゼン型", mark:"門" },
+    attack: { label:"攻撃型", mark:"攻" },
+    defense: { label:"守備型", mark:"守" },
+    speed: { label:"速攻鳴き型", mark:"速" }
+  };
+  const DUPLICATE_TYPE_ORDER = ["menzen", "attack", "defense", "speed"]; // タイプの番号(t XOR 2·s)→タイプ。0は自分の席
+  // AI雀士の名前表(依頼_複式MCR_AI雀士.md)。名前はすべて創作。差し替える時はここだけ直せばよい。
+  // team：複式MCRのチーム(DUPLICATE_TEAMSの番号)。ほかのルールで使う時は team を見なくてよい
+  const AI_ROSTER = [
+    { id:"me", name:"自分", reading:"", type:"menzen", team:0, isHuman:true },
+    { id:"todoroki", name:"轟 雷蔵", reading:"とどろき らいぞう", type:"attack", team:0 },
+    { id:"kurogane", name:"鉄 守人", reading:"くろがね もりと", type:"defense", team:0 },
+    { id:"hayate", name:"疾風 駆", reading:"はやて かける", type:"speed", team:0 },
+    { id:"kurenai", name:"紅 蓮華", reading:"くれない れんげ", type:"attack", team:1 },
+    { id:"isurugi", name:"石動 静", reading:"いするぎ しずか", type:"defense", team:1 },
+    { id:"hayami", name:"速水 迅", reading:"はやみ じん", type:"speed", team:1 },
+    { id:"kuroba", name:"黒羽 玲", reading:"くろば れい", type:"menzen", team:1 },
+    { id:"shishido", name:"獅子堂 猛", reading:"ししどう たける", type:"attack", team:2 },
+    { id:"kirishima", name:"霧島 凪", reading:"きりしま なぎ", type:"defense", team:2 },
+    { id:"ida", name:"韋駄 天也", reading:"いだ てんや", type:"speed", team:2 },
+    { id:"amagi", name:"天城 紗月", reading:"あまぎ さつき", type:"menzen", team:2 },
+    { id:"hino", name:"火野 朱音", reading:"ひの あかね", type:"attack", team:3 },
+    { id:"fudo", name:"不動 巌", reading:"ふどう いわお", type:"defense", team:3 },
+    { id:"amamiya", name:"雨宮 燕", reading:"あまみや つばめ", type:"speed", team:3 },
+    { id:"tsukishiro", name:"月白 澄", reading:"つきしろ すみ", type:"menzen", team:3 }
+  ];
+  function duplicateTeamOf(table, seat){ return table ^ seat; }
+  function duplicateTypeOf(table, seat){ return DUPLICATE_TYPE_ORDER[table ^ DUPLICATE_GF4_MUL2[seat]]; }
+  // 卓tの席sに座る人(AI_ROSTERの1件)
+  function duplicatePlayerAt(table, seat){
+    const team = duplicateTeamOf(table, seat), type = duplicateTypeOf(table, seat);
+    return AI_ROSTER.find(p => p.team === team && p.type === type);
+  }
+  // 局k(0〜15)の席sの風(0=東・1=南・2=西・3=北)と、局kで風wに座る席
+  function duplicateWindOf(seat, kyoku){ return ((seat - kyoku) % 4 + 4) % 4; }
+  function duplicateSeatOfWind(wind, kyoku){ return (wind + kyoku) % 4; }
+  // 局kで風wに座る4人(4卓の同じ席)。IMPはこの4人の点数を比べる
+  function duplicateCompareGroup(kyoku, wind){
+    const seat = duplicateSeatOfWind(wind, kyoku);
+    const group = [];
+    for(let t = 0; t < DUPLICATE_TABLE_COUNT; t++) group.push({ table:t, seat, player:duplicatePlayerAt(t, seat) });
+    return group;
+  }
   const DEFAULT_RULE_ID = "akaNeo";
   // 表紙で選んだルールIDを覚えておくキー。半荘中(savedMatchStateがまだ無いkyoku1中)でも
   // うっかりリロードした時にルールがデフォルトへ戻らないよう、savedMatchStateとは別に
