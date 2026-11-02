@@ -1728,6 +1728,7 @@
   const simTaskChannel = DUP_SIM ? new MessageChannel() : null;
   if(simTaskChannel) simTaskChannel.port1.onmessage = () => { const fn = simTaskQueue.shift(); if(fn) fn(); };
   function simDefer(fn){ simTaskQueue.push(fn); simTaskChannel.port2.postMessage(0); }
+  let simBottomScheduled = false; // 裏卓の下の席の判断を予約済みか(scheduleSimBottom)
 
   // --- 牌をリアルな見た目のSVGで描画する ---
   const KANJI_NUM = ["", "一", "二", "三", "四", "伍", "六", "七", "八", "九"];
@@ -3294,6 +3295,7 @@
   }
 
   function renderMyHand(clickable){
+    if(DUP_SIM && clickable) scheduleSimBottom(); // 裏卓：下の席の手番(切れる状態)になった
     const priorityMap = suitPriorityMap();
     // ツモ牌は並び替えの対象に含めず、常に手牌全体の一番右に別枠で表示する
     const others = myHandTiles.filter(t => t !== lastDrawnTile);
@@ -10258,7 +10260,42 @@
     if(box) box.remove();
   }
 
+  // ==================== 裏卓(DUP_SIM)の下の席：CPUのAIで打つ ====================
+  // 裏卓には人がいないので、下の席もほかのCPUと同じ判断で打つ。判断は、人が押すのと同じボタンの処理
+  // (和了・スルー・鳴きの選択・暗槓・打牌)を通す。ボタンの状態が変わるたび(updateActionButtons)と、
+  // 手牌を切れるようになった時(renderMyHand(true))に、次のタスクで1回だけ考える
+  function scheduleSimBottom(){
+    if(!DUP_SIM || simBottomScheduled) return;
+    simBottomScheduled = true;
+    simDefer(() => { simBottomScheduled = false; simBottomDecide(); });
+  }
+  function simBottomDecide(){
+    if(gameEnded) return;
+    const winBtn = document.getElementById("winBtn");
+    if(!winBtn.disabled && winBtn.onclick){ winBtn.onclick(); return; } // CPUと同じく、和了できれば必ず和了する(ツモ・ロン)
+    if(pendingCallOptions && !activeCallSelection){
+      // CPUと同じ順(カン→ポン→チー)・同じ判断(shouldCpuCall・shouldCpuChi)で鳴くかを決める
+      const o = pendingCallOptions;
+      const same = t => t.suit === o.tile.suit && t.num === o.tile.num;
+      let type = null, use = null;
+      if(o.kan && shouldCpuCall("bottom", o.tile, "kan")){ type = "kan"; use = myHandTiles.filter(same).slice(0, 3); }
+      else if(o.pon && shouldCpuCall("bottom", o.tile, "pon")){ type = "pon"; use = myHandTiles.filter(same).slice(0, 2); }
+      else if(o.chiShapes && o.chiShapes.length > 0){ use = shouldCpuChi("bottom", o.tile, o.chiShapes); if(use) type = "chi"; }
+      if(!type){ document.getElementById("throughBtn").onclick(); return; }
+      startCallSelection(type);
+      if(activeCallSelection) use.forEach(t => onSelectCallTile(t)); // 形が2つ以上ある時は、人と同じく使う牌を選ぶ
+      return;
+    }
+    if(pendingCallOptions || activeCallSelection || myHandTiles.length % 3 !== 2) return;
+    // CPUと同じく、暗槓できれば必ずする(加槓はしない)
+    const ankan = pendingSelfKan && pendingSelfKan.candidates.find(c => c.kind === "ankan");
+    if(ankan){ executeSelfKanCandidate(ankan); return; }
+    const chosen = pickCpuDiscard("bottom");
+    onDiscardMyTile(myHandTiles.indexOf(chosen.tile));
+  }
+
   function updateActionButtons(){
+    if(DUP_SIM) scheduleSimBottom();
     updateWinButton();
     updateThroughButton();
     updateCallButtons();
