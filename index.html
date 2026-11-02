@@ -8524,10 +8524,25 @@
   function mcrCpuEstimateFor(seat, tiles, extra, strict){
     return mcrCpuEstimate(countsArrayFromTiles(tiles), mcrCpuSets(seat, extra), SEAT_WIND[seat], ROUND_WIND, strict);
   }
-  // 鳴いた後の手(remaining＋新しい面子)で8点の筋が見えるか。見えない鳴きはしない
+  // 鳴いた後の手(remaining＋新しい面子)で8点の筋が見えるか。見えない鳴きはしない。
+  // 個性の valueAim(8点に届く見込みの重視)：中間値0.5は今どおり(順子の形は9枚のうち1枚まで足りない、の厳しい見方で8点に届く)。
+  // 0.5より下(速攻鳴き型)は、今の厳しい見方に加えて、打牌の時と同じゆるい見方(2枚まで足りなくてよい)で8点に届く時も鳴く
+  // ＝8点縛りに早く届く形を作って鳴く(見積もりは役が1つも見えない手を無番和で届くと数えるので、ゆるい見方だけにすると
+  // かえって届かなくなる手がある。そのため両方を見る)。
+  // 0.5より上(攻撃型・メンゼン型)は、見積もりが 8点＋(valueAim−0.5)×16 点(四捨五入)以上の時だけ鳴く＝安い鳴きをしない
   function mcrCpuCallReaches(seat, remaining, kind, tiles){
     const tile = Math.min(...tiles.map(t => TILE_INDEX_MAP.get(tileKey(t))));
-    return mcrCpuEstimateFor(seat, remaining, { kind, tile, open: true }, true).reach;
+    const v = personalityOfSeat(seat).valueAim;
+    const est = mcrCpuEstimateFor(seat, remaining, { kind, tile, open: true }, true);
+    if(v < 0.5) return est.reach || mcrCpuEstimateFor(seat, remaining, { kind, tile, open: true }, false).reach;
+    if(!est.reach) return false;
+    return v === 0.5 || est.points >= ruleConfig.minWinPoints + Math.round((v - 0.5) * 16);
+  }
+  // MCRの打牌で、受け入れ枚数を最大から何枚まで減らしても8点の筋を優先するか。中間値0.5は今の4枚(BEHIND_UKEIRE_TOLERANCE)、
+  // valueAim×8(四捨五入)。速攻鳴き型(0.25)は2枚＝効率寄り、メンゼン型(0.85)は7枚＝8点・高打点寄り
+  function mcrCpuUkeireTolerance(seat){
+    const v = personalityOfSeat(seat).valueAim;
+    return v === 0.5 ? BEHIND_UKEIRE_TOLERANCE : Math.round(v * 8);
   }
   // 13枚(hands[seat]からtileを抜いた形)の待ちのうち、本物の判定で8点に届く(ロンかツモのどちらかで)待ちの残り枚数
   function mcrCpuLegalWaitCount(seat, tile, visible){
@@ -8564,7 +8579,7 @@
       c.est = bestShanten === 0 ? { points: 0, reach: true } : mcrCpuEstimateFor(seat, c.remaining);
     });
     const maxUkeire = Math.max(...best.map(c => c.ukeire));
-    const pool = bestShanten === 0 ? best : best.filter(c => c.ukeire >= maxUkeire - BEHIND_UKEIRE_TOLERANCE);
+    const pool = bestShanten === 0 ? best : best.filter(c => c.ukeire >= maxUkeire - mcrCpuUkeireTolerance(seat)); // 個性の valueAim
     pool.sort((a, b) => {
       if(a.est.reach !== b.est.reach) return a.est.reach ? -1 : 1;
       if(b.est.points !== a.est.points) return b.est.points - a.est.points;
