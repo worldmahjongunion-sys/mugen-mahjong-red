@@ -2486,6 +2486,35 @@
     }
     return imps;
   }
+  // 同点は同じ順位にして次を飛ばす(1・1・3位)。小数の足し算の誤差で同点が分かれないよう、差が1e-9未満は同点とみなす
+  const DUPLICATE_TIE_EPS = 1e-9;
+  function duplicateRanks(values){
+    return values.map(v => 1 + values.filter(o => o > v + DUPLICATE_TIE_EPS).length);
+  }
+  // 局の記録(duplicateKyokuLog)→ 局ごと・累計の集計。3卓の結果(または欠け)がそろった局だけを数える。
+  // 返り値 { kyokuCount, byKyoku:[{ kyoku, imps:{id:IMP} }],
+  //   players:[{ id, name, team, type, total, rank }](順位の順。同点は名前表の順)、
+  //   teams:[{ team, name, total, rank, members:[id…] }](順位の順。同点はチームの番号の順) }
+  // 合計は小数のまま足す(団体はチーム4人の個人の合計)
+  function duplicateStandings(log){
+    const byKyoku = [];
+    (log || []).forEach(entry => {
+      const imps = duplicateKyokuImps(entry);
+      if(imps) byKyoku.push({ kyoku: entry.kyoku, imps });
+    });
+    const totals = {};
+    AI_ROSTER.forEach(p => { totals[p.id] = 0; });
+    byKyoku.forEach(k => Object.keys(k.imps).forEach(id => { totals[id] += k.imps[id]; }));
+    const pRanks = duplicateRanks(AI_ROSTER.map(p => totals[p.id]));
+    const players = AI_ROSTER.map((p, i) => ({ id: p.id, name: p.name, team: p.team, type: p.type, total: totals[p.id], rank: pRanks[i], order: i }))
+      .sort((a, b) => a.rank - b.rank || a.order - b.order);
+    const teamTotals = DUPLICATE_TEAMS.map((t, i) => AI_ROSTER.filter(p => p.team === i).reduce((a, p) => a + totals[p.id], 0));
+    const tRanks = duplicateRanks(teamTotals);
+    const teams = DUPLICATE_TEAMS.map((t, i) => ({ team: i, name: t.name, total: teamTotals[i], rank: tRanks[i], members: AI_ROSTER.filter(p => p.team === i).map(p => p.id) }))
+      .sort((a, b) => a.rank - b.rank || a.team - b.team);
+    players.forEach(p => { delete p.order; });
+    return { kyokuCount: byKyoku.length, byKyoku, players, teams };
+  }
   // IMPの表示(小数第2位まで、符号つき)
   function formatImp(v){
     const r = Math.round(v * 100) / 100;
