@@ -2447,13 +2447,15 @@
   //   valueAim(0〜1)：打点志向。複式MCRでは「8点に届く見込みをどれだけ重視するか」。中間値0.5で今のMCRのAI
   //     (受け入れの差4枚まで8点の筋を優先・鳴きは8点の筋がはっきり見える時だけ)
   //   redDoraKeep・behindAggression(0〜1)：赤・ドラの温存、沈んでいる時の攻め。中間値0.5で今の値。複式MCRでは使わない
-  const AI_PERSONALITY_NEUTRAL = { meldEagerness:0.5, riichiBias:0.5, pushLevel:null, valueAim:0.5, redDoraKeep:0.5, behindAggression:0.5 };
+  //   lateFoldWall(整数かnull)：MCRの押し引きで、自分の山の残りがこの枚数以下(終盤)になったら、副露の無い相手も含めて
+  //     全員を「気配のある相手」と見る。nullは終盤を見ない(今どおり)。守備型だけが持つ(11/3、白石さんの調整 案A)
+  const AI_PERSONALITY_NEUTRAL = { meldEagerness:0.5, riichiBias:0.5, pushLevel:null, valueAim:0.5, redDoraKeep:0.5, behindAggression:0.5, lateFoldWall:null };
   // 初期値は依頼文の目安から。調整はここの数字だけを変えればよい
   const AI_PERSONALITIES = {
     // 攻撃型：押し強め(降りない)・高い手を狙う
     attack:  { meldEagerness:0.5,  riichiBias:0.8, pushLevel:99, valueAim:0.75, redDoraKeep:0.7, behindAggression:0.8 },
     // 守備型：押さない(1シャンテンから降りる)・安全牌優先
-    defense: { meldEagerness:0.4,  riichiBias:0.4, pushLevel:1,  valueAim:0.5,  redDoraKeep:0.4, behindAggression:0.3 },
+    defense: { meldEagerness:0.4,  riichiBias:0.4, pushLevel:1,  valueAim:0.5,  redDoraKeep:0.4, behindAggression:0.3, lateFoldWall:6 }, // 終盤(自分の山が6枚以下)は全員を警戒
     // 速攻鳴き型：よく鳴く。8点縛りに早く届く形(見込みが少し薄くても)を作って鳴く
     speed:   { meldEagerness:0.9,  riichiBias:0.5, pushLevel:2,  valueAim:0.25, redDoraKeep:0.5, behindAggression:0.5 },
     // メンゼン型：ほとんど鳴かない・高打点狙い
@@ -8568,8 +8570,13 @@
   // MCRにはリーチが無いので、相手の副露・聴牌気配に対して降り始める。pushLevel が null(中間値＝今のMCRのAI)なら降りない。
   // 気配のある相手：副露が3つ以上、または副露が2つで8点の筋が見える(混一色・碰碰和・役牌など)
   function mcrCpuThreats(seat){
+    // 終盤(個性の lateFoldWall)：自分の山(複式MCR以外は共通の山)の残りがその枚数以下なら、ほかの全員を気配ありと見る
+    const late = personalityOfSeat(seat).lateFoldWall;
+    const left = ruleConfig.duplicateEnabled ? ownWalls[seat].length : wall.length;
+    const isLate = late !== null && late !== undefined && left <= late;
     return activeSeats(["bottom", "right", "top", "left"]).filter(s => {
       if(s === seat) return false;
+      if(isLate) return true;
       const sets = mcrCpuSets(s);
       if(sets.length >= 3) return true;
       if(sets.length < 2) return false;
