@@ -873,6 +873,20 @@
        「8000・16000」のような分割表記でも収まる幅に拡げつつ、狭い画面ではvwで縮める */
     max-width:min(260px, 68vw);
   }
+  /* 複式MCR：局の終わりの各卓の結果(風×卓の表)。4列なので結果の枠より広く、字は小さめ */
+  .result-box.duplicate-tables{ max-width:min(440px, 96vw); font-size:clamp(9px, calc(var(--tile-h) * 0.33), 12px); line-height:1.35; padding:0.5em 0.6em; }
+  .duplicate-tables .dt-title{ font-weight:bold; color:var(--gold); margin-bottom:3px; }
+  .duplicate-tables table{ border-collapse:collapse; width:100%; }
+  .duplicate-tables th, .duplicate-tables td{ border:1px solid rgba(201,162,39,0.35); padding:2px 3px; vertical-align:top; }
+  .duplicate-tables th{ color:#ccc; font-weight:normal; white-space:nowrap; }
+  .duplicate-tables td .dt-name{ white-space:nowrap; color:#E8E2CF; }
+  .duplicate-tables td .dt-num{ white-space:nowrap; }
+  .duplicate-tables td.dt-team{ background:rgba(60,140,220,0.18); } /* 自分のチーム(青龍) */
+  .duplicate-tables td.dt-me{ background:rgba(60,140,220,0.38); }
+  .duplicate-tables td.dt-missing{ color:#999; text-align:center; vertical-align:middle; }
+  .duplicate-tables .dt-plus{ color:#7fd17f; }
+  .duplicate-tables .dt-minus{ color:#ff8f8f; }
+  .duplicate-tables .dt-note{ color:#bbb; margin-top:3px; }
   .result-box .result-title{
     font-size:17px;
     font-weight:bold;
@@ -1684,6 +1698,7 @@
          #resultBoxのすぐ下に#finalStandingsが並ぶ（捨て牌を隠さないようにするための変更） -->
     <div class="result-stack">
       <div class="result-box" id="resultBox" style="display:none;"></div>
+      <div class="result-box duplicate-tables" id="duplicateTablesBox" style="display:none;"></div>
       <div class="final-overlay" id="finalOverlay" style="display:none;">
         <div class="final-standings" id="finalStandings"></div>
       </div>
@@ -5671,6 +5686,8 @@
   // 上書きしない（上書きすると「次へ」が本番の次局ではなく検証中の状態に基づいてしまう）
   function enterVerifyMode(){
     if(!handStartSnapshot) return;
+    const dtBox = document.getElementById("duplicateTablesBox"); // 複式MCR：各卓の結果は本番の局の終わりにだけ出す
+    if(dtBox) dtBox.style.display = "none";
     if(!verifyMode){
       realStateBeforeVerify = captureGameStateSnapshot();
       realStateBeforeVerify.nextMatchState = lastNextMatchStateForRepeat;
@@ -9655,6 +9672,41 @@
   function duplicateSimsPending(){
     return duplicateSims.started && Object.values(duplicateSims.tables).some(x => !x.result && !x.missing);
   }
+  // 局の終わりに、各卓の結果(同じ風の4人の点数とIMP)を風×卓の表で出す(#duplicateTablesBox)。
+  // 3卓の結果がそろうまでは「集計中…」、欠けた卓の列は「欠け」。自分のマスと自分のチーム(青龍)の人は色を付ける
+  function renderDuplicateTablesBox(){
+    const box = document.getElementById("duplicateTablesBox");
+    if(!box || !ruleConfig.duplicateEnabled || DUP_SIM) return;
+    const entry = duplicateKyokuLog.find(e => e.kyoku === kyokuNumber);
+    if(!entry || verifyMode){ box.style.display = "none"; return; }
+    const imps = duplicateKyokuImps(entry); // そろうまでは null
+    const WIND = ["東", "南", "西", "北"];
+    const numClass = v => v > 0 ? "dt-plus" : (v < 0 ? "dt-minus" : "");
+    let html = `<div class="dt-title">各卓の結果(点数 / IMP)</div><table><tr><th></th>`;
+    for(let t = 0; t < DUPLICATE_TABLE_COUNT; t++) html += `<th>${t + 1}卓${t === 0 ? "(自分)" : ""}</th>`;
+    html += `</tr>`;
+    for(let w = 0; w < 4; w++){
+      html += `<tr><th>${WIND[w]}</th>`;
+      for(let t = 0; t < DUPLICATE_TABLE_COUNT; t++){
+        const rec = t === 0 ? entry : (entry.tables && entry.tables[t]);
+        if(rec && rec.missing){ html += `<td class="dt-missing">欠け</td>`; continue; }
+        if(!rec){ html += `<td class="dt-missing">…</td>`; continue; }
+        const pos = DUPLICATE_SEAT_POSITIONS.find(p => rec.winds[p] === w + 1);
+        const pl = duplicatePlayerAt(t, DUPLICATE_SEAT_POSITIONS.indexOf(pos));
+        const pts = rec.byWind[w];
+        const imp = imps ? imps[pl.id] : null;
+        const cls = pl.id === "me" ? "dt-me" : (pl.team === 0 ? "dt-team" : "");
+        html += `<td class="${cls}"><div class="dt-name">${pl.name}${pl.isHuman ? "" : " " + AI_TYPES[pl.type].mark}</div>`
+          + `<div class="dt-num"><span class="${numClass(pts)}">${pts > 0 ? "+" : ""}${pts}</span> / `
+          + (imp === null ? "…" : `<span class="${numClass(Math.round(imp * 100))}">${formatImp(imp)}</span>`) + `</div></td>`;
+      }
+      html += `</tr>`;
+    }
+    html += `</table>`;
+    if(!imps) html += `<div class="dt-note">集計中…</div>`;
+    box.innerHTML = html;
+    box.style.display = "block";
+  }
   // この局の記録に、受け取った裏卓の結果を付ける(tables[t] = { deltas, winds, byWind }。t=1〜3が2〜4卓目)。
   // 欠けた卓は tables[t] = { missing:true }
   function attachDuplicateSimResults(){
@@ -9666,6 +9718,7 @@
       if(x.result) entry.tables[t] = { deltas: x.result.deltas, winds: x.result.winds, byWind: x.result.byWind, outcome: x.result.outcome, melded: x.result.melded };
       else if(x.missing) entry.tables[t] = { missing: true };
     });
+    renderDuplicateTablesBox();
   }
   // 局の結果の「次局へ」(スマホ縦の結果の枠のボタンも)を、3卓の結果がそろうまで押せなくする
   function updateDuplicateWaitUI(){
