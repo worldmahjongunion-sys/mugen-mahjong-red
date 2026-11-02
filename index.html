@@ -2435,6 +2435,62 @@
     for(let t = 0; t < DUPLICATE_TABLE_COUNT; t++) group.push({ table:t, seat, player:duplicatePlayerAt(t, seat) });
     return group;
   }
+  // ==================== 複式MCR：IMP(依頼文§4) ====================
+  // 各局・各風ごとに、同じ風の4人(4卓の同じ席)の点数(その局の増減)を比べる。
+  // 1. 4人の点数の平均を出す  2. 差＝自分の点数−平均  3. 差の絶対値の整数部分で表(DUPLICATE_IMP_TABLE)を引き、
+  //    差がマイナスならIMPもマイナス  4. 4人の表のIMPの平均を、各人のIMPから引く(同じ風の4人の合計が必ず0になる)。
+  // 小数はそのまま持ち(表示は小数第2位まで)、合計も小数のまま足す。
+  // 欠けた卓(裏卓が打ち直しても結果を返さなかった。tables[t].missing)の4人はその局のIMPを0にし、
+  // 残りの卓の同じ風の人で、同じ平均基準＋合計0の調整をする(残りが1卓以下なら全員0)
+  const DUPLICATE_IMP_TABLE = [ // [点差の下限, IMP]。点差が下限以上の最後の行のIMP
+    [0, 0], [2, 1], [6, 2], [10, 3], [16, 4], [24, 5], [32, 6], [40, 7], [48, 8], [56, 9], [64, 10],
+    [72, 11], [84, 12], [96, 13], [108, 14], [132, 15], [156, 16], [180, 17], [212, 18], [244, 19], [296, 20]
+  ];
+  // 点差(符号つき、小数あり)→表のIMP(符号つき)。表は絶対値の整数部分で引く
+  function duplicateImpOfDiff(diff){
+    const a = Math.floor(Math.abs(diff));
+    let imp = 0;
+    DUPLICATE_IMP_TABLE.forEach(([min, v]) => { if(a >= min) imp = v; });
+    return diff < 0 ? -imp : imp;
+  }
+  // 同じ風の人の点数の配列 → 調整後のIMPの配列(合計0)
+  function duplicateImpsOfGroup(points){
+    if(points.length < 2) return points.map(() => 0);
+    const avg = points.reduce((a, b) => a + b, 0) / points.length;
+    const raw = points.map(x => duplicateImpOfDiff(x - avg));
+    const rawAvg = raw.reduce((a, b) => a + b, 0) / raw.length;
+    return raw.map(x => x - rawAvg);
+  }
+  // 局の記録1件(1卓目の結果＋tables[1〜3])→ その局の各人のIMP { 人のid: IMP }。16人とも入る(欠けた卓の人は0)。
+  // 3卓の結果(または欠け)がまだそろっていなければ null。卓tで風wに座る人は、その卓の記録の winds(席→風)から引く
+  function duplicateKyokuImps(entry){
+    const tables = [{ deltas: entry.deltas, winds: entry.winds, byWind: entry.byWind }];
+    for(let t = 1; t < DUPLICATE_TABLE_COUNT; t++){
+      const x = entry.tables && entry.tables[t];
+      if(!x) return null;
+      tables.push(x);
+    }
+    const imps = {};
+    tables.forEach((x, t) => {
+      DUPLICATE_SEAT_POSITIONS.forEach((pos, seat) => { imps[duplicatePlayerAt(t, seat).id] = 0; });
+    });
+    for(let w = 0; w < 4; w++){
+      const members = []; // 欠けていない卓の、風wの人
+      tables.forEach((x, t) => {
+        if(x.missing) return;
+        const pos = DUPLICATE_SEAT_POSITIONS.find(p => x.winds[p] === w + 1);
+        members.push({ id: duplicatePlayerAt(t, DUPLICATE_SEAT_POSITIONS.indexOf(pos)).id, points: x.byWind[w] });
+      });
+      const adj = duplicateImpsOfGroup(members.map(m => m.points));
+      members.forEach((m, i) => { imps[m.id] = adj[i]; });
+    }
+    return imps;
+  }
+  // IMPの表示(小数第2位まで、符号つき)
+  function formatImp(v){
+    const r = Math.round(v * 100) / 100;
+    return (r > 0 ? "＋" : (r < 0 ? "－" : "±")) + Math.abs(r).toFixed(2); // 成績の画面と同じ全角の符号
+  }
   const DEFAULT_RULE_ID = "akaNeo";
   // 表紙で選んだルールIDを覚えておくキー。半荘中(savedMatchStateがまだ無いkyoku1中)でも
   // うっかりリロードした時にルールがデフォルトへ戻らないよう、savedMatchStateとは別に
