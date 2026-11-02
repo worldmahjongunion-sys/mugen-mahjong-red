@@ -2468,6 +2468,15 @@
     return AI_PERSONALITIES[type] || AI_PERSONALITY_NEUTRAL;
   }
 
+  // 鳴く確率。advancing：鳴くとシャンテンが進むか(falseは変わらない)。個性の meldEagerness で決める。
+  // 中間値0.5は今の値(進む85%・変わらない25%)をそのまま返す(計算の誤差で今の動きとずれないように)。
+  // 0に近づくと進む5%・変わらない0%、1に近づくと進む100%・変わらない60%(その間は直線でつなぐ)
+  function cpuCallProbability(seat, advancing){
+    const m = personalityOfSeat(seat).meldEagerness;
+    if(m === 0.5) return advancing ? 0.85 : 0.25;
+    if(advancing) return m < 0.5 ? 0.05 + 0.8 * (m / 0.5) : 0.85 + 0.15 * ((m - 0.5) / 0.5);
+    return m < 0.5 ? 0.25 * (m / 0.5) : 0.25 + 0.35 * ((m - 0.5) / 0.5);
+  }
   // CPUの判断に使う乱数(0以上1未満)。ほかのルールは今までどおり Math.random()。
   // 複式MCRは、同じ配牌・同じ自摸で4卓を比べるので、「局・その人の風・その卓でのその人の判断の通し番号」で決まる
   // 固定の並びにする(白石さん承認の案A)。同じ局・同じ風の4人は、4卓とも同じ乱数の並びを使うので、差が出るのは
@@ -4306,7 +4315,7 @@
       if(!best || afterShanten < best.afterShanten) best = { combo, afterShanten, yakuCheck };
     });
     if(!best || best.afterShanten > beforeShanten) return null;
-    const prob = best.yakuCheck === "lateDealer" ? 1 : (best.afterShanten < beforeShanten ? 0.85 : 0.25);
+    const prob = best.yakuCheck === "lateDealer" ? 1 : cpuCallProbability(seat, best.afterShanten < beforeShanten); // 個性の鳴きやすさ
     return cpuRandom(seat) < prob ? best.combo : null; // 複式MCRは固定の並びの乱数
   }
 
@@ -8784,7 +8793,7 @@
     // 役なしで和了できないルール：役の見込みがない鳴きはしない(終盤の仮聴牌は例外。上のcpuCallYakuCheck)
     const yakuCheck = cpuCallNeedsYaku() ? cpuCallYakuCheck(seat, remaining, used, tile, type, beforeShanten, afterShanten) : "yaku";
     if(!yakuCheck) return false;
-    const prob = yakuCheck === "lateDealer" ? 1 : (afterShanten < beforeShanten ? 0.85 : 0.25);
+    const prob = yakuCheck === "lateDealer" ? 1 : cpuCallProbability(seat, afterShanten < beforeShanten); // 個性の鳴きやすさ
     return cpuRandom(seat) < prob; // 複式MCRは固定の並びの乱数
   }
 
