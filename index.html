@@ -8560,9 +8560,57 @@
     hand.splice(idx, 0, removed);
     return { shape, legal };
   }
+  // ==================== MCRの押し引き(個性の pushLevel。白石さん承認の案③) ====================
+  // MCRにはリーチが無いので、相手の副露・聴牌気配に対して降り始める。pushLevel が null(中間値＝今のMCRのAI)なら降りない。
+  // 気配のある相手：副露が3つ以上、または副露が2つで8点の筋が見える(混一色・碰碰和・役牌など)
+  function mcrCpuThreats(seat){
+    return activeSeats(["bottom", "right", "top", "left"]).filter(s => {
+      if(s === seat) return false;
+      const sets = mcrCpuSets(s);
+      if(sets.length >= 3) return true;
+      if(sets.length < 2) return false;
+      // 副露2つで見える8点の筋：1色(と字牌)にまとまっている・刻子だけ(碰碰和)・役牌の刻子(三元牌・圏風・門風)
+      const suits = new Set(sets.filter(x => x.tile < 27).map(x => Math.floor(x.tile / 9)));
+      const oneSuit = suits.size === 1;
+      const allPung = sets.every(x => x.kind !== "chow");
+      const valuePung = sets.some(x => x.kind !== "chow" && (x.tile >= 31 || x.tile === 26 + ROUND_WIND || x.tile === 26 + SEAT_WIND[s]));
+      return oneSuit || allPung || valuePung;
+    });
+  }
+  // 降りる時に切る牌。安全度の高い順：1. その牌が4枚とも見えている(自分の手を含む) 2. 3枚見えている字牌
+  // 3. 気配のある相手全員の捨て牌にある(MCRはフリテンが無いので安全ではないが、待ちに残しにくい) 4. 1・9牌。
+  // 同じ段の中ではシャンテン数の小さい(形を崩さない)方。どの段にも無ければ null(いつもどおり押す)
+  function mcrCpuSafeDiscard(seat, candidates, threats){
+    const visible = buildVisibleCounts(seat);
+    const tierOf = c => {
+      const idx = TILE_INDEX_MAP.get(c.kind);
+      if(visible[idx] >= 4) return 1;
+      if(idx >= 27 && visible[idx] >= 3) return 2;
+      if(threats.every(t => discards[t].some(d => tileKey(d) === c.kind))) return 3;
+      if(idx < 27 && (idx % 9 === 0 || idx % 9 === 8)) return 4;
+      return 0;
+    };
+    const safe = candidates.map(c => ({ c, tier: tierOf(c) })).filter(x => x.tier > 0);
+    if(safe.length === 0) return null;
+    safe.sort((a, b) => a.tier - b.tier || a.c.shanten - b.c.shanten);
+    return safe[0];
+  }
+
   // MCRのCPUの打牌。8点に届かないテンパイは1シャンテンとして扱い、
   // 1シャンテン以上では受け入れ枚数の差がBEHIND_UKEIRE_TOLERANCE枚以内の中で、8点の筋が見える牌を残す
   function pickCpuDiscardMcr(seat, candidates){
+    // 押し引き：気配のある相手がいて、自分のシャンテン数が個性の pushLevel 以上なら降りる(nullは今どおり降りない)
+    const pushLevel = personalityOfSeat(seat).pushLevel;
+    if(pushLevel !== null && pushLevel !== undefined){
+      const threats = mcrCpuThreats(seat);
+      if(threats.length > 0 && Math.min(...candidates.map(c => c.shanten)) >= pushLevel){
+        const safe = mcrCpuSafeDiscard(seat, candidates, threats);
+        if(safe){
+          console.log("[CPU打牌AI MCR]", seat, "降り(相手:" + threats.join(",") + ")", "段" + safe.tier, "→選択=" + safe.c.kind);
+          return { tile: safe.c.tile, declareRiichi: false };
+        }
+      }
+    }
     const calledMeldsCount = melds[seat].length;
     const visible = buildVisibleCounts(seat);
     candidates.forEach(c => {
@@ -8631,7 +8679,8 @@
     // 公開された待ちが分かっているオープンリーチの人は、上で扱ったので、現物で守る相手からは外す
     // 3人打ちは相手2人(もう1人のCPUと自分)の両方を見る。4人のルールは今までどおり、CPUの3席だけを見る
     const dangerousSeats = activeSeats(EMPTY_SEAT ? ["bottom", "top", "left", "right"] : ["top", "left", "right"]).filter(s => s !== seat && riichiDeclared[s] && !openRiichiDeclared[s]);
-    if(dangerousSeats.length > 0 && bestShanten >= 1){
+    const foldShanten = personalityOfSeat(seat).pushLevel ?? 1; // 個性の押し引き(中間値nullは今どおり1シャンテン以上で降りる)
+    if(dangerousSeats.length > 0 && bestShanten >= foldShanten){
       const safe = candidates.filter(c => dangerousSeats.every(s => isGenbutsu(c.tile, s)));
       if(safe.length > 0){
         safe.sort((a, b) => a.shanten - b.shanten);
