@@ -8725,12 +8725,18 @@
     const maxUkeire = Math.max(...bestCandidates.map(c => c.ukeire));
     // 沈んでいる時だけ、受け入れ枚数が最大からBEHIND_UKEIRE_TOLERANCE枚以内に収まる候補に絞り、
     // その中で最も価値の低い(＝温存する価値が無い)牌から切る。沈んでいなければ従来通り全候補が対象
-    const pool = behind
-      ? bestCandidates.filter(c => c.ukeire >= maxUkeire - BEHIND_UKEIRE_TOLERANCE)
+    // 個性(中間値0.5は今どおり)：behindAggression は沈んでいる時の幅(×8枚)、redDoraKeep が0.5より上なら
+    // 沈んでいない時も (redDoraKeep−0.5)×8 枚の幅で赤・ドラを残す。複式MCR(赤・ドラ・沈み無し)では通らない
+    const pe = personalityOfSeat(seat);
+    const behindTol = pe.behindAggression === 0.5 ? BEHIND_UKEIRE_TOLERANCE : Math.round(pe.behindAggression * 8);
+    const keepTol = pe.redDoraKeep > 0.5 ? Math.round((pe.redDoraKeep - 0.5) * 8) : 0;
+    const valueFirst = behind || keepTol > 0;
+    const pool = valueFirst
+      ? bestCandidates.filter(c => c.ukeire >= maxUkeire - (behind ? behindTol : keepTol))
       : bestCandidates;
 
     pool.sort((a, b) => {
-      if(behind){
+      if(valueFirst){
         if(a.value !== b.value) return a.value - b.value; // 価値の低い方(温存しない方)を先に＝それを切る
         return b.ukeire - a.ukeire;
       }
@@ -8744,8 +8750,10 @@
     console.log("[CPU打牌AI]", seat, "沈み=" + behind, "最小シャンテン=" + bestShanten,
       "候補=" + bestCandidates.map(c => c.kind + (c.tile.red ? "(赤)" : "") + ":sh" + c.shanten + "/uk" + c.ukeire + "/val" + c.value).join(", "),
       "→選択=" + chosen.kind + (chosen.tile.red ? "(赤)" : ""));
+    // 個性の riichiBias：中間値0.5以上は今どおり聴牌即リーチ。それより下は riichiBias×2 の確率でリーチ(残りはダマ)
     const willRiichi = ruleConfig.riichiEnabled && bestShanten === 0 && !riichiDeclared[seat] && isClosedHand(seat)
-      && scores[seat] >= 1000 && confirmTenpaiAfterDiscard(seat, chosen.tile);
+      && scores[seat] >= 1000 && confirmTenpaiAfterDiscard(seat, chosen.tile)
+      && (pe.riichiBias >= 0.5 || cpuRandom(seat) < pe.riichiBias * 2);
     return { tile: chosen.tile, declareRiichi: willRiichi };
   }
 
