@@ -2453,7 +2453,7 @@
   // 初期値は依頼文の目安から。調整はここの数字だけを変えればよい
   const AI_PERSONALITIES = {
     // 攻撃型：押し強め(降りない)・高い手を狙う
-    attack:  { meldEagerness:0.5,  riichiBias:0.8, pushLevel:99, valueAim:0.75, redDoraKeep:0.7, behindAggression:0.8 },
+    attack:  { meldEagerness:0.5,  riichiBias:0.8, pushLevel:99, valueAim:0.55, redDoraKeep:0.7, behindAggression:0.8 }, // valueAim 0.75→0.55(11/3、鳴きを増やす。0.6では副露率9.6%で目安15〜25%に届かなかった)
     // 守備型：押さない(1シャンテンから降りる)・安全牌優先
     defense: { meldEagerness:0.4,  riichiBias:0.4, pushLevel:1,  valueAim:0.5,  redDoraKeep:0.4, behindAggression:0.3, lateFoldWall:6 }, // 終盤(自分の山が6枚以下)は全員を警戒
     // 速攻鳴き型：よく鳴く。8点縛りに早く届く形(見込みが少し薄くても)を作って鳴く
