@@ -2462,6 +2462,8 @@
   // seat(画面の位置)のCPUの個性。複式MCRでは、その卓(自分の卓は0、裏卓は DUP_SIM.table)・席に座る人のタイプの個性。
   // 自分の卓の下(自分)はメンゼン型の席(完全CPU戦で自分の席をCPUに打たせる時に使う)。ほかのルールは中間値
   function personalityOfSeat(seat){
+    // 裏卓に席ごとのタイプ(DUP_SIM.personalities)が渡されていればそれを使う(タイプ別の確かめ用。複式MCRの対局では渡さない)
+    if(DUP_SIM && DUP_SIM.personalities) return AI_PERSONALITIES[DUP_SIM.personalities[seat]] || AI_PERSONALITY_NEUTRAL;
     if(!ruleConfig.duplicateEnabled) return AI_PERSONALITY_NEUTRAL;
     const table = DUP_SIM ? DUP_SIM.table : 0;
     const type = duplicateTypeOf(table, DUPLICATE_SEAT_POSITIONS.indexOf(seat));
@@ -2584,7 +2586,7 @@
   // 表紙で選んだ瞬間からずっと持たせておく。「ホームページに戻る」でのみクリアする
   const SELECTED_RULE_ID_KEY = "mugenMahjongRedSelectedRuleId";
   function loadSelectedRuleId(){
-    if(DUP_SIM) return "mcrFukushiki";
+    if(DUP_SIM) return DUP_SIM.ruleId || "mcrFukushiki"; // 裏卓。ruleId はタイプ別の確かめ(リーチのあるルール)で使う
     try { return sessionStorage.getItem(SELECTED_RULE_ID_KEY); } catch(e){ return null; }
   }
   function saveSelectedRuleId(id){
@@ -4076,6 +4078,8 @@
   // --- 打牌のあと：鳴きが入るか判定してから次に進む ---
   // 今の捨て牌(複式MCRの海底撈月の判定用)。和了の判定で、仮の牌ではなく実際の捨て牌かを参照で比べる
   let currentDiscard = null; // { seat, tile } | null
+  // この局の放銃者(ロンの時)。ツモ・流局はnull。局の記録(複式MCR)と、裏卓の確かめ用の結果に使う
+  let kyokuLoser = null;
   function handleDiscard(discarderSeat, tile){
     rinshanDraw = null; // 打牌したので、嶺上牌のツモではなくなる
     currentDiscard = { seat: discarderSeat, tile };
@@ -9639,7 +9643,7 @@
     entry.tables = entry.tables || {};
     Object.keys(duplicateSims.tables).forEach(t => {
       const x = duplicateSims.tables[t];
-      if(x.result) entry.tables[t] = { deltas: x.result.deltas, winds: x.result.winds, byWind: x.result.byWind };
+      if(x.result) entry.tables[t] = { deltas: x.result.deltas, winds: x.result.winds, byWind: x.result.byWind, outcome: x.result.outcome, melded: x.result.melded };
       else if(x.missing) entry.tables[t] = { missing: true };
     });
   }
@@ -9673,12 +9677,20 @@
     Object.keys(SEAT_WIND).forEach(s => { sig[SEAT_WIND[s] - 1] = key(handStartSnapshot.hands[s]) + "/" + key(handStartSnapshot.ownWalls[s]); });
     return sig;
   }
-  function recordDuplicateKyoku(){
+  // この局の終わり方：{ winners:[和了した席], loser:放銃した席(ツモ・流局はnull) } と、副露(暗槓を除く)の数 { 席:数 }
+  function kyokuOutcomeOf(winnerSeats){
+    const winners = (winnerSeats || []).slice();
+    return { winners, loser: winners.length > 0 && !winners.includes(kyokuLoser) ? kyokuLoser : null };
+  }
+  function openMeldCounts(){
+    return Object.fromEntries(activeSeats(["bottom", "right", "top", "left"]).map(s => [s, melds[s].filter(m => m.type !== "ankan").length]));
+  }
+  function recordDuplicateKyoku(winnerSeats){
     if(!ruleConfig.duplicateEnabled) return;
     const deltas = { ...scores };
     const byWind = [0, 0, 0, 0];
     Object.keys(deltas).forEach(s => { byWind[SEAT_WIND[s] - 1] = deltas[s]; });
-    const entry = { kyoku: kyokuNumber, deltas, winds: { ...SEAT_WIND }, byWind };
+    const entry = { kyoku: kyokuNumber, deltas, winds: { ...SEAT_WIND }, byWind, outcome: kyokuOutcomeOf(winnerSeats), melded: openMeldCounts() };
     duplicateKyokuLog.push(entry);
     attachDuplicateSimResults(); // 先に終わった裏卓の結果を付ける(残りは届いた時に付ける)
     // 裏卓：この局の結果を親へ返す(親はevent.sourceとtokenで自分が作った裏卓からのものか確かめる)
@@ -9696,8 +9708,15 @@
 
     const seatsWon = winnerSeats || [];
     const finishedKyoku = kyokuNumber;
-    recordDuplicateKyoku(); // 複式MCR：この局の各席の点数の増減を記録する(段階5のIMPの材料)
+    recordDuplicateKyoku(seatsWon); // 複式MCR：この局の各席の点数の増減を記録する(段階5のIMPの材料)
     const reason = bustSeat ? { type: "bust", seat: bustSeat } : checkMatchEnd(scores, finishedKyoku, renchan);
+    // 複式MCR以外のルールの裏卓(タイプ別の確かめ用)：局の結果と次の局の状態を親へ返す(親が半荘を続ける)
+    if(DUP_SIM && !ruleConfig.duplicateEnabled){
+      const next = reason ? null : computeNextMatchState({ kyokuNumber, honba, dealerSeat: DEALER_SEAT }, renchan, seatsWon.length > 0);
+      try { window.parent.postMessage({ type: "simKyokuEnd", token: DUP_SIM.token, kyoku: kyokuNumber, honba, dealer: DEALER_SEAT, scores: { ...scores }, ended: !!reason,
+        next: next && { kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat }, riichiSticks,
+        outcome: kyokuOutcomeOf(seatsWon), melded: openMeldCounts(), riichi: { ...riichiDeclared } }, "*"); } catch(e){}
+    }
     if(reason){
       // 飛び賞(tobiBonusPoints。ザンリーグは0で払わない)
       if(reason.type === "bust" && seatsWon.length > 0 && ruleConfig.tobiBonusPoints > 0){
@@ -10225,6 +10244,7 @@
   // robbedTileは槍槓の時だけ渡す（加槓しようとした牌。河には無いので、河から取り除かない）
   function finalizeRon(winners, loserSeat, robbedTile){
     gameEnded = true;
+    kyokuLoser = loserSeat;
     playWinCall(false); // ロンの瞬間（誰の和了でも）に鳴らす(MCR-NEOは音声合成の「胡」)
 
     // ロン牌は「鳴き」の延長として扱う：放銃者の河（実配列）からは取り除き、元の位置には
