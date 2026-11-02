@@ -1034,6 +1034,18 @@
     font-weight:bold;
     color:var(--gold);
   }
+  /* 複式MCRの終了画面は縦に長い(団体4行＋個人16行)ので、どの画面でも結果の入れ物の中を上下にスクロールできるようにする */
+  html.duplicate-rule .result-stack:has(> .final-overlay:not([style*="none"])){ max-height:calc(100dvh - 2 * clamp(4px, 1dvh, 10px)); overflow-y:auto; }
+  html.duplicate-rule .result-stack:has(> .final-overlay:not([style*="none"])) > *{ flex-shrink:0; }
+  /* 複式MCRの終了画面：団体(4チーム)と個人(16人)の順位とIMP。自分のチーム(青龍)は青、自分はさらに濃い青 */
+  .final-standings .dup-section-title{ font-size:13px; color:var(--gold); text-align:left; margin:8px 0 2px; font-weight:bold; }
+  .final-standings .dup-rank-row{ display:grid; grid-template-columns:2.6em 1fr auto; gap:0 8px; align-items:baseline; font-size:15px; padding:3px 4px; border-top:1px solid rgba(255,255,255,0.15); text-align:left; }
+  .final-standings .dup-rank-row.dup-player{ font-size:13px; padding:1px 4px; }
+  .final-standings .dup-rank-num{ font-weight:bold; color:var(--gold); text-align:center; }
+  .final-standings .dup-rank-name small{ font-size:0.75em; opacity:0.75; margin-left:6px; }
+  .final-standings .dup-rank-imp{ text-align:right; font-variant-numeric:tabular-nums; font-weight:bold; }
+  .final-standings .dup-my-team{ background:rgba(60,140,220,0.18); }
+  .final-standings .dup-me{ background:rgba(60,140,220,0.4); }
   /* ザンリーグの終了画面：素点・終局のチップ・局のチップの合計・合計チップの4列 */
   .final-standings .final-rank-row.chip-cols{
     grid-template-columns:2em 3.6em auto auto auto auto;
@@ -1144,6 +1156,9 @@
   /* MCR：和了の形でも8点に届かない時の告知(showUnderMinNotice)。邪魔ポンの告知と同じ場所・同じ形で、点滅はしない */
   /* MCR：CPUの名前(席替えのあるルールだけJSが足す) */
   .nameplate .player-name{ font-size:0.72em; color:#E8E2CF; }
+  /* 成績：複式MCRは平均IMPを大きく出す */
+  .stats-card-main{ font-size:1.25em; font-weight:bold; color:var(--gold); margin:2px 0; }
+  .stats-card-sub{ opacity:0.75; }
   /* 複式MCR：CPUの打ち筋のタイプの1文字(攻・守・速・門)。名前の後ろに小さく枠で囲んで出す */
   .nameplate .type-mark{ font-size:0.62em; color:#E8E2CF; border:1px solid rgba(232,226,207,0.6); border-radius:3px; padding:0 2px; margin-left:2px; line-height:1.2; }
   /* MCR：席替えがあった局の頭の告知(showSeatChangeNotice)。数秒で消える */
@@ -2722,6 +2737,11 @@
   // 集計に使える行だけを、形をそろえて返す。同じ半荘(id)が2回入っていたら後の1行だけ残す
   // そのルールで卓に座る人数(3人打ちは3)。成績の順位の数に使う
   function seatCountOf(rule){ return rule && rule.ruleConfig && rule.ruleConfig.emptySeat ? 3 : 4; }
+  // 複式のルール(複式MCR)か。成績は団体の順位・平均IMP・個人順位の平均で出す
+  function isDuplicateRule(ruleId){
+    const rule = RULESETS.find(x => x.id === ruleId);
+    return !!(rule && rule.ruleConfig && rule.ruleConfig.duplicateEnabled);
+  }
   // チップの枚数で記録するルール(ザンリーグ)か
   function isChipRule(ruleId){
     const rule = RULESETS.find(x => x.id === ruleId);
@@ -2740,7 +2760,9 @@
       if(!(Number.isInteger(rank) && rank >= 1 && rank <= seatCountOf(rule)) || !Number.isFinite(total) || !(hands >= 1)) return;
       const d = new Date(endedAt);
       const month = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
-      byId.set(String(e.id || endedAt), { month, ruleId: rule.id, ruleLabel: rule.label, rank, total, hands });
+      // 複式MCRは個人順位(16人中)も持つ
+      const personalRank = Number(e.personalRank);
+      byId.set(String(e.id || endedAt), { month, ruleId: rule.id, ruleLabel: rule.label, rank, total, hands, personalRank: Number.isInteger(personalRank) ? personalRank : null });
     });
     return Array.from(byId.values());
   }
@@ -2750,7 +2772,7 @@
     rows.forEach(r => {
       const key = r.month + "|" + r.ruleId;
       if(!groups.has(key)){
-        groups.set(key, { month: r.month, ruleId: r.ruleId, ruleLabel: r.ruleLabel, matches: 0, rankCounts: new Array(seatCountOf(RULESETS.find(x => x.id === r.ruleId))).fill(0), rankSum: 0, totalSum: 0, handsSum: 0 });
+        groups.set(key, { month: r.month, ruleId: r.ruleId, ruleLabel: r.ruleLabel, matches: 0, rankCounts: new Array(seatCountOf(RULESETS.find(x => x.id === r.ruleId))).fill(0), rankSum: 0, totalSum: 0, handsSum: 0, personalRankSum: 0, personalRankCount: 0 });
       }
       const g = groups.get(key);
       g.matches++;
@@ -2758,6 +2780,7 @@
       g.rankSum += r.rank;
       g.totalSum += r.total;
       g.handsSum += r.hands;
+      if(r.personalRank){ g.personalRankSum += r.personalRank; g.personalRankCount++; }
     });
     const ruleOrder = id => RULESETS.findIndex(r => r.id === id);
     return Array.from(groups.values())
@@ -2768,8 +2791,11 @@
         avgRank: Math.round(g.rankSum / g.matches * 100) / 100,
         topRate: Math.round(g.rankCounts[0] / g.matches * 1000) / 10,
         // 平均合計は100点単位。点が数十点のMCR-NEO(一荘戦)だけ1点単位。チップのルールは平均チップ(0.1枚単位)
-        avgTotal: isChipRule(g.ruleId) ? Math.round(g.totalSum / g.matches * 10) / 10
+        // 複式MCRは平均IMP(小数第2位まで)
+        avgTotal: isDuplicateRule(g.ruleId) ? Math.round(g.totalSum / g.matches * 100) / 100
+          : isChipRule(g.ruleId) ? Math.round(g.totalSum / g.matches * 10) / 10
           : (matchUnitOf(g.ruleId) === "一荘" ? Math.round(g.totalSum / g.matches) : Math.round(g.totalSum / g.matches / 100) * 100),
+        avgPersonalRank: g.personalRankCount ? Math.round(g.personalRankSum / g.personalRankCount * 100) / 100 : null,
         totalSum: g.totalSum,
         avgHands: Math.round(g.handsSum / g.matches * 10) / 10
       }));
@@ -2835,7 +2861,18 @@
         ? el("div", "stats-card-line")
         : el("div", "", "平均合計 " + sign + Math.abs(r.avgTotal) + "点");
       if(isChipRule(r.ruleId)) total.append(el("span", "", "チップ " + chipSign(r.totalSum || 0) + "枚"), el("span", "", "平均チップ " + chipSign(r.avgTotal) + "枚"));
-      card.append(head, ranks, rates, total);
+      if(isDuplicateRule(r.ruleId)){
+        // 複式MCR：1一荘の順位より、複数一荘の平均IMP(自分の個人IMPの合計の平均)を主に見せる。
+        // 「1〜4位の回数」は団体の順位、もう1行に個人順位(16人中)の平均
+        const imp = el("div", "stats-card-main", "平均IMP " + formatImp(r.avgTotal));
+        ranks.insertBefore(el("span", "stats-card-sub", "団体"), ranks.firstChild);
+        rates.replaceChildren(el("span", "", "平均団体順位 " + r.avgRank.toFixed(2)), el("span", "", "団体トップ率 " + r.topRate + "%"));
+        const personal = el("div", "stats-card-line");
+        personal.append(el("span", "", "個人順位の平均 " + (r.avgPersonalRank === null || r.avgPersonalRank === undefined ? "－" : r.avgPersonalRank.toFixed(2)) + "(16人中)"));
+        card.append(head, imp, ranks, rates, personal);
+      } else {
+        card.append(head, ranks, rates, total);
+      }
       body.appendChild(card);
     });
     note.textContent = "";
@@ -9509,6 +9546,7 @@
   // 素点・合計は35,000持ち・40,000返しのハウスルールに合わせ、40,000点を原点とした±表示にする
   // （合計＝(素点-40,000)+順位点）
   function showFinalStandings(reason){
+    if(ruleConfig.duplicateEnabled && !DUP_SIM){ showDuplicateFinalStandings(reason); return; } // 複式MCRは団体・個人の順位
     // 終局時に場に残った供託：leftoverKyotakuToTopのルール(赤入り無限NEO・Mリーグ NEO・3人打ちNEO)は、トップの持ち点に足す。
     // 順位と順位点・オカは足す前の持ち点で決める(同点トップは同点のまま折半)。供託は100点単位で折半し、割り切れない端数は
     // 今の順位の決め方(あなた→下家→対面→上家)で上の人に付ける(2人で1本なら500ずつ、3人で1本なら400・300・300)
@@ -9556,6 +9594,58 @@
       rows +
       (kyotakuToTop ? `<div class="final-reason final-kyotaku">供託 ${kyotakuToTop.count}本 → トップ（${kyotakuToTop.seats.map(s => seatLabel[s]).join("・")}）${kyotakuToTop.seats.length > 1 ? "で折半" : ""}</div>` : "");
     document.getElementById("finalOverlay").style.display = "flex";
+  }
+
+  // ==================== 複式MCRの終了画面 ====================
+  // 団体(4チーム)の1〜4位と、個人(16人)の1〜16位を、全局のIMPの合計で出す。自分のチーム(青龍)の行に色を付け、自分の行はさらに濃くする。
+  // 最後の局の裏卓の結果がまだなら「集計中…」と出し、そろった時(attachDuplicateSimResults)にもう一度呼ばれる。
+  // 成績への記録と順位の声は、そろった時に1回だけ
+  let duplicateFinalShown = null; // { reason, recorded }
+  function showDuplicateFinalStandings(reason){
+    duplicateFinalShown = duplicateFinalShown || { reason, recorded: false };
+    const el = document.getElementById("finalStandings");
+    const elapsedText = formatElapsedText(Date.now() - matchStartTime);
+    const head = `<div class="final-title">対局終了</div><div class="final-reason">${finalReasonText(reason)}／${handsPlayedCount}局 ${elapsedText}</div>`;
+    document.getElementById("finalOverlay").style.display = "flex";
+    if(duplicateSimsPending()){
+      el.innerHTML = head + `<div class="final-reason">最後の局の各卓を集計中…</div>`;
+      return;
+    }
+    const st = duplicateStandings(duplicateKyokuLog);
+    const me = st.players.find(p => p.id === "me");
+    const myTeam = st.teams.find(t => t.team === 0);
+    if(!duplicateFinalShown.recorded){
+      duplicateFinalShown.recorded = true;
+      recordDuplicateMatchResult(reason, myTeam.rank, me.total, me.rank);
+      speakZundamon("rank" + myTeam.rank); // 団体の順位の声(4位は「ラスなのだ」)
+    }
+    const teamRows = st.teams.map(t => {
+      const members = t.members.map(id => AI_ROSTER.find(p => p.id === id).name).join("・");
+      return `<div class="dup-rank-row${t.team === 0 ? " dup-my-team" : ""}"><span class="dup-rank-num">${t.rank}位</span>`
+        + `<span class="dup-rank-name">${t.name}<small>${members}</small></span><span class="dup-rank-imp">${formatImp(t.total)}</span></div>`;
+    }).join("");
+    const playerRows = st.players.map(p => {
+      const pl = AI_ROSTER.find(x => x.id === p.id);
+      const cls = p.id === "me" ? " dup-me" : (p.team === 0 ? " dup-my-team" : "");
+      return `<div class="dup-rank-row dup-player${cls}"><span class="dup-rank-num">${p.rank}位</span>`
+        + `<span class="dup-rank-name">${pl.name}${pl.isHuman ? "" : " <small>" + AI_TYPES[pl.type].mark + "</small>"}<small>${DUPLICATE_TEAMS[p.team].name}</small></span>`
+        + `<span class="dup-rank-imp">${formatImp(p.total)}</span></div>`;
+    }).join("");
+    el.innerHTML = head
+      + `<div class="dup-section-title">団体(${st.kyokuCount}局のIMPの合計)</div>` + teamRows
+      + `<div class="dup-section-title">個人</div><div class="dup-players">` + playerRows + `</div>`;
+  }
+  // 複式MCRの成績の記録：「1〜4位の回数」の欄に団体の順位、合計の欄に自分の個人IMPの合計、個人順位(16人中)も持つ
+  function recordDuplicateMatchResult(reason, teamRank, myImp, personalRank){
+    if(DUP_SIM) return;
+    const entry = {
+      id: matchStartTime + "-" + CURRENT_RULE_ID, endedAt: Date.now(), ruleId: CURRENT_RULE_ID, endReason: reason.type,
+      hands: handsPlayedCount, elapsedMs: Date.now() - matchStartTime,
+      rank: teamRank, score: Math.round(myImp * 100) / 100, total: Math.round(myImp * 100) / 100, personalRank
+    };
+    const log = loadMatchLog();
+    log.push(entry);
+    try { localStorage.setItem(MATCH_LOG_KEY, JSON.stringify(log)); } catch(e){}
   }
 
   // 局終了後の共通処理：終了条件を満たしていれば最終順位画面を出し、満たしていなければ
@@ -9719,6 +9809,7 @@
       else if(x.missing) entry.tables[t] = { missing: true };
     });
     renderDuplicateTablesBox();
+    if(duplicateFinalShown && !duplicateSimsPending()) showDuplicateFinalStandings(duplicateFinalShown.reason); // 最後の局がそろった
   }
   // 局の結果の「次局へ」(スマホ縦の結果の枠のボタンも)を、3卓の結果がそろうまで押せなくする
   function updateDuplicateWaitUI(){
