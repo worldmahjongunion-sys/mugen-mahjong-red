@@ -1939,7 +1939,8 @@
     const div = document.createElement("div");
     div.className = "tile " + cls + (isRed ? " red-five" : "");
     const imgName = tileImageName(suit, num, isRed);
-    div.innerHTML = `<img src="images/tiles/${imgName}.png">`
+    // 裏卓(DUP_SIM)は画面に出さないので牌の絵を付けない(画像を読みに行かない＝外部ファイルを読まない)
+    div.innerHTML = (DUP_SIM ? "" : `<img src="images/tiles/${imgName}.png">`)
       + (src && src.flower ? `<span class="flower-mark">花</span>` : "")
       + (src && src.pochi ? `<span class="pochi-dot"></span>` : "");
     return div;
