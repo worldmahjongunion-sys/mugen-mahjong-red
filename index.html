@@ -3725,8 +3725,9 @@
   // 嶺上牌が8枚あるルール(auto18)も、カンは卓全体で4回まで
   // 3人打ち(KAN_DORA_FROM_LIVE_WALL)は、カンドラにする山(ツモの最後の2枚)をカンドラにしてもツモが1枚以上残る時、
   // つまり残り牌が3枚以上の時だけカンできる(暗槓・加槓・大明槓、自分にもCPUにも同じ。海底でカンできないのと同じ考え方)
-  function rinshanAvailable(){
-    if(NO_DEAD_WALL) return wall.length > 0;
+  // seat：カンする人。複式MCRはその人の山の末尾から嶺上牌を取るので、その人の山が空ならカンできない
+  function rinshanAvailable(seat){
+    if(NO_DEAD_WALL) return !ownWallEmpty(seat); // ほかの王牌なしのルール(MCR-NEO)は今までどおり共通の山が空でなければ
     if(KAN_DORA_FROM_LIVE_WALL && wall.length < 3) return false;
     return deadWall.length > DEAD_WALL_INITIAL_SIZE - RINSHAN_TILES && (RINSHAN_TILES === 4 || kanCountOnTable() < 4);
   }
@@ -3876,7 +3877,7 @@
       // 河底牌（山0枚の捨て牌）はチー・ポン・大明槓できない（ロンだけ）
       const callable = wall.length > 0;
       const pon = callable && !riichiDeclared.bottom && canPon(myHandTiles, tile);
-      const kan = callable && !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
+      const kan = callable && !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable("bottom");
       const chi = (callable && ruleConfig.chiEnabled && !riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
       const selfWin = winners.find(w => w.seat === "bottom");
       pendingRon = selfWin ? { discarderSeat, result: selfWin.result, allWinners: winners } : null;
@@ -3906,7 +3907,7 @@
       // 河底牌（山0枚の捨て牌）はチー・ポン・大明槓できないので、和了・スルーだけを出す
       const callable = !isMultiRon && wall.length > 0;
       const pon = callable && !riichiDeclared.bottom && canPon(myHandTiles, tile);
-      const kan = callable && !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
+      const kan = callable && !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable("bottom");
       const chi = (callable && ruleConfig.chiEnabled && !riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
       pendingRon = { discarderSeat, result: selfWin.result, allWinners: winners };
       pendingCallOptions = { discarderSeat, tile, pon, kan, chiShapes: chi };
@@ -3934,7 +3935,7 @@
       return;
     }
     const bottomPon = discarderSeat !== "bottom" && !riichiDeclared.bottom && canPon(myHandTiles, tile);
-    const bottomKan = discarderSeat !== "bottom" && !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable();
+    const bottomKan = discarderSeat !== "bottom" && !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable("bottom");
     const bottomChiShapes = (ruleConfig.chiEnabled && !riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
 
     if(bottomPon || bottomKan){
@@ -3963,7 +3964,7 @@
     const seats = activeSeats(["right", "top", "left"]).filter(s => s !== discarderSeat && s !== excludeSeat && !riichiDeclared[s]);
     for(const s of seats){
       const pon = canPon(hands[s], tile);
-      const kan = canKan(hands[s], tile) && rinshanAvailable();
+      const kan = canKan(hands[s], tile) && rinshanAvailable(s);
       if(pon || kan) return { seat: s, pon, kan };
     }
     return null;
@@ -4181,7 +4182,7 @@
   function maybeCpuCalls(discarderSeat, tile){
     const seats = activeSeats(["right", "top", "left"]).filter(s => s !== discarderSeat && !riichiDeclared[s]);
     for(const s of seats){
-      if(canKan(hands[s], tile) && rinshanAvailable() && shouldCpuCall(s, tile, "kan")) return { seat:s, type:"kan" };
+      if(canKan(hands[s], tile) && rinshanAvailable(s) && shouldCpuCall(s, tile, "kan")) return { seat:s, type:"kan" };
     }
     for(const s of seats){
       if(canPon(hands[s], tile) && shouldCpuCall(s, tile, "pon")) return { seat:s, type:"pon" };
@@ -4463,7 +4464,7 @@
 
   function cpuDrawAndDiscard(seat){
     if(gameEnded) return;
-    if(wall.length === 0){
+    if(ownWallEmpty(seat)){ // 複式MCRは自分の山が空なら流局(ほかのルールは共通の山が空なら)
       handleRyuukyoku();
       return;
     }
@@ -4492,7 +4493,7 @@
       ? findAnkanTile(hands[seat])
       : (findAllAnkanTiles(hands[seat]).filter(t => canAnkanAfterRiichi(seat, t))[0] || null);
     // 海底牌（山の最後の1枚）をツモった手番では暗槓できない
-    if(ankanTile && rinshanAvailable() && wall.length > 0){
+    if(ankanTile && rinshanAvailable(seat) && wall.length > 0){
       executeCpuAnkan(seat, ankanTile);
       return;
     }
@@ -4573,7 +4574,7 @@
 
   function playerDraw(){
     if(gameEnded) return;
-    if(wall.length === 0){
+    if(ownWallEmpty("bottom")){ // 複式MCRは自分の山が空なら流局
       handleRyuukyoku();
       return;
     }
@@ -4700,7 +4701,7 @@
   // 暗槓：鳴きを介さず、手牌だけで同じ牌が4枚揃っている時（手牌全体を毎回スキャン）
   // 両方が同時に成立することもあるため、候補は配列でまとめて返す
   function computeSelfKanCandidates(drawnTile){
-    if(!rinshanAvailable()) return [];
+    if(!rinshanAvailable("bottom")) return [];
     if(wall.length === 0) return []; // 海底牌（山の最後の1枚）をツモった手番では暗槓も加槓もできない
     const list = [];
     if(drawnTile && !riichiDeclared.bottom){ // リーチ後は加槓不可
