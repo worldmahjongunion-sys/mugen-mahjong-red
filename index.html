@@ -2360,8 +2360,8 @@
       // 和了の発声はツモ・ロンとも中国語の「胡」(hú、二声)。「和」は hé と読まれることがあるので「胡」を読ませる
       winCallSpeech:{ text:"胡", lang:"zh-CN" }
     } },
-    // 複式MCR(依頼_複式MCR_仕様と段階実装.md)。設定はRULESETSの下でMCR-NEOから作る。まだ表紙から選べない(段階7で"ready"にする)
-    { id:"mcrFukushiki", label:"複式MCR", status:"comingSoon", ruleConfig:null }
+    // 複式MCR(依頼_複式MCR_仕様と段階実装.md)。設定はRULESETSの下でMCR-NEOから作る
+    { id:"mcrFukushiki", label:"複式MCR", status:"ready", ruleConfig:null }
   ];
   // Mリーグ NEOの設定＝Mリーグ Originalの設定＋少牌・オールマイティー牌・オープンリーチ
   RULESETS.find(r => r.id === "mLeagueNeo").ruleConfig = Object.assign({},
