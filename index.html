@@ -9067,6 +9067,11 @@
   function buildNextMatchState(next, scoresNow, sticks, chipsNow){
     const state = { scores: scoresNow, kyokuNumber: next.kyokuNumber, honba: next.honba, dealerSeat: next.dealerSeat, riichiSticks: sticks, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount, ruleId: CURRENT_RULE_ID };
     if(ruleConfig.chipEnabled) state.chips = { ...chipsNow };
+    // 複式MCR：持ち点は使わない。次の局はどの席も0点から始め、これまでの局の増減(duplicateKyokuLog)を持ち越す
+    if(ruleConfig.duplicateEnabled){
+      state.scores = Object.fromEntries(Object.keys(scoresNow).map(s => [s, 0]));
+      state.duplicateLog = duplicateKyokuLog.slice();
+    }
     if(!ruleConfig.seatChangeEnabled) return state;
     state.seatPlayers = next.seatPlayers;
     if(next.seatMove){
@@ -9257,6 +9262,18 @@
   // トビを検出できない。ryuukyoku（流局）由来のトビはこれまで通りcheckMatchEndの負数チェックに任せる）
   // winnerSeats：この局の和了者（複数可、無ければ[]）。トビ賞10,000点は和了者の人数で
   // 均等分配する（ダブロン対応、設計④）。単独なら従来通り全額1人が受け取る
+  // 複式MCRの局ごとの記録。1局＝{ kyoku, deltas:{席:増減}, winds:{席:風(1東〜4北)}, byWind:[東,南,西,北の増減] }。
+  // 局の始めはどの席も0点なので、局の終わりの持ち点がそのまま増減になる。次局へはbuildNextMatchStateで持ち越す。
+  // リプレイ(検証モード)では記録しない(proceedOrEndMatchの頭で戻るため)
+  const duplicateKyokuLog = (ruleConfig.duplicateEnabled && savedMatchState && savedMatchState.duplicateLog) ? savedMatchState.duplicateLog.slice() : [];
+  function recordDuplicateKyoku(){
+    if(!ruleConfig.duplicateEnabled) return;
+    const deltas = { ...scores };
+    const byWind = [0, 0, 0, 0];
+    Object.keys(deltas).forEach(s => { byWind[SEAT_WIND[s] - 1] = deltas[s]; });
+    duplicateKyokuLog.push({ kyoku: kyokuNumber, deltas, winds: { ...SEAT_WIND }, byWind });
+  }
+
   function proceedOrEndMatch(renchan, winnerSeats, bustSeat){
     // 検証(リピート)モード中は、次局への進行判定も最終順位判定も一切行わない
     // （sessionStorageへの書き込みも起きない）。結果表示(スコア・役)自体は呼び出し側で
@@ -9266,6 +9283,7 @@
 
     const seatsWon = winnerSeats || [];
     const finishedKyoku = kyokuNumber;
+    recordDuplicateKyoku(); // 複式MCR：この局の各席の点数の増減を記録する(段階5のIMPの材料)
     const reason = bustSeat ? { type: "bust", seat: bustSeat } : checkMatchEnd(scores, finishedKyoku, renchan);
     if(reason){
       // 飛び賞(tobiBonusPoints。ザンリーグは0で払わない)
