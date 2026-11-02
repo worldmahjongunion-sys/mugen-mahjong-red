@@ -1707,6 +1707,28 @@
 </div>
 
 <script>
+  // ==================== 複式MCRの裏卓(DUP_SIM) ====================
+  // 複式MCRでは、自分の卓のほかに3つの卓(CPUだけ)を、見えないiframeで同じページを動かして打つ。
+  // iframeは外部ファイルを読まずに作るため(file://・単一HTML版でも動くように)、このスクリプトが動き始めた時点の
+  // ページのHTML(まだ何も書き換えていない)を控えておき、srcdocに入れる。
+  // 裏卓のページには、親がwindow.__DUP_SIM__({ token, table, matchState, deal })を先に入れておく。
+  // DUP_SIMがある時は：保存(sessionStorage・localStorage)をしない・音を出さない・牌の絵の先読みや大きさ合わせをしない・
+  // 待ち時間なしで手番を進める・下の席もCPUのAIで打つ(段階4-2)・局の終わりに結果を親へ返す
+  const PAGE_HTML_SOURCE = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+  const DUP_SIM = window.__DUP_SIM__ || null;
+  const DUP_SIM_STARTED_AT = Date.now();
+  if(DUP_SIM){
+    // 裏卓で起きたエラーは親に知らせる(親の扱いは白石さんの返事を待って決める)
+    window.addEventListener("error", e => {
+      try { window.parent.postMessage({ type: "duplicateSimError", token: DUP_SIM.token, table: DUP_SIM.table, message: String(e.message || e) }, "*"); } catch(err){}
+    });
+  }
+  // 裏卓の手番を待ち時間なしで進める。1手ずつ別のタスクにして(MessageChannel)、親の画面の動きを止めない
+  const simTaskQueue = [];
+  const simTaskChannel = DUP_SIM ? new MessageChannel() : null;
+  if(simTaskChannel) simTaskChannel.port1.onmessage = () => { const fn = simTaskQueue.shift(); if(fn) fn(); };
+  function simDefer(fn){ simTaskQueue.push(fn); simTaskChannel.port2.postMessage(0); }
+
   // --- 牌をリアルな見た目のSVGで描画する ---
   const KANJI_NUM = ["", "一", "二", "三", "四", "伍", "六", "七", "八", "九"];
 
@@ -1943,6 +1965,7 @@
   // ちらついて見えていた。読み込んだImageはこの配列で持ち続け、途中で捨てられないようにする
   const preloadedTileImages = [];
   (function preloadTileImages(){
+    if(DUP_SIM) return; // 裏卓は画面に出さないので絵を読まない
     const names = new Set();
     ["man", "pin", "sou"].forEach(suit => {
       for(let n = 1; n <= 9; n++) names.add(tileImageName(suit, n, false));
@@ -2026,15 +2049,18 @@
   // DEALER_SEATは配牌（誰が最初の1枚をツモるか）にも関わるため、ここで先に読み込む
   const MATCH_STATE_KEY = "mugenMahjongRedMatchState";
   function loadMatchState(){
+    if(DUP_SIM) return DUP_SIM.matchState; // 裏卓は親から渡された局の状態
     try {
       const raw = sessionStorage.getItem(MATCH_STATE_KEY);
       return raw ? JSON.parse(raw) : null;
     } catch(e){ return null; }
   }
   function saveMatchState(state){
+    if(DUP_SIM) return; // 裏卓は保存しない(親のタブの状態を書き換えない)
     try { sessionStorage.setItem(MATCH_STATE_KEY, JSON.stringify(state)); } catch(e){}
   }
   function clearMatchState(){
+    if(DUP_SIM) return;
     try { sessionStorage.removeItem(MATCH_STATE_KEY); } catch(e){}
   }
   // ==================== 新しい半荘を始めるたびの自分の開始風サイクル ====================
@@ -2413,12 +2439,15 @@
   // 表紙で選んだ瞬間からずっと持たせておく。「ホームページに戻る」でのみクリアする
   const SELECTED_RULE_ID_KEY = "mugenMahjongRedSelectedRuleId";
   function loadSelectedRuleId(){
+    if(DUP_SIM) return "mcrFukushiki";
     try { return sessionStorage.getItem(SELECTED_RULE_ID_KEY); } catch(e){ return null; }
   }
   function saveSelectedRuleId(id){
+    if(DUP_SIM) return;
     try { sessionStorage.setItem(SELECTED_RULE_ID_KEY, id); } catch(e){}
   }
   function clearSelectedRuleId(){
+    if(DUP_SIM) return;
     try { sessionStorage.removeItem(SELECTED_RULE_ID_KEY); } catch(e){}
   }
 
@@ -2519,6 +2548,7 @@
       score: scores.bottom,
       total: finalChipsBySeat ? finalChipsBySeat.bottom + chips.bottom : rawDiff + umaBySeat.bottom
     };
+    if(DUP_SIM) return; // 裏卓は成績に記録しない
     const log = loadMatchLog();
     log.push(entry);
     try { localStorage.setItem(MATCH_LOG_KEY, JSON.stringify(log)); } catch(e){}
@@ -2582,6 +2612,7 @@
     const log = loadMatchLog();
     const rows = cleanMatchLog(log);
     const stats = { updatedAt: Date.now(), sourceCount: log.length, usedCount: rows.length, rows: aggregateMonthlyStats(rows) };
+    if(DUP_SIM) return stats; // 裏卓は書き込まない
     try { localStorage.setItem(MONTHLY_STATS_KEY, JSON.stringify(stats)); } catch(e){}
     return stats;
   }
@@ -2670,6 +2701,10 @@
   // --- 牌山を作ってシャッフル ---
   const wall = buildWall(ruleConfig);
   shuffle(wall);
+  // 複式MCR：裏卓は親から渡された並び(DUP_SIM.deal)に置き換える。親は今の並びを控え、裏卓に渡す
+  // (風ごとの配牌・山の分け方は下の個人ツモ山の所。同じ並びなら、どの卓でも同じ風の人が同じ配牌・同じ山になる)
+  if(DUP_SIM) wall.splice(0, wall.length, ...DUP_SIM.deal.map(t => ({ suit: t.suit, num: t.num })));
+  const DUPLICATE_DEAL = ruleConfig.duplicateEnabled ? wall.map(t => ({ suit: t.suit, num: t.num })) : null;
 
   // 王牌。ruleConfig.kanDoraEnabled:falseなら従来通り8枚固定
   // （内訳：嶺上牌4枚（末尾側からpopして使う）＋ドラ表示牌1枚＋リーチドラ表示牌1枚＋予備2枚）。
@@ -5142,6 +5177,7 @@
   let turnGeneration = 0;
   function scheduleTurnTimeout(fn, delay){
     const gen = turnGeneration;
+    if(DUP_SIM){ simDefer(() => { if(gen === turnGeneration) fn(); }); return 0; } // 裏卓は待たずに次の手へ
     return setTimeout(() => { if(gen === turnGeneration) fn(); }, delay);
   }
 
@@ -8968,7 +9004,7 @@
     points: ["sounds/sfx-points-1.ogg", "sounds/sfx-points-2.ogg", "sounds/sfx-points-3.ogg"] // 点棒を置く音（3種からランダム）
   };
   function playSfx(url, volume){
-    if(!url) return;
+    if(!url || DUP_SIM) return; // 裏卓は音を出さない
     try {
       const audio = new Audio(url);
       if(typeof volume === "number") audio.volume = Math.min(1, Math.max(0, volume));
@@ -8978,6 +9014,7 @@
   // 和了の発声。ruleConfig.winCallSpeechのあるルール(MCR-NEO)は音声合成で読み、それ以外は今までどおり
   // 「ツモ」「ロン」の音声ファイルを鳴らす
   function playWinCall(isTsumo){
+    if(DUP_SIM) return; // 裏卓は和了の発声をしない
     const file = isTsumo ? SFX.callTsumo : SFX.callRon;
     if(ruleConfig.winCallSpeech) speakWinCall(ruleConfig.winCallSpeech, () => playSfx(file));
     else playSfx(file);
@@ -9271,7 +9308,12 @@
     const deltas = { ...scores };
     const byWind = [0, 0, 0, 0];
     Object.keys(deltas).forEach(s => { byWind[SEAT_WIND[s] - 1] = deltas[s]; });
-    duplicateKyokuLog.push({ kyoku: kyokuNumber, deltas, winds: { ...SEAT_WIND }, byWind });
+    const entry = { kyoku: kyokuNumber, deltas, winds: { ...SEAT_WIND }, byWind };
+    duplicateKyokuLog.push(entry);
+    // 裏卓：この局の結果を親へ返す(親はevent.sourceとtokenで自分が作った裏卓からのものか確かめる)
+    if(DUP_SIM){
+      try { window.parent.postMessage({ type: "duplicateSimResult", token: DUP_SIM.token, table: DUP_SIM.table, entry, elapsedMs: Date.now() - DUP_SIM_STARTED_AT }, "*"); } catch(e){}
+    }
   }
 
   function proceedOrEndMatch(renchan, winnerSeats, bustSeat){
@@ -10326,6 +10368,7 @@
   // （山も鳴き面子も含め、卓の見た目を決めるあらゆる余白・比率がCSS側に散らばっているため、
   // 手計算の式より実測の方が確実で、レイアウトを直すたびに式を書き直さずに済む）。
   function fitTileSize(){
+    if(DUP_SIM) return; // 裏卓は画面に出さない
     const ring = document.querySelector(".ring.hand-ring");
     const area = document.querySelector(".table-area");
     const prevMaxW = ring.style.maxWidth;
