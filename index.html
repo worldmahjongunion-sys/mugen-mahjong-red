@@ -2343,7 +2343,8 @@
   // 段階1：設定と割り振りだけ。個人ツモ山・複式の点数・4卓の進行・IMPは後の段階で入れる
   RULESETS.find(r => r.id === "mcrFukushiki").ruleConfig = Object.assign({},
     RULESETS.find(r => r.id === "mcrNeo").ruleConfig,
-    { duplicateEnabled:true, seatChangeEnabled:false });
+    { duplicateEnabled:true, seatChangeEnabled:false,
+      multiRonEnabled:true }); // 段階3：同時和了(放銃者以外は全員和了できる。頭ハネ・三家和の流局なし)
 
   // ==================== 複式MCR：卓・席・チームの割り振り ====================
   // 16人＝4チーム×4人。4卓(t=0〜3)に4席(s=0〜3)。自分はいつも1卓目(t=0)の席0。
@@ -3912,7 +3913,8 @@
     let winners = findAllRonWinners(ronOrder, tile);
     if(!ruleConfig.multiRonEnabled && winners.length > 1) winners = [winners[0]];
 
-    if(winners.length === 3){
+    // 複式MCRは三家和の流局にしない(3人とも和了する。下の通常のロンの流れへ)
+    if(winners.length === 3 && !ruleConfig.duplicateEnabled){
       // 3人（自分含む）が全員ロン可能＝三家和。discarderSeatが"bottom"以外なら自分も含まれるため、
       // 従来通り自分向けの鳴き・ロンプロンプトは見せる（選択の結果は無視して強制的に流局にする＝
       // maybeForceSankahouが各ボタンの先頭で処理する）。discarderSeat==="bottom"（自分の打牌にCPU
@@ -5010,7 +5012,7 @@
     lastDrawnTile = null;
     pendingSelfKan = null;
     selfKanSelecting = false;
-    if(winners.length === 3){
+    if(winners.length === 3 && !ruleConfig.duplicateEnabled){ // 複式MCRは三家和にせず3人とも和了
       handleSankahou("bottom");
       return true;
     }
@@ -9856,8 +9858,16 @@
     scores[loserSeat] -= actualTotal;
     // ロンは放銃者が単一なので、不足時の飛びは常にこの席。bustAtZeroのルールは0点ちょうどでもトビ
     const bustSeatThisHand = (isShort || (ruleConfig.tobiEnabled && ruleConfig.bustAtZero && scores[loserSeat] <= 0)) ? loserSeat : null;
-    // MCR：放銃者以外の2人も、和了者に8点ずつ払う(頭ハネで和了者は1人)
-    if(ruleConfig.scoreTableMode === "mcr"){
+    // 複式MCR(同時和了あり)：和了者はそれぞれ(和了点＋24)、放銃者は(和了点の合計＋8)を失い、
+    // 和了しなかった放銃者以外の人は8点ずつ失う。ここまでで和了者は(和了点＋8)、放銃者は(和了点＋8)×人数を動かしたので、
+    // 和了者に16点ずつ足し、放銃者には8×(人数−1)を戻し、和了しなかった人から8点ずつ引く
+    // (公式どおり、同時和了の時は合計が0にならない。単独ロンは合計0)
+    if(ruleConfig.scoreTableMode === "mcr" && ruleConfig.duplicateEnabled){
+      winners.forEach(w => { scores[w.seat] += 16; });
+      scores[loserSeat] += 8 * (winners.length - 1);
+      seats.filter(s => s !== loserSeat && !winners.some(w => w.seat === s)).forEach(s => { scores[s] -= 8; });
+    } else if(ruleConfig.scoreTableMode === "mcr"){
+      // MCR：放銃者以外の2人も、和了者に8点ずつ払う(頭ハネで和了者は1人)
       seats.filter(s => s !== loserSeat && s !== winners[0].seat).forEach(s => { scores[s] -= 8; scores[winners[0].seat] += 8; });
     }
     // チップ(ザンリーグ)：放銃者が和了者それぞれに払う。飛ばしのチップは、ダブロンなら和了者で分ける
@@ -9884,7 +9894,11 @@
         collectedKyotakuBySeat[w.seat] || 0, honba, claim.honbaBonus, chipBySeat[w.seat]);
     } else {
       const honbaBonusTotal = claims.reduce((sum, c) => sum + c.honbaBonus, 0);
-      showMultiResult(winners, claims, loserSeat, finalAmounts, collectedKyotakuTotal, honba, honbaBonusTotal, isShort, chipBySeat);
+      // 複式MCRは各和了者の(和了点＋24)を出す(finalAmountsは放銃者からの(和了点＋8)だけ)
+      const shownAmounts = ruleConfig.duplicateEnabled
+        ? winners.map(w => ({ seat: w.seat, amount: scores[w.seat] - scoresBefore[w.seat] }))
+        : finalAmounts;
+      showMultiResult(winners, claims, loserSeat, shownAmounts, collectedKyotakuTotal, honba, honbaBonusTotal, isShort, chipBySeat);
     }
 
     setTurnIndicator("");
