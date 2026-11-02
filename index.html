@@ -2850,7 +2850,7 @@
   shuffle(wall);
   // 複式MCR：裏卓は親から渡された並び(DUP_SIM.deal)に置き換える。親は今の並びを控え、裏卓に渡す
   // (風ごとの配牌・山の分け方は下の個人ツモ山の所。同じ並びなら、どの卓でも同じ風の人が同じ配牌・同じ山になる)
-  if(DUP_SIM) wall.splice(0, wall.length, ...DUP_SIM.deal.map(t => ({ suit: t.suit, num: t.num })));
+  if(DUP_SIM && DUP_SIM.deal) wall.splice(0, wall.length, ...DUP_SIM.deal.map(t => ({ suit: t.suit, num: t.num }))); // 並びが渡されない裏卓(確かめ用)はふつうにシャッフル
   const DUPLICATE_DEAL = ruleConfig.duplicateEnabled ? wall.map(t => ({ suit: t.suit, num: t.num })) : null;
 
   // 王牌。ruleConfig.kanDoraEnabled:falseなら従来通り8枚固定
