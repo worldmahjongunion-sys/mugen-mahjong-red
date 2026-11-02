@@ -2468,6 +2468,22 @@
     return AI_PERSONALITIES[type] || AI_PERSONALITY_NEUTRAL;
   }
 
+  // CPUの判断に使う乱数(0以上1未満)。ほかのルールは今までどおり Math.random()。
+  // 複式MCRは、同じ配牌・同じ自摸で4卓を比べるので、「局・その人の風・その卓でのその人の判断の通し番号」で決まる
+  // 固定の並びにする(白石さん承認の案A)。同じ局・同じ風の4人は、4卓とも同じ乱数の並びを使うので、差が出るのは
+  // 個性と同じ卓の人の動きだけになる
+  const cpuRandomCount = { bottom: 0, right: 0, top: 0, left: 0 };
+  function cpuRandom(seat){
+    if(!ruleConfig.duplicateEnabled) return Math.random();
+    const n = ++cpuRandomCount[seat];
+    // 3つの数を混ぜて32ビットの数にする(splitmix32の形)
+    let h = Math.imul(kyokuNumber, 0x9E3779B1) ^ Math.imul(SEAT_WIND[seat], 0x85EBCA6B) ^ Math.imul(n, 0xC2B2AE35);
+    h = Math.imul(h ^ (h >>> 16), 0x21F0AAAD);
+    h = Math.imul(h ^ (h >>> 15), 0x735A2D97);
+    h ^= h >>> 15;
+    return (h >>> 0) / 4294967296;
+  }
+
   // ==================== 複式MCR：IMP(依頼文§4) ====================
   // 各局・各風ごとに、同じ風の4人(4卓の同じ席)の点数(その局の増減)を比べる。
   // 1. 4人の点数の平均を出す  2. 差＝自分の点数−平均  3. 差の絶対値の整数部分で表(DUPLICATE_IMP_TABLE)を引き、
@@ -4291,7 +4307,7 @@
     });
     if(!best || best.afterShanten > beforeShanten) return null;
     const prob = best.yakuCheck === "lateDealer" ? 1 : (best.afterShanten < beforeShanten ? 0.85 : 0.25);
-    return Math.random() < prob ? best.combo : null;
+    return cpuRandom(seat) < prob ? best.combo : null; // 複式MCRは固定の並びの乱数
   }
 
   // 邪魔ポン専用のCPU判断（初回のshouldCpuCallとは別物）。既に聴牌していて、鳴くことで
@@ -4647,7 +4663,7 @@
     const hand = hands[seat];
     const chosen = pickCpuDiscard(seat);
     const idx = hand.indexOf(chosen.tile);
-    const discarded = hand.splice(idx >= 0 ? idx : Math.floor(Math.random() * hand.length), 1)[0];
+    const discarded = hand.splice(idx >= 0 ? idx : Math.floor(cpuRandom(seat) * hand.length), 1)[0];
     discarded.tsumogiri = false; // 鳴いた直後の打牌はツモっていないので必ず手出し扱い
     discards[seat].push(discarded);
     discardHistory[seat].push(tileKey(discarded));
@@ -4726,7 +4742,7 @@
       if(chosen.declareRiichi) declareRiichi(seat, ruleConfig.openRiichiEnabled && cpuWantsOpenRiichi(seat, chosen.tile));
       const idx = hand.indexOf(chosen.tile);
       const yakumanPay = idx >= 0 && yakumanPayIfDiscarded(seat, chosen.tile);
-      discarded = hand.splice(idx >= 0 ? idx : Math.floor(Math.random() * hand.length), 1)[0];
+      discarded = hand.splice(idx >= 0 ? idx : Math.floor(cpuRandom(seat) * hand.length), 1)[0];
       if(yakumanPay) discarded.yakumanPay = true;
     }
     // ツモ切り（今ツモった牌をそのまま切った）かどうかを、捨て牌の見た目（薄いグレー）に使うため確定させる。
@@ -5326,6 +5342,7 @@
     const snap = {
       wall: cloneTileArrayRef(wall, map),
       ownWalls: Object.fromEntries(Object.keys(ownWalls).map(s => [s, cloneTileArrayRef(ownWalls[s], map)])), // 個人ツモ山(複式MCR)
+      cpuRandomCount: { ...cpuRandomCount }, // 複式MCRの乱数の通し番号(リプレイで同じ並びから打ち直す)
       deadWall: cloneTileArrayRef(deadWall, map),
       doraIndicatorCount: doraIndicators.length,
       // 3人打ちのカンドラ・カン裏は山の最後から取るので、王牌の決まった位置からは作り直せない。牌そのものを残す
@@ -5376,6 +5393,7 @@
     const seats = activeSeats(["bottom", "top", "left", "right"]);
     replaceArrayContents(wall, cloneTileArrayRef(snap.wall, map));
     Object.keys(ownWalls).forEach(s => replaceArrayContents(ownWalls[s], cloneTileArrayRef(snap.ownWalls[s], map)));
+    Object.assign(cpuRandomCount, snap.cpuRandomCount);
     replaceArrayContents(deadWall, cloneTileArrayRef(snap.deadWall, map));
     // カンドラ(revealNextKanDora)で増えた表示牌も、スナップショットの時点の枚数に戻す。
     // 王牌は末尾(嶺上牌)からしか減らないので、[0]〜[9]の位置は変わらない
@@ -8767,7 +8785,7 @@
     const yakuCheck = cpuCallNeedsYaku() ? cpuCallYakuCheck(seat, remaining, used, tile, type, beforeShanten, afterShanten) : "yaku";
     if(!yakuCheck) return false;
     const prob = yakuCheck === "lateDealer" ? 1 : (afterShanten < beforeShanten ? 0.85 : 0.25);
-    return Math.random() < prob;
+    return cpuRandom(seat) < prob; // 複式MCRは固定の並びの乱数
   }
 
   // CPUのオープンリーチの条件(あとから調整できるように数字をここにまとめる)
@@ -8799,7 +8817,7 @@
     const left = waits.reduce((a, w) => a + Math.max(0, tileCopiesInGame(w) - visible[TILE_INDEX_MAP.get(tileKey(w))]), 0);
     const many = waits.length >= CPU_OPEN_RIICHI_ZAN.minWaitKinds && left >= CPU_OPEN_RIICHI_ZAN.minWaitTilesLeft;
     const late = wall.length <= CPU_OPEN_RIICHI_ZAN.lateWallLeft && left > 0;
-    return (many || late) && Math.random() < CPU_OPEN_RIICHI_ZAN.probability;
+    return (many || late) && cpuRandom(seat) < CPU_OPEN_RIICHI_ZAN.probability;
   }
   function cpuWantsOpenRiichi(seat, discardTile){
     if(ruleConfig.openRiichiYakumanPay) return cpuWantsOpenRiichiZan(seat, discardTile);
@@ -8834,7 +8852,7 @@
       hand.splice(idx, 0, discardTile);
     }
     const want = waitKinds >= CPU_OPEN_RIICHI.minWaitKinds || extra >= CPU_OPEN_RIICHI.minExtraPoints;
-    return want && Math.random() < CPU_OPEN_RIICHI.probability;
+    return want && cpuRandom(seat) < CPU_OPEN_RIICHI.probability;
   }
 
   // --- 自分のリーチ宣言 ---
