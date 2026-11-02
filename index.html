@@ -9315,32 +9315,83 @@
   // 結果は postMessage で受け取り、自分で作ったiframe(event.source)・この局の合言葉(token)のものだけを使う。
   // 受け取ったiframeはすぐ外す(次局へはページを読み直すので、iframeは残らない)。
   // 自分の卓が先に終わっても、3卓の結果がそろうまで「次局へ」は押せない(「集計中…」)
-  const DUPLICATE_SIM_TIMEOUT_MS = 60000; // これを過ぎても結果が来ない卓は「時間切れ」として印を付ける(扱いは白石さんの返事待ち)
-  const duplicateSims = { started: false, tables: {} }; // tables[t] = { token, frame, startedAt, result, error, ms }
+  // 裏卓のエラー・時間切れ(白石さんの返事：案A)：同じ配牌でその卓を1回だけ自動で打ち直し、それでも駄目なら
+  // その局はその卓を外す(局の記録に「欠け」の印 tables[t] = { missing:true })。時間切れは30秒で、数えるのはページが
+  // 画面に出ている間だけ(別のアプリに切り替えて裏のタイマーが止まった分は数えない)
+  const DUPLICATE_SIM_TIMEOUT_MS = 30000;
+  const DUPLICATE_SIM_MAX_ATTEMPTS = 2; // 最初の1回＋打ち直し1回
+  const duplicateSims = { started: false, tables: {}, matchState: null }; // tables[t] = { token, frame, attempts, visibleMs, result, missing, errors, ms }
   function startDuplicateSims(){
     if(!ruleConfig.duplicateEnabled || DUP_SIM || verifyMode) return;
     duplicateSims.started = true;
-    const matchState = { scores: Object.fromEntries(Object.keys(scores).map(s => [s, 0])), kyokuNumber, honba: 0, dealerSeat: DEALER_SEAT,
+    duplicateSims.matchState = { scores: Object.fromEntries(Object.keys(scores).map(s => [s, 0])), kyokuNumber, honba: 0, dealerSeat: DEALER_SEAT,
       riichiSticks: 0, startingDealerSeat: STARTING_DEALER_SEAT, matchStartTime, handsPlayedCount: handsPlayedCount - 1, ruleId: CURRENT_RULE_ID };
     for(let t = 1; t < DUPLICATE_TABLE_COUNT; t++){
-      const token = kyokuNumber + "-" + t + "-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
-      const sim = { token, table: t, matchState, deal: DUPLICATE_DEAL };
-      const frame = document.createElement("iframe");
-      frame.className = "duplicate-sim-frame";
-      frame.setAttribute("aria-hidden", "true");
-      frame.tabIndex = -1;
-      frame.style.display = "none";
-      // 先頭の<head>の直後に、裏卓の印(window.__DUP_SIM__)を入れる
-      frame.srcdoc = PAGE_HTML_SOURCE.replace("<head>", "<head><script>window.__DUP_SIM__ = " + JSON.stringify(sim) + ";<\/script>");
-      const entry = { token, frame, startedAt: Date.now(), result: null, error: null, ms: null };
-      entry.timer = setTimeout(() => { if(!entry.result && !entry.error){ entry.error = "timeout"; console.error("[複式MCR] 裏卓" + (t + 1) + "が時間切れ"); updateDuplicateWaitUI(); } }, DUPLICATE_SIM_TIMEOUT_MS);
-      duplicateSims.tables[t] = entry;
-      document.body.appendChild(frame);
+      duplicateSims.tables[t] = { token: null, frame: null, attempts: 0, visibleMs: 0, startedAt: 0, result: null, missing: false, errors: [], ms: null };
+      launchDuplicateSim(t);
+    }
+    startDuplicateSimClock();
+  }
+  // t卓目(1〜3)の裏卓を作る(打ち直しの時も同じ配牌・同じ局の状態。合言葉は作るたびに新しくする)
+  function launchDuplicateSim(t){
+    const x = duplicateSims.tables[t];
+    x.attempts++;
+    x.visibleMs = 0;
+    x.startedAt = Date.now();
+    x.token = kyokuNumber + "-" + t + "-" + x.attempts + "-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const sim = { token: x.token, table: t, matchState: duplicateSims.matchState, deal: DUPLICATE_DEAL };
+    const frame = document.createElement("iframe");
+    frame.className = "duplicate-sim-frame";
+    frame.setAttribute("aria-hidden", "true");
+    frame.tabIndex = -1;
+    frame.style.display = "none";
+    // 先頭の<head>の直後に、裏卓の印(window.__DUP_SIM__)を入れる
+    frame.srcdoc = PAGE_HTML_SOURCE.replace("<head>", "<head><script>window.__DUP_SIM__ = " + JSON.stringify(sim) + ";<\/script>");
+    x.frame = frame;
+    document.body.appendChild(frame);
+  }
+  // 裏卓がエラー・時間切れになった：1回目なら打ち直し、2回目ならこの局はその卓を外す(欠け)
+  function failDuplicateSim(t, reason){
+    const x = duplicateSims.tables[t];
+    if(x.result || x.missing) return;
+    x.errors.push(reason);
+    console.error("[複式MCR] " + (Number(t) + 1) + "卓目(" + x.attempts + "回目)：" + reason);
+    if(x.frame){ x.frame.remove(); x.frame = null; }
+    if(x.attempts < DUPLICATE_SIM_MAX_ATTEMPTS){
+      launchDuplicateSim(t);
+    } else {
+      x.missing = true;
+      attachDuplicateSimResults();
+    }
+    updateDuplicateWaitUI();
+  }
+  // 時間切れの時計。画面に出ている間(visibilityState==="visible")だけ、結果待ちの卓の時間を進める。
+  // 裏に回ってタイマーが間引かれた分を数えないよう、1回に足すのは1秒まで
+  function startDuplicateSimClock(){
+    if(duplicateSims.clockId) return; // 時計は1つだけ(二重に動かすと速く数えてしまう)
+    let last = performance.now();
+    duplicateSims.clockId = setInterval(() => {
+      const now = performance.now();
+      if(duplicateSims.clockLastReset > last) last = duplicateSims.clockLastReset; // 画面に戻った時から数え直す
+      const step = Math.min(1000, Math.max(0, now - last));
+      last = now;
+      if(!duplicateSimsPending()){ clearInterval(duplicateSims.clockId); duplicateSims.clockId = null; return; }
+      if(document.visibilityState !== "visible") return;
+      Object.keys(duplicateSims.tables).forEach(t => {
+        const x = duplicateSims.tables[t];
+        if(x.result || x.missing) return;
+        x.visibleMs += step;
+        if(x.visibleMs >= DUPLICATE_SIM_TIMEOUT_MS) failDuplicateSim(t, "時間切れ(画面に出ている間で" + Math.round(x.visibleMs / 1000) + "秒)");
+      });
+    }, 250);
+    if(!duplicateSims.clockListening){
+      duplicateSims.clockListening = true;
+      document.addEventListener("visibilitychange", () => { duplicateSims.clockLastReset = performance.now(); });
     }
   }
   window.addEventListener("message", e => {
     if(!duplicateSims.started || !e.data || typeof e.data.type !== "string") return;
-    // 自分で作った裏卓のiframeからで、この局の合言葉が合うものだけを受け取る
+    // 自分で作った裏卓のiframeからで、この局の合言葉が合うものだけを受け取る(打ち直す前の古いiframeのものも受け取らない)
     const t = Object.keys(duplicateSims.tables).find(k => {
       const x = duplicateSims.tables[k];
       return x.frame && e.source === x.frame.contentWindow && e.data.token === x.token;
@@ -9351,40 +9402,39 @@
       x.result = e.data.entry;
       x.startSig = e.data.startSig; // 確かめ用(配牌・山が4卓で同じか)
       x.ms = Date.now() - x.startedAt;
-      clearTimeout(x.timer);
       x.frame.remove(); // 受け取ったらすぐ外す
       x.frame = null;
       attachDuplicateSimResults();
+      updateDuplicateWaitUI();
     } else if(e.data.type === "duplicateSimError"){
-      x.error = e.data.message || "error";
-      console.error("[複式MCR] 裏卓" + (Number(t) + 1) + "でエラー：", x.error);
+      failDuplicateSim(t, "エラー：" + (e.data.message || "不明"));
     }
-    updateDuplicateWaitUI();
   });
-  // 3卓の結果がまだそろっていないか
+  // 3卓の結果(または欠け)がまだそろっていないか
   function duplicateSimsPending(){
-    return duplicateSims.started && Object.values(duplicateSims.tables).some(x => !x.result);
+    return duplicateSims.started && Object.values(duplicateSims.tables).some(x => !x.result && !x.missing);
   }
-  // この局の記録に、受け取った裏卓の結果を付ける(tables[t] = { deltas, winds, byWind }。t=1〜3が2〜4卓目)
+  // この局の記録に、受け取った裏卓の結果を付ける(tables[t] = { deltas, winds, byWind }。t=1〜3が2〜4卓目)。
+  // 欠けた卓は tables[t] = { missing:true }
   function attachDuplicateSimResults(){
     const entry = duplicateKyokuLog.find(e => e.kyoku === kyokuNumber);
     if(!entry) return; // 自分の卓がまだ終わっていない：recordDuplicateKyokuの時に付ける
     entry.tables = entry.tables || {};
     Object.keys(duplicateSims.tables).forEach(t => {
-      const r = duplicateSims.tables[t].result;
-      if(r) entry.tables[t] = { deltas: r.deltas, winds: r.winds, byWind: r.byWind };
+      const x = duplicateSims.tables[t];
+      if(x.result) entry.tables[t] = { deltas: x.result.deltas, winds: x.result.winds, byWind: x.result.byWind };
+      else if(x.missing) entry.tables[t] = { missing: true };
     });
   }
   // 局の結果の「次局へ」(スマホ縦の結果の枠のボタンも)を、3卓の結果がそろうまで押せなくする
   function updateDuplicateWaitUI(){
     if(!duplicateSims.started) return;
     const pending = duplicateSimsPending() && gameEnded;
-    const failed = Object.values(duplicateSims.tables).some(x => !x.result && x.error);
     [document.getElementById("nextKyokuBtn"), document.querySelector("#resultBox .pr-ok")].forEach(btn => {
       if(!btn) return;
       if(pending){
         if(btn.dataset.duplicateLabel === undefined) btn.dataset.duplicateLabel = btn.textContent;
-        btn.textContent = failed ? "集計中…(裏卓の問題)" : "集計中…";
+        btn.textContent = "集計中…";
         btn.disabled = true;
       } else if(btn.dataset.duplicateLabel !== undefined){
         btn.textContent = btn.dataset.duplicateLabel;
