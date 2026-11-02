@@ -3874,8 +3874,8 @@
         return;
       }
       pendingSankahou = { discarderSeat, tile };
-      // 河底牌（山0枚の捨て牌）はチー・ポン・大明槓できない（ロンだけ）
-      const callable = wall.length > 0;
+      // 河底牌（山0枚の捨て牌）はチー・ポン・大明槓できない（ロンだけ）。複式MCRは最終牌の状態の人の捨て牌
+      const callable = !isLastTileState(discarderSeat);
       const pon = callable && !riichiDeclared.bottom && canPon(myHandTiles, tile);
       const kan = callable && !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable("bottom");
       const chi = (callable && ruleConfig.chiEnabled && !riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
@@ -3905,7 +3905,7 @@
       // 同じ牌を鳴きに使うことはできない）ため、鳴き選択肢は単独ロンの時だけ提示する
       const isMultiRon = winners.length > 1;
       // 河底牌（山0枚の捨て牌）はチー・ポン・大明槓できないので、和了・スルーだけを出す
-      const callable = !isMultiRon && wall.length > 0;
+      const callable = !isMultiRon && !isLastTileState(discarderSeat); // 複式MCRは最終牌の状態の人の捨て牌
       const pon = callable && !riichiDeclared.bottom && canPon(myHandTiles, tile);
       const kan = callable && !riichiDeclared.bottom && canKan(myHandTiles, tile) && rinshanAvailable("bottom");
       const chi = (callable && ruleConfig.chiEnabled && !riichiDeclared.bottom && KAMICHA.bottom === discarderSeat) ? findChiShapes(myHandTiles, tile) : [];
@@ -3930,7 +3930,8 @@
   function resolveMeldCalls(discarderSeat, tile){
     // 河底牌（山0枚の捨て牌）は誰もチー・ポン・大明槓できない（ロンの判定は呼び出し側で済んでいる）。
     // 自分・CPUの鳴きも邪魔ポンの猶予窓も出さずに次へ進める。次の人はツモれないので流局になる
-    if(wall.length === 0){
+    // 複式MCRは最終牌の状態の人(下家の山が空)の捨て牌。次の人(下家)は自分の山が空なのでツモれず流局になる
+    if(isLastTileState(discarderSeat)){
       advanceTurnAfterDiscard(discarderSeat);
       return;
     }
@@ -4492,8 +4493,8 @@
     const ankanTile = !riichiDeclared[seat]
       ? findAnkanTile(hands[seat])
       : (findAllAnkanTiles(hands[seat]).filter(t => canAnkanAfterRiichi(seat, t))[0] || null);
-    // 海底牌（山の最後の1枚）をツモった手番では暗槓できない
-    if(ankanTile && rinshanAvailable(seat) && wall.length > 0){
+    // 海底牌（山の最後の1枚）をツモった手番では暗槓できない。複式MCRは最終牌の状態の手番では暗槓できない
+    if(ankanTile && rinshanAvailable(seat) && !isLastTileState(seat)){
       executeCpuAnkan(seat, ankanTile);
       return;
     }
@@ -4702,7 +4703,8 @@
   // 両方が同時に成立することもあるため、候補は配列でまとめて返す
   function computeSelfKanCandidates(drawnTile){
     if(!rinshanAvailable("bottom")) return [];
-    if(wall.length === 0) return []; // 海底牌（山の最後の1枚）をツモった手番では暗槓も加槓もできない
+    // 海底牌（山の最後の1枚）をツモった手番では暗槓も加槓もできない。複式MCRは最終牌の状態の手番
+    if(isLastTileState("bottom")) return [];
     const list = [];
     if(drawnTile && !riichiDeclared.bottom){ // リーチ後は加槓不可
       const meldIdx = melds.bottom.findIndex(m => m.type === "pon" && m.calledTile.suit === drawnTile.suit && m.calledTile.num === drawnTile.num);
