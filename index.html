@@ -2044,6 +2044,7 @@
   // 新しい半荘を始める瞬間(＝savedMatchStateが無い時)だけ呼ぶ。現在のサイクル位置を読み、
   // 今回使う起家(DEALER_SEAT)を決めたら、次回のためにサイクル位置を1つ進めて保存する
   function pickAndAdvanceStartDealerSeat(){
+    if(ruleConfig.duplicateEnabled) return "bottom"; // 複式MCR：自分はいつも東1局の東家から始める(サイクル位置は進めない)
     const cycle = activeSeats(START_WIND_DEALER_CYCLE); // 3人打ちは空けた席を抜いた3通りを回す
     let idx = 0;
     try {
@@ -2746,6 +2747,17 @@
   // 自分・CPU3人へ配牌（13枚ずつ。山は既にシャッフル済みのため、誰が親でも配る順序自体は無関係）。
   // ruleConfig.startHandSizeが12のルール(Mリーグ NEO)は12枚ずつで、親の13枚目は最初のツモとして引く
   const START_HAND_SIZE = ruleConfig.startHandSize;
+  // 個人ツモ山(複式MCR、duplicateEnabled)。各自が自分の山の頭からツモり、嶺上牌は自分の山の末尾(右端)から取る。
+  // 山を風で決めるので、どの卓でも同じ風の人は同じ配牌・同じ山になる：シャッフルした136枚の[13w,13w+13)が風wの配牌、
+  // [52+21w, 52+21w+21)が風wの山(w=0東〜3北)。配牌の後、共通の山(wall)は空になる。ほかのルールは使わない(空のまま)
+  const ownWalls = { bottom: [], right: [], top: [], left: [] };
+  if(ruleConfig.duplicateEnabled){
+    const all = wall.splice(0, wall.length);
+    const windOfPos = pos => (DUPLICATE_SEAT_POSITIONS.indexOf(pos) - DUPLICATE_SEAT_POSITIONS.indexOf(DEALER_SEAT) + 4) % 4;
+    // 下の配牌のsplice(下・右・上・左の順)が、それぞれの風の13枚を取るように並べ直してwallに戻す
+    ["bottom", "right", "top", "left"].forEach(pos => { const w = windOfPos(pos); wall.push(...all.slice(13 * w, 13 * w + 13)); });
+    DUPLICATE_SEAT_POSITIONS.forEach(pos => { const w = windOfPos(pos); ownWalls[pos] = all.slice(52 + 21 * w, 52 + 21 * w + 21); });
+  }
   const myTiles13 = wall.splice(0, START_HAND_SIZE);
   const cpuRightTiles = wall.splice(0, START_HAND_SIZE);
   const cpuTopTiles = EMPTY_SEAT === "top" ? [] : wall.splice(0, START_HAND_SIZE); // 3人打ちは対面を空ける
@@ -2761,7 +2773,7 @@
     order.slice(start).concat(order.slice(0, start)).forEach(seat => {
       const hand = dealt[seat];
       for(let i = 0; i < hand.length; i++){
-        while(hand[i].flower){ flowers[seat].push(hand[i]); hand[i] = drawRinshanTile(); dealtFlowerPulled = true; }
+        while(hand[i].flower){ flowers[seat].push(hand[i]); hand[i] = drawRinshanTile(seat); dealtFlowerPulled = true; }
       }
     });
   }
@@ -2776,7 +2788,9 @@
   if(ruleConfig.kitaNukiEnabled) document.documentElement.classList.add("kita-rule");
 
   // 山の絵の基準にする、配牌直後・自摸前の生きたツモ回数（＝王牌8枚なら76、14枚なら70、12枚配りで王牌14枚なら74）
-  const LIVE_WALL_TOTAL = wall.length;
+  // 複式MCR(個人ツモ山)は共通の山が0枚になるので、【仮】MCR-NEOと同じ84枚(4人の山の合計)として山の絵を作る。
+  // 個人ツモ山の絵と残り枚数の出し方は白石さんの返事を待って決める(段階2の質問)
+  const LIVE_WALL_TOTAL = ruleConfig.duplicateEnabled ? 84 : wall.length;
 
   // 手牌は13枚を並び替えて表示する（親の最初の1枚は、後段でplayerDraw()/cpuDrawAndDiscard()を
   // 通常のツモと同じ経路で呼び出して引かせる）
@@ -3716,8 +3730,22 @@
     if(KAN_DORA_FROM_LIVE_WALL && wall.length < 3) return false;
     return deadWall.length > DEAD_WALL_INITIAL_SIZE - RINSHAN_TILES && (RINSHAN_TILES === 4 || kanCountOnTable() < 4);
   }
-  // 嶺上牌を1枚取る。王牌なし(NO_DEAD_WALL)のルールは山の末尾から取る(4回までの制限もない)
-  function drawRinshanTile(){ return NO_DEAD_WALL ? wall.pop() : deadWall.pop(); }
+  // 嶺上牌を1枚取る。王牌なし(NO_DEAD_WALL)のルールは山の末尾から取る(4回までの制限もない)。
+  // 個人ツモ山(複式MCR)は、カンした人(seat)の山の末尾(右端)から取る
+  function drawRinshanTile(seat){
+    if(ruleConfig.duplicateEnabled) return ownWalls[seat].pop();
+    return NO_DEAD_WALL ? wall.pop() : deadWall.pop();
+  }
+  // 個人ツモ山(複式MCR)で、seatの山が空か(ツモれない＝流局・カンできない)。ほかのルールは共通の山(wall)が空か
+  function ownWallEmpty(seat){
+    return ruleConfig.duplicateEnabled ? ownWalls[seat].length === 0 : wall.length === 0;
+  }
+  // 最終牌の状態か。複式MCRは「seatの手番で、下家の山が空」(チー・ポン・カンで手番が回った時も同じ)。
+  // この状態のseatのツモは妙手回春、seatの捨て牌は海底撈月で、和了以外の鳴き・暗槓・加槓はできない。
+  // ほかのルールは共通の山(wall)が空か(海底・河底)
+  function isLastTileState(seat){
+    return ruleConfig.duplicateEnabled ? ownWalls[NEXT_SEAT[seat]].length === 0 : wall.length === 0;
+  }
   // 花牌(flowerTileCount)：引いた牌が花牌なら抜いて(flowers[seat])嶺上牌から補充し、補充した牌も花牌なら
   // もう一度抜いて補充する。手に入れる牌(花牌ではない)を返す。花牌は4枚・カンは4回までなので、
   // 補充(花牌の数＋カンの数)は嶺上牌8枚を超えない。一発は消さない(鳴きではない)
@@ -3726,7 +3754,7 @@
     while(tile && tile.flower){
       flowers[seat].push(tile);
       playNukidoraVoice(); // 自分・CPU問わず、1枚抜くごとに1回(補充した牌も花牌なら、前の声の後にもう1回)
-      tile = drawRinshanTile();
+      tile = drawRinshanTile(seat);
       pulled = true;
     }
     if(pulled){
@@ -3738,7 +3766,7 @@
   // 山からの通常のツモ。花牌なら抜いて補充し、補充した牌には目印(rinshanDraw.flower)を付ける。
   // 花牌は空気扱いなので、補充した牌は普通のツモと同じ(嶺上開花は付けない。山の最後なら海底摸月)
   function drawFromWall(seat){
-    const drawn = wall.shift();
+    const drawn = ruleConfig.duplicateEnabled ? ownWalls[seat].shift() : wall.shift(); // 複式MCRは自分の山の頭から
     rinshanDraw = null; // 山からの通常のツモ
     if(!drawn.flower) return drawn;
     const tile = pullFlowers(seat, drawn);
@@ -4333,7 +4361,7 @@
 
     // カンをしたら王牌から嶺上牌を1枚ツモる（山からの補充はしない）
     if(type === "kan"){
-      const rinshan = pullFlowers(callerSeat, drawRinshanTile()); // 嶺上牌が花牌なら抜いてもう1枚補充する
+      const rinshan = pullFlowers(callerSeat, drawRinshanTile(callerSeat)); // 嶺上牌が花牌なら抜いてもう1枚補充する
       revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
       updateRinshanVisual();
       hand.push(rinshan);
@@ -4524,7 +4552,7 @@
     renderMelds(seat);
 
     // 嶺上牌をツモる（山からの補充はしない）。花牌なら抜いてもう1枚補充する
-    const rinshan = pullFlowers(seat, drawRinshanTile());
+    const rinshan = pullFlowers(seat, drawRinshanTile(seat));
     revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
     updateRinshanVisual();
     hand.push(rinshan);
@@ -4748,7 +4776,7 @@
     renderMelds("bottom");
 
     // 嶺上牌をツモる（山からの補充はしない）。花牌なら抜いてもう1枚補充する
-    const rinshan = pullFlowers("bottom", drawRinshanTile());
+    const rinshan = pullFlowers("bottom", drawRinshanTile("bottom"));
     revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
     updateRinshanVisual();
     myHandTiles.push(rinshan);
@@ -4834,7 +4862,7 @@
     // ロンされなかった：今リーチしている人(抜いた本人を含む)の待ちに北は無い(リーチ中のロンは強制のため)。安全牌の判断に使う
     const kita = nukiDora[seat][nukiDora[seat].length - 1];
     if(kita && ruleConfig.riichiRonForced) kita.safeFor = activeSeats(["bottom", "right", "top", "left"]).filter(s => riichiDeclared[s]);
-    const rinshan = drawRinshanTile();
+    const rinshan = drawRinshanTile(seat);
     updateRinshanVisual();
     hands[seat].push(rinshan);
     rinshanDraw = { seat, tile: rinshan, kita: true };
@@ -4985,7 +5013,7 @@
     renderMelds("bottom");
 
     // 嶺上牌をツモる（山からの補充はしない）。花牌なら抜いてもう1枚補充する
-    const rinshan = pullFlowers("bottom", drawRinshanTile());
+    const rinshan = pullFlowers("bottom", drawRinshanTile("bottom"));
     revealNextKanDora(); // カンドラ対応：kanDoraEnabledルールでは、カン成立のたびに表ドラ・裏ドラを1枚ずつ追加公開する
     updateRinshanVisual();
     myHandTiles.push(rinshan);
@@ -5087,6 +5115,7 @@
     const seats = activeSeats(["bottom", "top", "left", "right"]);
     const snap = {
       wall: cloneTileArrayRef(wall, map),
+      ownWalls: Object.fromEntries(Object.keys(ownWalls).map(s => [s, cloneTileArrayRef(ownWalls[s], map)])), // 個人ツモ山(複式MCR)
       deadWall: cloneTileArrayRef(deadWall, map),
       doraIndicatorCount: doraIndicators.length,
       // 3人打ちのカンドラ・カン裏は山の最後から取るので、王牌の決まった位置からは作り直せない。牌そのものを残す
@@ -5135,6 +5164,7 @@
     const map = new Map();
     const seats = activeSeats(["bottom", "top", "left", "right"]);
     replaceArrayContents(wall, cloneTileArrayRef(snap.wall, map));
+    Object.keys(ownWalls).forEach(s => replaceArrayContents(ownWalls[s], cloneTileArrayRef(snap.ownWalls[s], map)));
     replaceArrayContents(deadWall, cloneTileArrayRef(snap.deadWall, map));
     // カンドラ(revealNextKanDora)で増えた表示牌も、スナップショットの時点の枚数に戻す。
     // 王牌は末尾(嶺上牌)からしか減らないので、[0]〜[9]の位置は変わらない
