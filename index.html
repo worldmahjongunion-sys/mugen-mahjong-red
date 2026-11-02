@@ -166,6 +166,11 @@
     font-size:9px;
     color:#ccc;
   }
+  /* 複式MCR：自分の山・下家の山の2つを横に並べる(数字は少し小さく) */
+  html.duplicate-rule #wallCount{ flex-direction:row; gap:6px; align-items:flex-start; }
+  html.duplicate-rule .wall-count-sub{ display:flex; flex-direction:column; align-items:center; gap:1px; }
+  html.duplicate-rule #wallCount .wall-count-label{ white-space:nowrap; }
+  html.duplicate-rule #wallCount .wall-count-num{ font-size:clamp(16px, calc(var(--tile-h) * 0.7), 34px); }
   .wall-count-num{
     font-size:clamp(20px, calc(var(--tile-h) * 0.9), 44px); /* 卓のサイズ(--tile-h)に連動して拡大・縮小する（旧16px固定） */
     font-weight:bold;
@@ -2788,9 +2793,8 @@
   if(ruleConfig.kitaNukiEnabled) document.documentElement.classList.add("kita-rule");
 
   // 山の絵の基準にする、配牌直後・自摸前の生きたツモ回数（＝王牌8枚なら76、14枚なら70、12枚配りで王牌14枚なら74）
-  // 複式MCR(個人ツモ山)は共通の山が0枚になるので、【仮】MCR-NEOと同じ84枚(4人の山の合計)として山の絵を作る。
-  // 個人ツモ山の絵と残り枚数の出し方は白石さんの返事を待って決める(段階2の質問)
-  const LIVE_WALL_TOTAL = ruleConfig.duplicateEnabled ? 84 : wall.length;
+  // 複式MCR(個人ツモ山)は共通の山が0枚になる(山の絵は各自の山で描く。DUPLICATE_WALL_STACKS)
+  const LIVE_WALL_TOTAL = wall.length;
 
   // 手牌は13枚を並び替えて表示する（親の最初の1枚は、後段でplayerDraw()/cpuDrawAndDiscard()を
   // 通常のツモと同じ経路で呼び出して引かせる）
@@ -2939,8 +2943,20 @@
   // 席替えのあるルールは、CPUを位置(下家等)ではなく名前で呼ぶ(場ごとに座る位置が変わるため)
   if(ruleConfig.seatChangeEnabled) activeSeats(["right", "top", "left"]).forEach(s => { seatLabel[s] = PLAYER_NAME[SEAT_PLAYERS[s]]; });
 
+  // 複式MCRは自分の山の残りと、下家の山の残りの2つを出す(最終牌は「自分の手番で下家の山が空」で決まるため)
+  if(ruleConfig.duplicateEnabled){
+    document.documentElement.classList.add("duplicate-rule");
+    const box = document.getElementById("wallCount");
+    box.innerHTML = `<div class="wall-count-sub"><span class="wall-count-label">自分の山</span><span class="wall-count-num" id="wallCountNum"></span></div>`
+      + `<div class="wall-count-sub"><span class="wall-count-label">下家の山</span><span class="wall-count-num" id="wallCountShimoNum"></span></div>`;
+  }
   function updateWallCount(){
-    document.getElementById("wallCountNum").textContent = wall.length;
+    if(ruleConfig.duplicateEnabled){
+      document.getElementById("wallCountNum").textContent = ownWalls.bottom.length;
+      document.getElementById("wallCountShimoNum").textContent = ownWalls[NEXT_SEAT.bottom].length;
+    } else {
+      document.getElementById("wallCountNum").textContent = wall.length;
+    }
     updateWallPiles();
   }
 
@@ -2981,6 +2997,12 @@
   // auto18(3人打ち)は嶺上牌が4山なので9山。[10]〜[17]が嶺上牌
   const RINSHAN_STACKS = RINSHAN_TILES / 2;
   const AUTO_DEAD_WALL_STACKS = NO_DEAD_WALL ? 0 : RINSHAN_STACKS + 5;
+  // 複式MCR(個人ツモ山)：各辺にその人の山21枚を11山で置く。その人から見て左から1〜10山目は2枚ずつ、
+  // 右の端の11山目は1枚だけ(上段)。ツモ(ownWalls[seat]の頭)は左の端から、嶺上牌(末尾)は右の端から減る
+  const DUPLICATE_WALL_TILES = 21;
+  const DUPLICATE_WALL_STACKS = 11;
+  // その人から見て左の端がDOMの先頭か末尾か。下(自分)と左(上家)は先頭、上(対面)と右(下家)は末尾
+  const DUPLICATE_WALL_LEFT_IS_DOM_END = { bottom:false, left:false, top:true, right:true };
   function buildAutoDeadWallDom(){
     const ring = document.querySelector(".wall-ring");
     ["top", "left", "right", "bottom"].forEach(side => {
@@ -2988,6 +3010,10 @@
       const dir = (side === "left" || side === "right") ? "vertical" : "horizontal";
       const backCls = dir === "vertical" ? "tile-back rot" : "tile-back";
       const pile = (id, n) => `<div class="wall-pile ${dir}" id="${id}">` + `<div class="${backCls}"></div>`.repeat(n) + `</div>`;
+      if(ruleConfig.duplicateEnabled){ // 複式MCR：親の辺も同じ11山(空き・王牌なし)
+        holder.innerHTML = pile(WALL_PILE_EL_ID[side], DUPLICATE_WALL_STACKS);
+        return;
+      }
       if(side !== DEALER_SEAT){
         holder.innerHTML = pile(WALL_PILE_EL_ID[side], WALL_PILE_SIZE[side] / 2);
         return;
@@ -3087,7 +3113,26 @@
     tile.classList.toggle("half-drawn", consumed === 1);
   }
 
+  // 複式MCR：各辺の山を、その人の山の残り(頭からツモった分・末尾から嶺上牌で取った分)に合わせる。
+  // 嶺上牌はその人のカン1回につき1枚(花牌なし)なので、末尾から取った枚数＝その人のカンの数
+  function updateDuplicateWallPiles(){
+    DUPLICATE_SEAT_POSITIONS.forEach(seat => {
+      const el = document.getElementById(WALL_PILE_EL_ID[seat]);
+      const back = melds[seat].filter(m => m.type === "kan" || m.type === "ankan").length;
+      const front = DUPLICATE_WALL_TILES - ownWalls[seat].length - back;
+      const kids = Array.from(el.children);
+      kids.forEach((tile, domIdx) => {
+        const j = DUPLICATE_WALL_LEFT_IS_DOM_END[seat] ? DUPLICATE_WALL_STACKS - 1 - domIdx : domIdx; // その人から見て左から何山目(0〜10)
+        const idxs = j < DUPLICATE_WALL_STACKS - 1 ? [2 * j, 2 * j + 1] : [DUPLICATE_WALL_TILES - 1];
+        const left = idxs.filter(i => i >= front && i < DUPLICATE_WALL_TILES - back).length;
+        // 残りが1枚の山は上段を取った後と同じ見た目(少し暗く)、0枚は消す
+        applyStackVisual(tile, left === 0 ? 2 : (left === 1 ? 1 : 0));
+      });
+    });
+  }
+
   function updateWallPiles(){
+    if(ruleConfig.duplicateEnabled){ updateDuplicateWallPiles(); return; }
     WALL_PILE_ORDER.forEach(name => {
       const el = document.getElementById(WALL_PILE_EL_ID[name]);
       const size = WALL_PILE_SIZE[name]; // 物理枚数（10 / 22）
