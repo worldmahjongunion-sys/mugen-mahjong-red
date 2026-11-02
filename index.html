@@ -2435,6 +2435,39 @@
     for(let t = 0; t < DUPLICATE_TABLE_COUNT; t++) group.push({ table:t, seat, player:duplicatePlayerAt(t, seat) });
     return group;
   }
+  // ==================== AI雀士の個性(依頼_複式MCR_AI雀士.md) ====================
+  // 打ち筋のタイプごとの個性の値。既存の牌効率AIの上に重ねる。どのルールでも使える形にしてあり、
+  // 席に個性が付いていない時(複式MCR以外の今のルール)は AI_PERSONALITY_NEUTRAL(中間値)を使い、今のAIと同じ動きになる。
+  //   meldEagerness(0〜1)：鳴きやすさ。中間値0.5でシャンテンが進む鳴き85%・変わらない鳴き25%(今の値)。
+  //     0に近いほど鳴かず、1に近いほどよく鳴く(cpuCallProbability)
+  //   riichiBias(0〜1)：リーチ寄りかダマ寄りか。中間値0.5以上は今どおり聴牌即リーチ、それより下は確率でダマ。
+  //     MCRにはリーチが無いので複式MCRでは使わない
+  //   pushLevel(整数かnull)：降り始める自分のシャンテン数。nullはルールの今の動き(日本式は相手のリーチに1シャンテン以上で降りる、
+  //     MCRは降りない)。複式MCRでは、相手の副露・聴牌気配に対して降り始める目安として読む(白石さん承認の案③)
+  //   valueAim(0〜1)：打点志向。複式MCRでは「8点に届く見込みをどれだけ重視するか」。中間値0.5で今のMCRのAI
+  //     (受け入れの差4枚まで8点の筋を優先・鳴きは8点の筋がはっきり見える時だけ)
+  //   redDoraKeep・behindAggression(0〜1)：赤・ドラの温存、沈んでいる時の攻め。中間値0.5で今の値。複式MCRでは使わない
+  const AI_PERSONALITY_NEUTRAL = { meldEagerness:0.5, riichiBias:0.5, pushLevel:null, valueAim:0.5, redDoraKeep:0.5, behindAggression:0.5 };
+  // 初期値は依頼文の目安から。調整はここの数字だけを変えればよい
+  const AI_PERSONALITIES = {
+    // 攻撃型：押し強め(降りない)・高い手を狙う
+    attack:  { meldEagerness:0.5,  riichiBias:0.8, pushLevel:99, valueAim:0.75, redDoraKeep:0.7, behindAggression:0.8 },
+    // 守備型：押さない(1シャンテンから降りる)・安全牌優先
+    defense: { meldEagerness:0.4,  riichiBias:0.4, pushLevel:1,  valueAim:0.5,  redDoraKeep:0.4, behindAggression:0.3 },
+    // 速攻鳴き型：よく鳴く。8点縛りに早く届く形(見込みが少し薄くても)を作って鳴く
+    speed:   { meldEagerness:0.9,  riichiBias:0.5, pushLevel:2,  valueAim:0.25, redDoraKeep:0.5, behindAggression:0.5 },
+    // メンゼン型：ほとんど鳴かない・高打点狙い
+    menzen:  { meldEagerness:0.05, riichiBias:0.7, pushLevel:2,  valueAim:0.85, redDoraKeep:0.6, behindAggression:0.5 }
+  };
+  // seat(画面の位置)のCPUの個性。複式MCRでは、その卓(自分の卓は0、裏卓は DUP_SIM.table)・席に座る人のタイプの個性。
+  // 自分の卓の下(自分)はメンゼン型の席(完全CPU戦で自分の席をCPUに打たせる時に使う)。ほかのルールは中間値
+  function personalityOfSeat(seat){
+    if(!ruleConfig.duplicateEnabled) return AI_PERSONALITY_NEUTRAL;
+    const table = DUP_SIM ? DUP_SIM.table : 0;
+    const type = duplicateTypeOf(table, DUPLICATE_SEAT_POSITIONS.indexOf(seat));
+    return AI_PERSONALITIES[type] || AI_PERSONALITY_NEUTRAL;
+  }
+
   // ==================== 複式MCR：IMP(依頼文§4) ====================
   // 各局・各風ごとに、同じ風の4人(4卓の同じ席)の点数(その局の増減)を比べる。
   // 1. 4人の点数の平均を出す  2. 差＝自分の点数−平均  3. 差の絶対値の整数部分で表(DUPLICATE_IMP_TABLE)を引き、
