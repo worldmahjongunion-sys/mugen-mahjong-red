@@ -1130,6 +1130,8 @@
   /* MCR：和了の形でも8点に届かない時の告知(showUnderMinNotice)。邪魔ポンの告知と同じ場所・同じ形で、点滅はしない */
   /* MCR：CPUの名前(席替えのあるルールだけJSが足す) */
   .nameplate .player-name{ font-size:0.72em; color:#E8E2CF; }
+  /* 複式MCR：CPUの打ち筋のタイプの1文字(攻・守・速・門)。名前の後ろに小さく枠で囲んで出す */
+  .nameplate .type-mark{ font-size:0.62em; color:#E8E2CF; border:1px solid rgba(232,226,207,0.6); border-radius:3px; padding:0 2px; margin-left:2px; line-height:1.2; }
   /* MCR：席替えがあった局の頭の告知(showSeatChangeNotice)。数秒で消える */
   .seat-change-notice{
     position:fixed;
@@ -3127,6 +3129,8 @@
   const SEAT_PLAYERS = Object.assign({}, INITIAL_SEAT_PLAYERS, (ruleConfig.seatChangeEnabled && savedMatchState && savedMatchState.seatPlayers) || {});
   // 席替えのあるルールは、CPUを位置(下家等)ではなく名前で呼ぶ(場ごとに座る位置が変わるため)
   if(ruleConfig.seatChangeEnabled) activeSeats(["right", "top", "left"]).forEach(s => { seatLabel[s] = PLAYER_NAME[SEAT_PLAYERS[s]]; });
+  // 複式MCRは、CPUを名前表(AI_ROSTER)の名前で呼ぶ(自分の卓＝1卓目のその席に座る人)
+  if(ruleConfig.duplicateEnabled) ["right", "top", "left"].forEach(s => { seatLabel[s] = duplicatePlayerAt(DUP_SIM ? DUP_SIM.table : 0, DUPLICATE_SEAT_POSITIONS.indexOf(s)).name; });
 
   // 複式MCRは自分の山の残りと、下家の山の残りの2つを出す(最終牌は「自分の手番で下家の山が空」で決まるため)
   if(ruleConfig.duplicateEnabled){
@@ -5852,14 +5856,23 @@
     Object.keys(nameplateElByName).forEach(seat => {
       const plate = nameplateElByName[seat];
       plate.querySelector(".wind-mark").textContent = WIND_CHAR[SEAT_WIND[seat]];
-      if(ruleConfig.seatChangeEnabled && seat !== "bottom"){ // CPUの名前(方角の後ろ)
+      if((ruleConfig.seatChangeEnabled || ruleConfig.duplicateEnabled) && seat !== "bottom"){ // CPUの名前(方角の後ろ)
         let nameEl = plate.querySelector(".player-name");
         if(!nameEl){
           nameEl = document.createElement("span");
           nameEl.className = "player-name";
           plate.querySelector(".wind-mark").after(nameEl);
         }
-        nameEl.textContent = PLAYER_NAME[SEAT_PLAYERS[seat]];
+        nameEl.textContent = ruleConfig.duplicateEnabled ? seatLabel[seat] : PLAYER_NAME[SEAT_PLAYERS[seat]];
+        // 複式MCR：名前の後ろに打ち筋のタイプの1文字
+        if(ruleConfig.duplicateEnabled && !plate.querySelector(".type-mark")){
+          const mark = document.createElement("span");
+          mark.className = "type-mark";
+          const type = duplicateTypeOf(DUP_SIM ? DUP_SIM.table : 0, DUPLICATE_SEAT_POSITIONS.indexOf(seat));
+          mark.textContent = AI_TYPES[type].mark;
+          mark.title = AI_TYPES[type].label;
+          nameEl.after(mark);
+        }
       }
       const dealerMarkEl = plate.querySelector(".dealer-mark");
       dealerMarkEl.style.display = (seat === markSeat) ? "" : "none";
