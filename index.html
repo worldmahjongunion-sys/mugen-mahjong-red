@@ -10179,12 +10179,16 @@
     return t.num + { man:"萬", pin:"筒", sou:"索" }[t.suit] + (t.red ? "(赤)" : "");
   }
 
-  // 結果パネルの見出し。MCR-NEOは、席替えでCPUの座る位置が変わっても、和了した人・放銃した人を
-  // 画面上の位置(POSITION_LABEL：上家・対面・下家・自家)で「下家の出あがり（対面から）」「自家のツモあがり」と出す。
+  // 結果パネルの見出し。MCR系は「ロン」「ツモ」を使わず「自家のフー（自摸）」「下家のフー（放銃：対面）」と出す。
+  // MCR-NEOは、席替えでCPUの座る位置が変わっても、和了した人・放銃した人を画面上の位置(POSITION_LABEL：上家・対面・下家・自家)で出し、
+  // 複式MCRは名札と同じ名前(名前表 AI_ROSTER。自分は「自分」)で出す。
   // ほかのルールは今までどおり「下家のロン（対面から）」「自家のツモ」
   function resultTitleOf(seat, result, loserSeat){
     if(ruleConfig.scoreTableMode === "mcr"){
-      return result.isTsumo ? (POSITION_LABEL[seat] + "のツモあがり") : (POSITION_LABEL[seat] + "の出あがり（" + POSITION_LABEL[loserSeat] + "から）");
+      const nameOf = s => ruleConfig.duplicateEnabled
+        ? duplicatePlayerAt(DUP_SIM ? DUP_SIM.table : 0, DUPLICATE_SEAT_POSITIONS.indexOf(s)).name
+        : POSITION_LABEL[s];
+      return result.isTsumo ? (nameOf(seat) + "のフー（自摸）") : (nameOf(seat) + "のフー（放銃：" + nameOf(loserSeat) + "）");
     }
     return result.isTsumo ? (seatLabel[seat] + "のツモ") : (seatLabel[seat] + "のロン（" + seatLabel[loserSeat] + "から）");
   }
@@ -10800,7 +10804,7 @@
     const el = document.getElementById("callPrompt");
     if(ruleConfig.scoreTableMode !== "mcr" || !el || nadaponWindow) return;
     el.classList.toggle("under-min-banner", on);
-    el.textContent = on ? "8点未満のため和了できません" : "";
+    el.textContent = on ? "8点未満のためフーできません" : "";
     el.style.display = on ? "block" : "none";
   }
 
