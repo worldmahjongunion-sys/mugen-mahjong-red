@@ -3010,7 +3010,7 @@
   // 自分・CPU3人へ配牌（13枚ずつ。山は既にシャッフル済みのため、誰が親でも配る順序自体は無関係）。
   // ruleConfig.startHandSizeが12のルール(Mリーグ NEO)は12枚ずつで、親の13枚目は最初のツモとして引く
   const START_HAND_SIZE = ruleConfig.startHandSize;
-  // 個人ツモ山(複式MCR、duplicateEnabled)。各自が自分の山の頭からツモり、嶺上牌は自分の山の末尾(右端)から取る。
+  // 個人ツモ山(複式MCR、duplicateEnabled)。各自が自分の山の頭からツモり、嶺上牌も同じ頭から取る(ふつうの次の1枚。絵では持ち主から見て右の端から減る)。
   // 山を風で決めるので、どの卓でも同じ風の人は同じ配牌・同じ山になる：シャッフルした136枚の[13w,13w+13)が風wの配牌、
   // [52+21w, 52+21w+21)が風wの山(w=0東〜3北)。配牌の後、共通の山(wall)は空になる。ほかのルールは使わない(空のまま)
   const ownWalls = { bottom: [], right: [], top: [], left: [] };
@@ -3276,7 +3276,8 @@
   const RINSHAN_STACKS = RINSHAN_TILES / 2;
   const AUTO_DEAD_WALL_STACKS = NO_DEAD_WALL ? 0 : RINSHAN_STACKS + 5;
   // 複式MCR(個人ツモ山)：各辺にその人の山21枚を11山で置く。その人から見て左から1〜10山目は2枚ずつ、
-  // 右の端の11山目は1枚だけ(上段)。ツモ(ownWalls[seat]の頭)は左の端から、嶺上牌(末尾)は右の端から減る
+  // 右の端の11山目は1枚だけ(上段)。ツモも嶺上牌も ownWalls[seat] の頭から取り、絵では右の端から減る
+  // (頭の1枚目＝右の端の11山目、2・3枚目＝10山目の上・下、…、20・21枚目＝1山目の上・下)
   const DUPLICATE_WALL_TILES = 21;
   const DUPLICATE_WALL_STACKS = 11;
   // その人から見て左の端がDOMの先頭か末尾か。下(自分)と左(上家)は先頭、上(対面)と右(下家)は末尾
@@ -3391,18 +3392,17 @@
     tile.classList.toggle("half-drawn", consumed === 1);
   }
 
-  // 複式MCR：各辺の山を、その人の山の残り(頭からツモった分・末尾から嶺上牌で取った分)に合わせる。
-  // 嶺上牌はその人のカン1回につき1枚(花牌なし)なので、末尾から取った枚数＝その人のカンの数
+  // 複式MCR：各辺の山を、その人の山の残り(頭から取った枚数＝ツモ＋嶺上牌)に合わせて、その人から見て右の端から減らす
   function updateDuplicateWallPiles(){
     DUPLICATE_SEAT_POSITIONS.forEach(seat => {
       const el = document.getElementById(WALL_PILE_EL_ID[seat]);
-      const back = melds[seat].filter(m => m.type === "kan" || m.type === "ankan").length;
-      const front = DUPLICATE_WALL_TILES - ownWalls[seat].length - back;
+      const front = DUPLICATE_WALL_TILES - ownWalls[seat].length; // 頭から取った枚数
       const kids = Array.from(el.children);
       kids.forEach((tile, domIdx) => {
         const j = DUPLICATE_WALL_LEFT_IS_DOM_END[seat] ? DUPLICATE_WALL_STACKS - 1 - domIdx : domIdx; // その人から見て左から何山目(0〜10)
-        const idxs = j < DUPLICATE_WALL_STACKS - 1 ? [2 * j, 2 * j + 1] : [DUPLICATE_WALL_TILES - 1];
-        const left = idxs.filter(i => i >= front && i < DUPLICATE_WALL_TILES - back).length;
+        // 右の端(11山目)は頭の1枚目だけ。j山目(0〜9)は頭から 2*(9-j)+1・2*(9-j)+2 枚目
+        const idxs = j === DUPLICATE_WALL_STACKS - 1 ? [0] : [2 * (DUPLICATE_WALL_STACKS - 2 - j) + 1, 2 * (DUPLICATE_WALL_STACKS - 2 - j) + 2];
+        const left = idxs.filter(i => i >= front).length;
         // 残りが1枚の山は上段を取った後と同じ見た目(少し暗く)、0枚は消す
         applyStackVisual(tile, left === 0 ? 2 : (left === 1 ? 1 : 0));
       });
@@ -4049,16 +4049,16 @@
   // 嶺上牌が8枚あるルール(auto18)も、カンは卓全体で4回まで
   // 3人打ち(KAN_DORA_FROM_LIVE_WALL)は、カンドラにする山(ツモの最後の2枚)をカンドラにしてもツモが1枚以上残る時、
   // つまり残り牌が3枚以上の時だけカンできる(暗槓・加槓・大明槓、自分にもCPUにも同じ。海底でカンできないのと同じ考え方)
-  // seat：カンする人。複式MCRはその人の山の末尾から嶺上牌を取るので、その人の山が空ならカンできない
+  // seat：カンする人。複式MCRはその人の山の頭から嶺上牌を取るので、その人の山が空ならカンできない
   function rinshanAvailable(seat){
     if(NO_DEAD_WALL) return !ownWallEmpty(seat); // ほかの王牌なしのルール(MCR-NEO)は今までどおり共通の山が空でなければ
     if(KAN_DORA_FROM_LIVE_WALL && wall.length < 3) return false;
     return deadWall.length > DEAD_WALL_INITIAL_SIZE - RINSHAN_TILES && (RINSHAN_TILES === 4 || kanCountOnTable() < 4);
   }
   // 嶺上牌を1枚取る。王牌なし(NO_DEAD_WALL)のルールは山の末尾から取る(4回までの制限もない)。
-  // 個人ツモ山(複式MCR)は、カンした人(seat)の山の末尾(右端)から取る
+  // 個人ツモ山(複式MCR)は、カンした人(seat)の山から、ふつうのツモと同じ頭の次の1枚を取る
   function drawRinshanTile(seat){
-    if(ruleConfig.duplicateEnabled) return ownWalls[seat].pop();
+    if(ruleConfig.duplicateEnabled) return ownWalls[seat].shift();
     return NO_DEAD_WALL ? wall.pop() : deadWall.pop();
   }
   // 個人ツモ山(複式MCR)で、seatの山が空か(ツモれない＝流局・カンできない)。ほかのルールは共通の山(wall)が空か
