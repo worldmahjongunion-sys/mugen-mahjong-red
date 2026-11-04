@@ -166,11 +166,24 @@
     font-size:9px;
     color:#ccc;
   }
-  /* 複式MCR：自分の山・下家の山の2つを横に並べる(数字は少し小さく) */
-  html.duplicate-rule #wallCount{ flex-direction:row; gap:6px; align-items:flex-start; }
-  html.duplicate-rule .wall-count-sub{ display:flex; flex-direction:column; align-items:center; gap:1px; }
-  html.duplicate-rule #wallCount .wall-count-label{ white-space:nowrap; }
-  html.duplicate-rule #wallCount .wall-count-num{ font-size:clamp(16px, calc(var(--tile-h) * 0.7), 34px); }
+  /* 複式MCR：4人の山の残りを、中央の枠の中で各自の名札の内側(上下左右)に出す。字は回さず横書き。
+     3×3のマスに置き、上＝対面・左＝上家・右＝下家・下＝自分。最終牌の状態の手番の人は「海底」(色を変える) */
+  html.duplicate-rule .center-info > .ring-center{ align-self:stretch; justify-self:stretch; position:relative; }
+  html.duplicate-rule .center-info > .ring-center > .center-mid{ position:static; }
+  html.duplicate-rule #wallCount{ position:absolute; inset:1px; display:grid; grid-template-columns:auto 1fr auto; grid-template-rows:auto 1fr auto; gap:0; align-items:center; justify-items:center; pointer-events:none; }
+  html.duplicate-rule #wallCount .dup-wall[data-seat="top"]{ align-self:start; }
+  html.duplicate-rule #wallCount .dup-wall[data-seat="bottom"]{ align-self:end; }
+  html.duplicate-rule #wallCount .dup-wall[data-seat="left"]{ justify-self:start; }
+  html.duplicate-rule #wallCount .dup-wall[data-seat="right"]{ justify-self:end; }
+  html.duplicate-rule #wallCount .dup-wall.haitei .wall-count-label{ display:none; } /* 「海底」の時は「山」を外す */
+  html.duplicate-rule #wallCount .dup-wall{ display:flex; align-items:baseline; gap:2px; white-space:nowrap; line-height:1; }
+  html.duplicate-rule #wallCount .dup-wall[data-seat="top"]{ grid-column:2; grid-row:1; }
+  html.duplicate-rule #wallCount .dup-wall[data-seat="left"]{ grid-column:1; grid-row:2; }
+  html.duplicate-rule #wallCount .dup-wall[data-seat="right"]{ grid-column:3; grid-row:2; }
+  html.duplicate-rule #wallCount .dup-wall[data-seat="bottom"]{ grid-column:2; grid-row:3; }
+  html.duplicate-rule #wallCount .wall-count-label{ white-space:nowrap; font-size:clamp(9px, calc(var(--tile-h) * 0.32), 13px); }
+  html.duplicate-rule #wallCount .wall-count-num{ font-size:clamp(14px, calc(var(--tile-h) * 0.6), 28px); min-width:2ch; text-align:center; }
+  html.duplicate-rule #wallCount .dup-wall.haitei .wall-count-num{ background:#e0306a; color:#fff; border-radius:4px; padding:1px 3px; font-size:clamp(11px, calc(var(--tile-h) * 0.45), 20px); }
   .wall-count-num{
     font-size:clamp(20px, calc(var(--tile-h) * 0.9), 44px); /* 卓のサイズ(--tile-h)に連動して拡大・縮小する（旧16px固定） */
     font-weight:bold;
@@ -3190,17 +3203,35 @@
   // 複式MCRは、CPUを名前表(AI_ROSTER)の名前で呼ぶ(自分の卓＝1卓目のその席に座る人)
   if(ruleConfig.duplicateEnabled) ["right", "top", "left"].forEach(s => { seatLabel[s] = duplicatePlayerAt(DUP_SIM ? DUP_SIM.table : 0, DUPLICATE_SEAT_POSITIONS.indexOf(s)).name; });
 
-  // 複式MCRは自分の山の残りと、下家の山の残りの2つを出す(最終牌は「自分の手番で下家の山が空」で決まるため)
+  // 複式MCRは4人の山の残りを、中央の枠の中で各自の名札の内側に出す(裏卓では出さない)。
+  // 最終牌の状態(手番の人の下家の山が空)の時は、手番の人の欄を数字ではなく「海底」にする。下家の欄は0のまま
+  let duplicateTurnSeat = null; // 今、手番(ツモ・鳴き)の人。山からツモった時と、鳴いた時に変える
   if(ruleConfig.duplicateEnabled){
     document.documentElement.classList.add("duplicate-rule");
-    const box = document.getElementById("wallCount");
-    box.innerHTML = `<div class="wall-count-sub"><span class="wall-count-label">自分の山</span><span class="wall-count-num" id="wallCountNum"></span></div>`
-      + `<div class="wall-count-sub"><span class="wall-count-label">下家の山</span><span class="wall-count-num" id="wallCountShimoNum"></span></div>`;
+    if(!DUP_SIM){
+      const box = document.getElementById("wallCount");
+      box.innerHTML = ["top", "left", "right", "bottom"].map(seat =>
+        `<div class="dup-wall" data-seat="${seat}"><span class="wall-count-label">山</span><span class="wall-count-num"></span></div>`).join("");
+    }
+  }
+  function setDuplicateTurnSeat(seat){
+    if(!ruleConfig.duplicateEnabled) return;
+    duplicateTurnSeat = seat;
+    updateDuplicateWallCounts();
+  }
+  function updateDuplicateWallCounts(){
+    if(!ruleConfig.duplicateEnabled || DUP_SIM) return;
+    DUPLICATE_SEAT_POSITIONS.forEach(seat => {
+      const cell = document.querySelector(`#wallCount .dup-wall[data-seat="${seat}"]`);
+      if(!cell) return;
+      const haitei = seat === duplicateTurnSeat && isLastTileState(seat);
+      cell.classList.toggle("haitei", haitei);
+      cell.querySelector(".wall-count-num").textContent = haitei ? "海底" : ownWalls[seat].length;
+    });
   }
   function updateWallCount(){
     if(ruleConfig.duplicateEnabled){
-      document.getElementById("wallCountNum").textContent = ownWalls.bottom.length;
-      document.getElementById("wallCountShimoNum").textContent = ownWalls[NEXT_SEAT.bottom].length;
+      updateDuplicateWallCounts();
     } else {
       document.getElementById("wallCountNum").textContent = wall.length;
     }
@@ -4061,6 +4092,7 @@
   // 花牌は空気扱いなので、補充した牌は普通のツモと同じ(嶺上開花は付けない。山の最後なら海底摸月)
   function drawFromWall(seat){
     const drawn = ruleConfig.duplicateEnabled ? ownWalls[seat].shift() : wall.shift(); // 複式MCRは自分の山の頭から
+    setDuplicateTurnSeat(seat); // 複式MCR：山の残りの欄の「海底」を出す人
     rinshanDraw = null; // 山からの通常のツモ
     if(!drawn.flower) return drawn;
     const tile = pullFlowers(seat, drawn);
@@ -4638,6 +4670,7 @@
   // --- ポン・カンの実行（プレイヤー／CPU共通） ---
   // chosenTiles: プレイヤーが牌の画像で選んだ実際の手牌（省略時はCPU用に自動選択する）
   function executeCall(callerSeat, discarderSeat, tile, type, chosenTiles){
+    setDuplicateTurnSeat(callerSeat); // 複式MCR：鳴いた人の手番になる
     clearAllIppatsu(); // ポン・大明槓（鳴き）が成立した時点で一発は消える（誰の一発権であっても）
     if(type === "pon") playSfx(SFX.callPon); // 自分・CPU問わず、ポンが成立した瞬間に鳴らす
     else if(type === "kan") playSfx(SFX.callKan); // 大明槓が成立した瞬間に鳴らす（自分・CPU問わず）
@@ -4699,6 +4732,7 @@
   // callerSeat: チーする本人（従来はbottom専用だったが、邪魔ポン対応でCPUのチーも扱うため汎用化した）
   // alreadyVoiced: 邪魔ポンの猶予窓を開いた時点で発声済み（openNadaponWindow）なら true
   function executeChi(callerSeat, discarderSeat, comboTiles, tile, alreadyVoiced){
+    setDuplicateTurnSeat(callerSeat); // 複式MCR：チーした人の手番になる
     clearAllIppatsu(); // チーが成立した時点で一発は消える（誰の一発権であっても）
     if(!alreadyVoiced) playSfx(SFX.callChi); // チーが成立した瞬間に鳴らす
     discards[discarderSeat].pop();
