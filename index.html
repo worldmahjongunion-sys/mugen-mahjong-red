@@ -1744,7 +1744,7 @@
     <button class="row-btn" id="ponBtn" disabled>ポン</button>
     <button class="row-btn" id="kanBtn" disabled>カン</button>
     <button class="row-btn" id="riichiBtn" disabled>リーチ</button>
-    <button class="row-btn" disabled>自動和了</button>
+    <button class="row-btn" id="autoWinBtn" disabled>自動和了</button>
     <button class="row-btn" disabled>自摸切り</button>
     <button class="row-btn" id="winBtn" disabled>和了</button>
   </div>
@@ -3815,6 +3815,11 @@
     }
   }
 
+  // MCR系(scoreTableMode:"mcr")は、和了のボタンを「フー」、飾りの「自動和了」を「自動フー」と書く(「ロン」「ツモ」は使わない)
+  if(ruleConfig.scoreTableMode === "mcr"){
+    document.getElementById("winBtn").textContent = "フー";
+    document.getElementById("autoWinBtn").textContent = "自動フー";
+  }
   // MCR系(scoreTableMode:"mcr")の暗槓は、局の途中は4枚とも伏せ、和了で手牌を開いた時だけ表にする(流局は伏せたまま)
   const ANKAN_ALL_FACE_DOWN = ruleConfig.scoreTableMode === "mcr";
   let kyokuWinRevealed = false; // この局が和了で終わり、手牌を開いたか
