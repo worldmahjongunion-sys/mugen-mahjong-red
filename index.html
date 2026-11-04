@@ -900,6 +900,8 @@
   .duplicate-tables .dt-plus{ color:#7fd17f; }
   .duplicate-tables .dt-minus{ color:#ff8f8f; }
   .duplicate-tables .dt-note{ color:#bbb; margin-top:3px; }
+  /* MCR系の見出し：名前の途中や「（放銃：…）」の途中では折り返さない(折り返すのは「（放銃：…）」の手前だけ) */
+  .title-chunk{ white-space:nowrap; }
   .result-box .result-title{
     font-size:17px;
     font-weight:bold;
@@ -10193,7 +10195,9 @@
       const nameOf = s => ruleConfig.duplicateEnabled
         ? duplicatePlayerAt(DUP_SIM ? DUP_SIM.table : 0, DUPLICATE_SEAT_POSITIONS.indexOf(s)).name
         : POSITION_LABEL[s];
-      return result.isTsumo ? (nameOf(seat) + "のフー（自摸）") : (nameOf(seat) + "のフー（放銃：" + nameOf(loserSeat) + "）");
+      // 名前は1つのかたまり。「○○のフー」と「（自摸）」「（放銃：○○）」をそれぞれ折り返さないかたまりにし、間だけで折り返す
+      const chunk = t => `<span class="title-chunk">${t}</span>`;
+      return chunk(nameOf(seat) + "のフー") + "<wbr>" + chunk(result.isTsumo ? "（自摸）" : ("（放銃：" + nameOf(loserSeat) + "）"));
     }
     return result.isTsumo ? (seatLabel[seat] + "のツモ") : (seatLabel[seat] + "のロン（" + seatLabel[loserSeat] + "から）");
   }
