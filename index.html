@@ -3815,6 +3815,9 @@
     }
   }
 
+  // MCR系(scoreTableMode:"mcr")の暗槓は、局の途中は4枚とも伏せ、和了で手牌を開いた時だけ表にする(流局は伏せたまま)
+  const ANKAN_ALL_FACE_DOWN = ruleConfig.scoreTableMode === "mcr";
+  let kyokuWinRevealed = false; // この局が和了で終わり、手牌を開いたか
   function revealAllHands(){
     activeSeats(["top", "left", "right"]).forEach(renderCpuHandFaces);
     // gameEndedは呼び出し側で既にtrueにしてあるはずなので、ここでrenderMeldsを呼び直すと
@@ -3877,11 +3880,12 @@
         // して、何を槓したかを全員(自分・CPU)の暗槓で見せる。表向きの2枚には赤牌を優先して使う
         // (赤があれば赤が見える)。局が終わった時（和了・流局＝gameEnded）は、誰の暗槓も4枚とも
         // 表向きにして開示する。4枚とも席の向き(baseRot)のままなので、積む牌の厚みは使わない
-        const revealAll = gameEnded;
+        // MCR系は局の途中は4枚とも伏せ、和了で手牌を開いた時だけ表にする(流局は伏せたまま)
+        const revealAll = ANKAN_ALL_FACE_DOWN ? (gameEnded && kyokuWinRevealed) : gameEnded;
         const rowBackCls = backClassByName[name] || "tile-back";
         const faceTiles = [...m.handTiles.filter(t => t.red), ...m.handTiles.filter(t => !t.red)];
         m.handTiles.slice(0, 4).forEach((t, i) => {
-          if(revealAll || i === 1 || i === 2){
+          if(revealAll || (!ANKAN_ALL_FACE_DOWN && (i === 1 || i === 2))){
             const ft = revealAll ? t : faceTiles[i - 1];
             const tEl = tileEl(ft.suit, ft.num, tileClass(ft.suit, ft.num), ft.red, ft);
             markAtari(ft, tEl);
@@ -5555,6 +5559,7 @@
     kyokuNumber = snap.kyokuNumber;
     DEALER_SEAT = snap.dealerSeat;
     gameEnded = snap.gameEnded;
+    kyokuWinRevealed = false; // リプレイで局の始めに戻したら、暗槓はまた伏せる(MCR系)
     lastDrawnTile = cloneTileRef(snap.lastDrawnTile, map);
     riichiDeclared = { ...snap.riichiDeclared };
     openRiichiDeclared = { ...(snap.openRiichiDeclared || { bottom:false, top:false, left:false, right:false }) };
@@ -10438,6 +10443,7 @@
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
+    kyokuWinRevealed = true; // MCR系：和了で手牌を開いた時だけ、暗槓も表にする
     revealAllHands(); // 和了時も4人全員の手牌を公開する
     fitTileSize(); // 公開した牌の実寸に合わせて再計算し、自分の手牌がボタン行と被らないようにする
     proceedOrEndMatch(ruleConfig.renchanEnabled && winnerSeat === DEALER_SEAT, [winnerSeat], bustSeatThisHand); // 親の和了＝連荘、それ以外＝親交代(連荘のないルールは常に親交代)
@@ -10560,6 +10566,7 @@
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
+    kyokuWinRevealed = true; // MCR系：和了で手牌を開いた時だけ、暗槓も表にする
     revealAllHands(); // 和了時も4人全員の手牌を公開する
     fitTileSize(); // 公開した牌の実寸に合わせて再計算し、自分の手牌がボタン行と被らないようにする
     // 親が和了者に含まれれば連荘(連荘のないルールは常に親交代)。multiRonHeadTakesAllは頭ハネで先の和了者が親の時だけ
