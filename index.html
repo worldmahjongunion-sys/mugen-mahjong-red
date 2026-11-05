@@ -2297,7 +2297,7 @@
     // 順子・刻子の並びの系
     "一色三歩高", "一色四歩高", "一色三順", "一色四順", "三連刻", "四連刻", "三色三連刻", "花龍", "三風刻",
     // 役満級の独自役
-    "三色双龍会", "一色双龍会", "連七対", "百万石", "紅孔雀", "緑一色（七対子四枚使い）",
+    "三色双龍会", "一色双龍会", "連七対", "百万石", "紅孔雀", "緑一色（七対子四枚使い）", "万緑叢中一点紅",
     // 花の系
     "花鳥風月", "花鳥風月雪", "雪月花", "風花雪月",
     "組合龍", "組合同順"
@@ -6579,6 +6579,12 @@
     // 緑一色：索子2・3・4・6・8と發だけで作る（役満）
     if(allTiles.every(isGreenTile)) yaku.push({ name:"緑一色", han:13 });
 
+    // 万緑叢中一点紅（ワンリュウソウチュンイーテンホン）：索子2・3・4・6・8だけで4つの面子を作り、雀頭を中にする（役満、鳴きも可）。
+    // 順子は234索だけ作れる。混一色の上位役なので混一色とは複合しない(下の混一色の判定)
+    const isBanryokuSouchu = isYakuEnabled("万緑叢中一点紅") && pairTile.suit === "dragon" && pairTile.num === 3 &&
+      allSets.every(s => s.tiles.every(t => t.suit === "sou" && [2, 3, 4, 6, 8].includes(t.num)));
+    if(isBanryokuSouchu) yaku.push({ name:"万緑叢中一点紅", han:13 });
+
     // 三色同刻：同じ数字の刻子/槓子が萬子・筒子・索子それぞれにある（3翻）
     {
       const bySuit = { man:new Set(), pin:new Set(), sou:new Set() };
@@ -6675,7 +6681,7 @@
     }
 
     if(!hasYisSeShuangLong && !isChuuren && suitsUsed.size === 1){
-      if(hasHonor) yaku.push({ name:"混一色", han: closedHand ? 3 : 2 });
+      if(hasHonor){ if(!isBanryokuSouchu) yaku.push({ name:"混一色", han: closedHand ? 3 : 2 }); }
       else yaku.push({ name:"清一色", han: closedHand ? 6 : 5 });
     }
 
