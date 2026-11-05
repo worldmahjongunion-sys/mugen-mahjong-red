@@ -176,7 +176,13 @@
   html.duplicate-rule #wallCount .dup-wall[data-seat="left"]{ justify-self:start; }
   html.duplicate-rule #wallCount .dup-wall[data-seat="right"]{ justify-self:end; }
   html.duplicate-rule #wallCount .dup-wall.haitei .wall-count-label{ display:none; } /* 「海底」の時は「山」を外す */
-  html.duplicate-rule #wallCount .dup-wall{ display:flex; align-items:baseline; gap:2px; white-space:nowrap; line-height:1; }
+  /* 1つの欄は2行：1行目「山 N」、2行目「計＋12.50」(累計IMP)。2行目はその人から見て下(名札の側)に来る。
+     上家・下家の欄は縦に長くなるので、上の段から下の段まで(grid-row:1/4)使えるようにする */
+  html.duplicate-rule #wallCount .dup-wall{ display:flex; flex-direction:column; align-items:center; gap:1px; white-space:nowrap; line-height:1; }
+  html.duplicate-rule #wallCount .dup-wall-line{ display:flex; align-items:baseline; gap:2px; }
+  html.duplicate-rule #wallCount .dup-imp-total{ font-size:clamp(9px, calc(var(--tile-h) * 0.4), 13px); color:#e8efe9; font-variant-numeric:tabular-nums; letter-spacing:0; }
+  html.duplicate-rule #wallCount .dup-imp-total.imp-plus{ color:#7fd17f; }
+  html.duplicate-rule #wallCount .dup-imp-total.imp-minus{ color:#ff8f8f; }
   /* 山の枚数は、その人から見て正面に読める向きにする(名札の字と同じ向き)。対面は逆さ。
      上家・下家は transform で回すと枠の大きさが回る前のままになり、隣の欄や名札に重なるので、
      縦書き(vertical-rl＋sideways＝全部の字を右へ90度)にして枠の大きさごと縦にする。下家はさらに180度回す */
@@ -187,8 +193,8 @@
   html.duplicate-rule #wallCount .dup-wall[data-seat="left"] .wall-count-num,
   html.duplicate-rule #wallCount .dup-wall[data-seat="right"] .wall-count-num{ min-width:0; min-inline-size:2ch; } /* 数字2桁分の長さを縦にとる */
   html.duplicate-rule #wallCount .dup-wall[data-seat="top"]{ grid-column:2; grid-row:1; }
-  html.duplicate-rule #wallCount .dup-wall[data-seat="left"]{ grid-column:1; grid-row:2; }
-  html.duplicate-rule #wallCount .dup-wall[data-seat="right"]{ grid-column:3; grid-row:2; }
+  html.duplicate-rule #wallCount .dup-wall[data-seat="left"]{ grid-column:1; grid-row:1 / 4; }
+  html.duplicate-rule #wallCount .dup-wall[data-seat="right"]{ grid-column:3; grid-row:1 / 4; }
   html.duplicate-rule #wallCount .dup-wall[data-seat="bottom"]{ grid-column:2; grid-row:3; }
   html.duplicate-rule #wallCount .wall-count-label{ white-space:nowrap; font-size:clamp(9px, calc(var(--tile-h) * 0.32), 13px); }
   html.duplicate-rule #wallCount .wall-count-num{ font-size:clamp(14px, calc(var(--tile-h) * 0.6), 28px); min-width:2ch; text-align:center; }
@@ -3223,8 +3229,10 @@
     document.documentElement.classList.add("duplicate-rule");
     if(!DUP_SIM){
       const box = document.getElementById("wallCount");
+      // 1行目「山 N」、2行目「計＋12.50」(その人のここまでの累計IMP。updateDuplicateImpTotals で入れる)
       box.innerHTML = ["top", "left", "right", "bottom"].map(seat =>
-        `<div class="dup-wall" data-seat="${seat}"><span class="wall-count-label">山</span><span class="wall-count-num"></span></div>`).join("");
+        `<div class="dup-wall" data-seat="${seat}"><div class="dup-wall-line"><span class="wall-count-label">山</span><span class="wall-count-num"></span></div>`
+        + `<div class="dup-imp-total"></div></div>`).join("");
     }
   }
   function setDuplicateTurnSeat(seat){
@@ -3240,6 +3248,23 @@
       const haitei = seat === duplicateTurnSeat && isLastTileState(seat);
       cell.classList.toggle("haitei", haitei);
       cell.querySelector(".wall-count-num").textContent = haitei ? "海底" : ownWalls[seat].length;
+    });
+  }
+  // 複式MCR：4人それぞれの、ここまでの累計IMPを山の欄の2行目に「計＋12.50」で出す(名札の点数＝その局の増減とは別)。
+  // 3卓の結果がそろった局だけを足す(duplicateStandings)ので、局の途中は前の局までの値・1局目は0。
+  // 欠けた卓のある局は duplicateKyokuImps の調整後の値になる。局の始めと、裏卓の結果が届いた時に呼ぶ
+  function updateDuplicateImpTotals(){
+    if(!ruleConfig.duplicateEnabled || DUP_SIM) return;
+    const st = duplicateStandings(duplicateKyokuLog);
+    DUPLICATE_SEAT_POSITIONS.forEach((seat, i) => {
+      const el = document.querySelector(`#wallCount .dup-wall[data-seat="${seat}"] .dup-imp-total`);
+      if(!el) return;
+      const id = duplicatePlayerAt(0, i).id;
+      const total = st.players.find(p => p.id === id).total;
+      const r = Math.round(total * 100);
+      el.textContent = "計" + formatImp(total);
+      el.classList.toggle("imp-plus", r > 0);
+      el.classList.toggle("imp-minus", r < 0);
     });
   }
   function updateWallCount(){
@@ -9876,6 +9901,7 @@
       else if(x.missing) entry.tables[t] = { missing: true };
     });
     renderDuplicateTablesBox();
+    updateDuplicateImpTotals(); // 3卓がそろった時に、この局の分が足される
     if(duplicateFinalShown && !duplicateSimsPending()) showDuplicateFinalStandings(duplicateFinalShown.reason); // 最後の局がそろった
   }
   // 局の結果の「次局へ」(スマホ縦の結果の枠のボタンも)を、3卓の結果がそろうまで押せなくする
@@ -9900,6 +9926,7 @@
   // 局の始めはどの席も0点なので、局の終わりの持ち点がそのまま増減になる。次局へはbuildNextMatchStateで持ち越す。
   // リプレイ(検証モード)では記録しない(proceedOrEndMatchの頭で戻るため)
   const duplicateKyokuLog = (ruleConfig.duplicateEnabled && savedMatchState && savedMatchState.duplicateLog) ? savedMatchState.duplicateLog.slice() : [];
+  updateDuplicateImpTotals(); // 名札の内側の累計IMP(前の局までの値)
   // 局の始めの配牌と個人の山を、風(東南西北)ごとに文字にしたもの。4卓が同じ配牌・同じ山かを確かめる時に使う
   function duplicateStartSignature(){
     if(!handStartSnapshot) return null;
