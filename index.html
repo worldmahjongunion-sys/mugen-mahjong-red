@@ -177,6 +177,15 @@
   html.duplicate-rule #wallCount .dup-wall[data-seat="right"]{ justify-self:end; }
   html.duplicate-rule #wallCount .dup-wall.haitei .wall-count-label{ display:none; } /* 「海底」の時は「山」を外す */
   html.duplicate-rule #wallCount .dup-wall{ display:flex; align-items:baseline; gap:2px; white-space:nowrap; line-height:1; }
+  /* 山の枚数は、その人から見て正面に読める向きにする(名札の字と同じ向き)。対面は逆さ。
+     上家・下家は transform で回すと枠の大きさが回る前のままになり、隣の欄や名札に重なるので、
+     縦書き(vertical-rl＋sideways＝全部の字を右へ90度)にして枠の大きさごと縦にする。下家はさらに180度回す */
+  html.duplicate-rule #wallCount .dup-wall[data-seat="top"]{ transform:rotate(180deg); }
+  html.duplicate-rule #wallCount .dup-wall[data-seat="left"],
+  html.duplicate-rule #wallCount .dup-wall[data-seat="right"]{ writing-mode:vertical-rl; text-orientation:sideways; }
+  html.duplicate-rule #wallCount .dup-wall[data-seat="right"]{ transform:rotate(180deg); }
+  html.duplicate-rule #wallCount .dup-wall[data-seat="left"] .wall-count-num,
+  html.duplicate-rule #wallCount .dup-wall[data-seat="right"] .wall-count-num{ min-width:0; min-inline-size:2ch; } /* 数字2桁分の長さを縦にとる */
   html.duplicate-rule #wallCount .dup-wall[data-seat="top"]{ grid-column:2; grid-row:1; }
   html.duplicate-rule #wallCount .dup-wall[data-seat="left"]{ grid-column:1; grid-row:2; }
   html.duplicate-rule #wallCount .dup-wall[data-seat="right"]{ grid-column:3; grid-row:2; }
