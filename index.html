@@ -6809,7 +6809,7 @@
     }
 
     // 双竜争珠（シュアンロンチャンチュ）：索子と萬子の両方で、同じ数から始まる連続した6つの数の順子2組
-    // (123・456／234・567／345・678／456・789)を作り、雀頭を筒子にする。チーも可(鳴いても5翻)。待ちの形は問わない
+    // (123・456／234・567／345・678／456・789)を作り、雀頭を筒子にする。チーも可(鳴いても4翻)。待ちの形は問わない
     {
       const seqStartsBySuit = { man:[], pin:[], sou:[] };
       allSets.forEach(s => {
@@ -6818,7 +6818,7 @@
       });
       const hasPairOfRuns = (suit, n) => seqStartsBySuit[suit].includes(n) && seqStartsBySuit[suit].includes(n + 3);
       if(isYakuEnabled("双竜争珠") && pairTile.suit === "pin" && [1, 2, 3, 4].some(n => hasPairOfRuns("sou", n) && hasPairOfRuns("man", n))){
-        yaku.push({ name:"双竜争珠", han:5 });
+        yaku.push({ name:"双竜争珠", han:4 });
       }
     }
 
