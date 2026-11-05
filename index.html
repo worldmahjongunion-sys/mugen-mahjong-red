@@ -2270,6 +2270,9 @@
   //   topOnlyYameChoice: オーラスの親が和了・聴牌で連荘する時に、その親がトップなら「やめる／続ける」を選べるか
   //     (トップ時のみのアガリやめ・聴牌やめ)。CPUの親は2着とCPU_YAME_LEAD点以上の差があればやめる
   // 以下は複式MCRで加えた設定
+  //   ankanAllFaceDown: 暗槓を開示しないか。trueは局の途中は4枚とも伏せ、和了で手牌を開いた時だけ表にする(流局は伏せたまま)。
+  //     falseは局の途中は両端2枚を伏せ・中の2枚を表にし、局の終わり(和了・流局)に4枚とも表にする。
+  //     true：赤入り無限NEO・無限Original・MCR-NEO・複式MCR。3人打ちNEO(槓ドラあり)・ザンリーグはfalse
   //   duplicateEnabled: 複式(同じ配牌・同じ自摸を4卓で打ち、同じ風の4人の結果をIMPで比べる)にするか。
   //     卓・席・チームの割り振りはDUPLICATE_*の関数(複式MCR：卓・席・チームの割り振り)で決める
   //   winCallSpeech: 和了の発声を、音声ファイル(「ロン」「ツモ」)の代わりにブラウザの音声合成で読む時の
@@ -2286,7 +2289,7 @@
     redFivesAll:false, flowerTileCount:0, whitePochiEnabled:false,
     zanYakuEnabled:false, openRiichiYakumanPay:false, kokushiAnkanRonEnabled:false,
     scoreTableId:null, kyotakuToAnyWinner:false, multiRonHeadTakesAll:false, bustAtZero:false, tobiBonusPoints:10000,
-    topOnlyYameChoice:false, chipEnabled:false, duplicateEnabled:false
+    topOnlyYameChoice:false, chipEnabled:false, duplicateEnabled:false, ankanAllFaceDown:false
   };
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
@@ -2304,6 +2307,7 @@
   ];
   const RULESETS = [
     { id:"akaNeo", label:"赤入り無限ルールNEO", titleLines:["赤入り無限ルール", "NEO"], status:"ready", ruleConfig:{
+      ankanAllFaceDown:true, // 暗槓は開示しない(3人打ちNEOは下でfalseに戻す)
       deadWallLayout:"legacy8",
       disabledYaku:[], // 独自役も全部使う
       chiitoitsuStandardYakuStack:false,
@@ -2323,6 +2327,7 @@
       scoreTableMode:"linear", scoreTableKiriage:null, yakumanMultiplierEnabled:false, countedYakumanCapped:false
     } },
     { id:"original", label:"無限ルールOriginal", titleLines:["無限ルール", "Original"], status:"ready", ruleConfig:{
+      ankanAllFaceDown:true, // 暗槓は開示しない
       deadWallLayout:"legacy8",
       disabledYaku:CUSTOM_YAKU_NAMES,
       chiitoitsuStandardYakuStack:true,
@@ -2410,6 +2415,7 @@
     // 役・点は日本式の判定(computeYaku)を使わず、scoreTableMode:"mcr"の関数群(mcrEvaluate)で数える。
     // 天和・地和なし、王牌なし、リーチ・ドラ・赤・フリテン・本場・連荘なし、東南西北の16局で終わる
     { id:"mcrNeo", label:"MCR-NEO", status:"ready", ruleConfig:{
+      ankanAllFaceDown:true, // 暗槓は開示しない(複式MCRも引き継ぐ)
       deadWallLayout:"none",
       disabledYaku:[], // MCRの役は日本式の判定を通らないので関係しない
       chiitoitsuStandardYakuStack:false,
@@ -2449,7 +2455,8 @@
       deadWallLayout:"auto18", kanDoraEnabled:true, totalKyoku:9, southRoundEnabled:true,
       yakunashiWinEnabled:false,
       ukiUmaTable:{ 1:[40000, -10000, -30000], 2:[20000, 10000, -30000] }, okaPoints:15000, ukiInclusive:true,
-      kitaNukiEnabled:true, kitaRinshanKaihouEnabled:false, riichiRonForced:true });
+      kitaNukiEnabled:true, kitaRinshanKaihouEnabled:false, riichiRonForced:true,
+      ankanAllFaceDown:false }); // 槓ドラがあるので暗槓は今までどおり開示する(ザンリーグも引き継ぐ)
   // ザンリーグルールの設定＝3人打ちNEOの設定をもとにしたもの(依頼_ザンリーグ_仕様と段階実装.md)。
   // 段階1：112枚(萬子は一萬・九萬だけ＋花牌4枚)・赤は筒子と索子の5の4枚ずつ(8枚)・北は全員の役牌(抜きドラなし)・
   // 東南の6局・50000点持ち・チーなし。
@@ -3920,8 +3927,9 @@
     document.getElementById("winBtn").textContent = "フー";
     document.getElementById("autoWinBtn").textContent = "自動フー";
   }
-  // MCR系(scoreTableMode:"mcr")の暗槓は、局の途中は4枚とも伏せ、和了で手牌を開いた時だけ表にする(流局は伏せたまま)
-  const ANKAN_ALL_FACE_DOWN = ruleConfig.scoreTableMode === "mcr";
+  // 暗槓を開示しないルール(ruleConfig.ankanAllFaceDown：赤入り無限NEO・無限Original・MCR-NEO・複式MCR)は、
+  // 局の途中は4枚とも伏せ、和了で手牌を開いた時だけ表にする(流局は伏せたまま)
+  const ANKAN_ALL_FACE_DOWN = !!ruleConfig.ankanAllFaceDown;
   let kyokuWinRevealed = false; // この局が和了で終わり、手牌を開いたか
   function revealAllHands(){
     activeSeats(["top", "left", "right"]).forEach(renderCpuHandFaces);
@@ -3985,7 +3993,7 @@
         // して、何を槓したかを全員(自分・CPU)の暗槓で見せる。表向きの2枚には赤牌を優先して使う
         // (赤があれば赤が見える)。局が終わった時（和了・流局＝gameEnded）は、誰の暗槓も4枚とも
         // 表向きにして開示する。4枚とも席の向き(baseRot)のままなので、積む牌の厚みは使わない
-        // MCR系は局の途中は4枚とも伏せ、和了で手牌を開いた時だけ表にする(流局は伏せたまま)
+        // 暗槓を開示しないルール(ankanAllFaceDown)は局の途中は4枚とも伏せ、和了で手牌を開いた時だけ表にする(流局は伏せたまま)
         const revealAll = ANKAN_ALL_FACE_DOWN ? (gameEnded && kyokuWinRevealed) : gameEnded;
         const rowBackCls = backClassByName[name] || "tile-back";
         const faceTiles = [...m.handTiles.filter(t => t.red), ...m.handTiles.filter(t => !t.red)];
@@ -5664,7 +5672,7 @@
     kyokuNumber = snap.kyokuNumber;
     DEALER_SEAT = snap.dealerSeat;
     gameEnded = snap.gameEnded;
-    kyokuWinRevealed = false; // リプレイで局の始めに戻したら、暗槓はまた伏せる(MCR系)
+    kyokuWinRevealed = false; // リプレイで局の始めに戻したら、暗槓はまた伏せる(ankanAllFaceDown)
     lastDrawnTile = cloneTileRef(snap.lastDrawnTile, map);
     riichiDeclared = { ...snap.riichiDeclared };
     openRiichiDeclared = { ...(snap.openRiichiDeclared || { bottom:false, top:false, left:false, right:false }) };
@@ -10626,7 +10634,7 @@
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
-    kyokuWinRevealed = true; // MCR系：和了で手牌を開いた時だけ、暗槓も表にする
+    kyokuWinRevealed = true; // ankanAllFaceDown：和了で手牌を開いた時だけ、暗槓も表にする
     revealAllHands(); // 和了時も4人全員の手牌を公開する
     fitTileSize(); // 公開した牌の実寸に合わせて再計算し、自分の手牌がボタン行と被らないようにする
     proceedOrEndMatch(ruleConfig.renchanEnabled && winnerSeat === DEALER_SEAT, [winnerSeat], bustSeatThisHand); // 親の和了＝連荘、それ以外＝親交代(連荘のないルールは常に親交代)
@@ -10749,7 +10757,7 @@
     setTurnIndicator("");
     hideCallPrompt();
     renderMyHand(false);
-    kyokuWinRevealed = true; // MCR系：和了で手牌を開いた時だけ、暗槓も表にする
+    kyokuWinRevealed = true; // ankanAllFaceDown：和了で手牌を開いた時だけ、暗槓も表にする
     revealAllHands(); // 和了時も4人全員の手牌を公開する
     fitTileSize(); // 公開した牌の実寸に合わせて再計算し、自分の手牌がボタン行と被らないようにする
     // 親が和了者に含まれれば連荘(連荘のないルールは常に親交代)。multiRonHeadTakesAllは頭ハネで先の和了者が親の時だけ
