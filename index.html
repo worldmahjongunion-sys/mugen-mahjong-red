@@ -1209,6 +1209,16 @@
   .stats-card-sub{ opacity:0.75; }
   /* 複式MCR：CPUの打ち筋のタイプの1文字(攻・守・速・門)。名前の後ろに小さく枠で囲んで出す */
   .nameplate .type-mark{ font-size:0.62em; color:#E8E2CF; border:1px solid rgba(232,226,207,0.6); border-radius:3px; padding:0 2px; margin-left:2px; line-height:1.2; }
+  /* スマホ横(高さ500px以下)：中央の名札は牌の大きさに連動しない最小値(字12px・風マーク22px)が効いて中央の枠が大きいまま残り、
+     牌を10pxにしても卓が画面の高さに入りきらず、自分の山・手牌が下のボタン行に重なっていた(全ルール共通)。
+     縦向きと同じ小ささ(字10px・風マーク14px)にして卓を収める。
+     ボタン行は卓の幅(--table-width)に縛ると全部のボタンが入らず右が切れていたので、画面の幅の中で全部見える幅にする */
+  @media (orientation: landscape) and (max-height: 500px){
+    .nameplate{ font-size:10px; padding:1px 4px; gap:2px; border-radius:6px; }
+    .nameplate .dealer-mark{ padding:0 2px; }
+    .nameplate .wind-mark{ width:14px; height:14px; font-size:10px; border-radius:3px; }
+    .button-row{ max-width:min(100%, 640px); }
+  }
   /* MCR：席替えがあった局の頭の告知(showSeatChangeNotice)。数秒で消える */
   .seat-change-notice{
     position:fixed;
