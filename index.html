@@ -183,6 +183,24 @@
   html.duplicate-rule #wallCount .dup-imp-total{ font-size:clamp(9px, calc(var(--tile-h) * 0.4), 13px); color:#e8efe9; font-variant-numeric:tabular-nums; letter-spacing:0; }
   html.duplicate-rule #wallCount .dup-imp-total.imp-plus{ color:#7fd17f; }
   html.duplicate-rule #wallCount .dup-imp-total.imp-minus{ color:#ff8f8f; }
+  /* 4チームの累計IMPと順位。PC：画面の右下(右上は局の結果・各卓の表が出るので避ける)。スマホ横：左上の局の枠と操作ボタンの下。
+     スマホ縦は #dupTeamStrip(上の帯)だけを出す */
+  .dup-team-board{ position:fixed; right:clamp(4px, 1dvw, 10px); bottom:clamp(4px, 1dvh, 10px); background:rgba(5,20,12,0.97); border:1px solid var(--gold); border-radius:10px;
+    padding:0.45em 0.7em; font-size:clamp(11px, calc(var(--tile-h) * 0.45), 15px); line-height:1.45; min-width:11.5em; }
+  .dup-team-board .dup-tb-title{ color:var(--gold); font-weight:bold; font-size:0.85em; margin-bottom:2px; }
+  .dup-team-board .dup-tb-row{ display:grid; grid-template-columns:2.4em 1fr auto; gap:0 6px; align-items:baseline; padding:0 4px; border-radius:4px; }
+  .dup-team-board .dup-tb-rank{ color:var(--gold); font-weight:bold; }
+  .dup-team-board .dup-tb-imp, .dup-team-strip .dup-tb-imp{ text-align:right; font-variant-numeric:tabular-nums; font-weight:bold; }
+  .dup-team-board .dup-tb-mine, .dup-team-strip .dup-tb-mine{ background:rgba(60,140,220,0.45); color:#fff; }
+  .dup-team-board .imp-plus, .dup-team-strip .imp-plus{ color:#7fd17f; }
+  .dup-team-board .imp-minus, .dup-team-strip .imp-minus{ color:#ff8f8f; }
+  .dup-team-strip{ display:none; }
+  @media (orientation: landscape) and (max-height: 500px){
+    /* スマホ横：画面の右側は局の結果で埋まるので、左上の局の枠・操作ボタンの下に置く。
+       操作ボタンが出ていない時もボタンの分の場所を空けて、ボタンが出ても表が動かないようにする */
+    .dup-team-board{ position:static; font-size:11px; padding:0.35em 0.55em; min-width:0; }
+    .top-left-stack:has(> #resultActions[style*="none"]) > .dup-team-board{ margin-top:calc(var(--dup-actions-h, 31px) + 6px); }
+  }
   /* 山の枚数は、その人から見て正面に読める向きにする(名札の字と同じ向き)。対面は逆さ。
      上家・下家は transform で回すと枠の大きさが回る前のままになり、隣の欄や名札に重なるので、
      縦書き(vertical-rl＋sideways＝全部の字を右へ90度)にして枠の大きさごと縦にする。下家はさらに180度回す */
@@ -1450,6 +1468,12 @@
     .top-left-info .dora-label{ font-size:11px; }
     /* 操作ボタン行(リピート・次局へ等)は帯の高さを変えないよう、帯のすぐ下に浮かせる */
     .top-left-stack .result-actions{ position:absolute; top:calc(100% + 4px); left:0; }
+    /* 複式MCR：上の帯には局・供託・ドラを出さない(局は中央の箱、供託・ドラは無い)ので、4チームの略称・順位・累計IMPを横1列に並べる */
+    html.duplicate-rule .top-left-info .round-kyotaku-row{ display:none; }
+    .dup-team-board{ display:none; }
+    .dup-team-strip{ display:flex; justify-content:space-between; align-items:baseline; width:100%; gap:4px; font-size:12px; line-height:1.5; white-space:nowrap; }
+    .dup-team-strip .dup-tb-row{ display:flex; align-items:baseline; gap:3px; padding:0 4px; border-radius:4px; }
+    .dup-team-strip .dup-tb-rank{ color:var(--gold); font-weight:bold; font-size:11px; }
     .table-area{ order:1; }
     .status-area{ order:2; }
 
@@ -3233,6 +3257,16 @@
       box.innerHTML = ["top", "left", "right", "bottom"].map(seat =>
         `<div class="dup-wall" data-seat="${seat}"><div class="dup-wall-line"><span class="wall-count-label">山</span><span class="wall-count-num"></span></div>`
         + `<div class="dup-imp-total"></div></div>`).join("");
+      // 4チームの累計IMPと順位(renderDuplicateTeamBoard で入れる)。PC は画面の右下、スマホ横は左上の局の枠と
+      // 操作ボタンの下に縦4行(#dupTeamBoard)。スマホ縦は一番上の細い帯の中に横1列で略称と数字だけ(#dupTeamStrip)
+      const board = document.createElement("div");
+      board.id = "dupTeamBoard";
+      board.className = "dup-team-board";
+      document.querySelector(".top-left-stack").appendChild(board);
+      const strip = document.createElement("div");
+      strip.id = "dupTeamStrip";
+      strip.className = "dup-team-strip";
+      document.querySelector(".top-left-info").appendChild(strip);
     }
   }
   function setDuplicateTurnSeat(seat){
@@ -3256,6 +3290,7 @@
   function updateDuplicateImpTotals(){
     if(!ruleConfig.duplicateEnabled || DUP_SIM) return;
     const st = duplicateStandings(duplicateKyokuLog);
+    renderDuplicateTeamBoard(st);
     DUPLICATE_SEAT_POSITIONS.forEach((seat, i) => {
       const el = document.querySelector(`#wallCount .dup-wall[data-seat="${seat}"] .dup-imp-total`);
       if(!el) return;
@@ -3266,6 +3301,17 @@
       el.classList.toggle("imp-plus", r > 0);
       el.classList.toggle("imp-minus", r < 0);
     });
+  }
+  // 4チームの累計IMPと順位(同点は同順位で次を飛ばす＝duplicateStandings の rank)。順位の順に並べ、自分のチーム(青龍)は青
+  function renderDuplicateTeamBoard(st){
+    const board = document.getElementById("dupTeamBoard"), strip = document.getElementById("dupTeamStrip");
+    if(!board || !strip) return;
+    const cls = t => "dup-tb-row" + (t.team === 0 ? " dup-tb-mine" : "");
+    const impCls = v => { const r = Math.round(v * 100); return "dup-tb-imp" + (r > 0 ? " imp-plus" : (r < 0 ? " imp-minus" : "")); };
+    board.innerHTML = `<div class="dup-tb-title">団体（累計IMP）</div>` + st.teams.map(t =>
+      `<div class="${cls(t)}"><span class="dup-tb-rank">${t.rank}位</span><span class="dup-tb-name">${t.name}</span><span class="${impCls(t.total)}">${formatImp(t.total)}</span></div>`).join("");
+    strip.innerHTML = st.teams.map(t =>
+      `<span class="${cls(t)}"><span class="dup-tb-rank">${t.rank}</span><span class="dup-tb-name">${t.name.charAt(0)}</span><span class="${impCls(t.total)}">${formatImp(t.total)}</span></span>`).join("");
   }
   function updateWallCount(){
     if(ruleConfig.duplicateEnabled){
