@@ -512,10 +512,17 @@
   }
   /* 検証(リピート)モード中、牌を自摸った時点で「本番ではこの牌を切った」という予測を手牌側に表示する。
      色分け用の::afterとレイヤーを分けるため::beforeを使い、他の色分けと自由に共存できるようにする */
+  /* ▼は牌の絵に重ねず、牌のすぐ上(画面の上側)に出す(自分の手牌だけなので、画面の上＝自分から見た上)。
+     牌は角丸の外を切るためoverflow:hiddenなので、この牌だけ外にはみ出して描けるようにする。
+     手牌のすぐ上に鳴いた牌・抜いた牌(花牌・赤5)がある時は、リプレイ中(html.verify-mode)だけ手牌の行の上に▼の空きを取る。
+     鳴いた牌などがない時は、手牌の上はもともと空いている(PC 40px以上・スマホ横17px以上・スマホ縦はボタン行まで50px以上)ので
+     空きを取らない(取るとスマホ横の小さい画面で卓が入りきらなくなる) */
+  .tile.hand-real-match{ overflow:visible; }
+  html.verify-mode .ring-bottom:has(> #meldsBottom:not(:empty)) > .hand-row.mine{ padding-top:calc(clamp(8px, calc(var(--tile-h) * 0.32), 15px) + 2px); }
   .tile.hand-real-match::before{
     content:"▼";
     position:absolute;
-    top:0;
+    bottom:calc(100% + 2px);
     left:0;
     right:0;
     text-align:center;
@@ -5893,6 +5900,7 @@
     turnGeneration++;
     applyGameStateSnapshot(handStartSnapshot);
     verifyMode = true;
+    document.documentElement.classList.add("verify-mode"); // リプレイ中だけ、鳴いた牌などがあれば手牌の上に▼の空きを取る(CSS)
     verifyDiverged = false; // リプレイをやり直すたびに、本番との比較(▼マーク)も最初からやり直す
 
     const box = document.getElementById("resultBox");
@@ -5906,6 +5914,7 @@
     updateVerifyBanner();
     showVerifyResultActions();
     updateActionButtons();
+    fitTileSize(); // ▼の空き(verify-mode)のぶん卓が高くなるので、牌の大きさを測り直す
 
     // 最初の手番を開始する（局開始時と同じロジック）
     if(DEALER_SEAT === "bottom"){
@@ -11222,6 +11231,9 @@
     }
 
     let lo = 10, hi = 80; // 探索範囲(px)。10ptでも収まらない極端な画面ではloのまま使う
+    // リプレイ中(verify-mode)は、鳴いた牌があると手牌の上に▼の空きを取るぶん卓が高くなる。
+    // 10pxでも入りきらない時(複式MCRの740x360・640x360など)だけ9pxまで小さくする(リプレイ以外は今までどおり10pxまで)
+    if(document.documentElement.classList.contains("verify-mode") && !fits(lo)) lo = 9;
     if(fits(lo)){
       while(hi - lo > 1){
         const mid = Math.floor((lo + hi) / 2);
