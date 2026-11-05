@@ -2299,7 +2299,7 @@
     // 役満級の独自役
     "三色双龍会", "一色双龍会", "連七対", "百万石", "紅孔雀", "緑一色（七対子四枚使い）",
     // 花の系
-    "花鳥風月", "花鳥風月雪", "雪月花",
+    "花鳥風月", "花鳥風月雪", "雪月花", "風花雪月",
     "組合龍", "組合同順"
   ];
   const RULESETS = [
@@ -6612,6 +6612,7 @@
 
     // 花鳥風月雪（役満）：筒子5・索子1・風牌（任意）・筒子1を刻子/槓子にし、雀頭を白にする。
     // 花鳥風月の上位役なので複合しない
+    let hasFukaSetsugetsu = false;
     {
       const hasTripletOf = (suit, num) => allSets.some(s =>
         (s.type === "triplet" || s.type === "kan") && s.tiles[0].suit === suit && (num === undefined || s.tiles[0].num === num)
@@ -6622,6 +6623,12 @@
         yaku.push({ name:"花鳥風月雪", han:13 });
       } else if(isYakuEnabled("花鳥風月") && hasTripletOf("pin", 5) && hasTripletOf("sou", 1) && hasTripletOf("wind") && hasTripletOf("pin", 1)){
         yaku.push({ name:"花鳥風月", han:2 });
+      }
+      // 風花雪月：風牌（任意）・筒子5・白・筒子1を刻子/槓子にする（雀頭は任意、鳴いても2翻）。花鳥風月と同じ扱い。
+      // 翻数は仮(2翻)。雪月花(白・筒子1・筒子5)を必ず含むので、成立した時は雪月花を付けない(下の雪月花の判定)。白の役牌は付ける
+      if(isYakuEnabled("風花雪月") && hasTripletOf("wind") && hasTripletOf("pin", 5) && hasTripletOf("dragon", 1) && hasTripletOf("pin", 1)){
+        yaku.push({ name:"風花雪月", han:2 }); // 仮
+        hasFukaSetsugetsu = true;
       }
     }
 
@@ -6946,7 +6953,7 @@
       const hasTripletOf = (suit, num) => allSets.some(s =>
         (s.type === "triplet" || s.type === "kan") && s.tiles[0].suit === suit && s.tiles[0].num === num
       );
-      if(isYakuEnabled("雪月花") && hasTripletOf("dragon", 1) && hasTripletOf("pin", 1) && hasTripletOf("pin", 5)){
+      if(!hasFukaSetsugetsu && isYakuEnabled("雪月花") && hasTripletOf("dragon", 1) && hasTripletOf("pin", 1) && hasTripletOf("pin", 5)){
         yaku.push({ name:"雪月花", han:1 });
       }
     }
