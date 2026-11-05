@@ -6631,9 +6631,9 @@
         yaku.push({ name:"花鳥風月", han:2 });
       }
       // 風花雪月：風牌（任意）・筒子5・白・筒子1を刻子/槓子にする（雀頭は任意、鳴いても2翻）。花鳥風月と同じ扱い。
-      // 翻数は仮(2翻)。雪月花(白・筒子1・筒子5)を必ず含むので、成立した時は雪月花を付けない(下の雪月花の判定)。白の役牌は付ける
+      // 雪月花(白・筒子1・筒子5)を必ず含むので、成立した時は雪月花を付けない(下の雪月花の判定)。白の役牌は付ける
       if(isYakuEnabled("風花雪月") && hasTripletOf("wind") && hasTripletOf("pin", 5) && hasTripletOf("dragon", 1) && hasTripletOf("pin", 1)){
-        yaku.push({ name:"風花雪月", han:2 }); // 仮
+        yaku.push({ name:"風花雪月", han:2 });
         hasFukaSetsugetsu = true;
       }
     }
@@ -6809,7 +6809,7 @@
     }
 
     // 双竜争珠（シュアンロンチャンチュ）：索子と萬子の両方で、同じ数から始まる連続した6つの数の順子2組
-    // (123・456／234・567／345・678／456・789)を作り、雀頭を筒子にする。チーも可(鳴いても5翻)。待ちの形は問わない。翻数は仮(5翻)
+    // (123・456／234・567／345・678／456・789)を作り、雀頭を筒子にする。チーも可(鳴いても5翻)。待ちの形は問わない
     {
       const seqStartsBySuit = { man:[], pin:[], sou:[] };
       allSets.forEach(s => {
@@ -6818,7 +6818,7 @@
       });
       const hasPairOfRuns = (suit, n) => seqStartsBySuit[suit].includes(n) && seqStartsBySuit[suit].includes(n + 3);
       if(isYakuEnabled("双竜争珠") && pairTile.suit === "pin" && [1, 2, 3, 4].some(n => hasPairOfRuns("sou", n) && hasPairOfRuns("man", n))){
-        yaku.push({ name:"双竜争珠", han:5 }); // 仮
+        yaku.push({ name:"双竜争珠", han:5 });
       }
     }
 
@@ -6893,14 +6893,14 @@
         }
       }
 
-      // 一色筋牌刻（イーソースジパイコウ）：同じ色で、筋の関係(一四七・二五八・三六九)の3つの数の刻子/槓子が揃っている。
-      // 数牌だけ。副露・暗刻のどちらでもよい(鳴いても2翻)。翻数は仮(2翻)
+      // 一色筋牌刻：同じ色で、筋の関係(一四七・二五八・三六九)の3つの数の刻子/槓子が揃っている。
+      // 数牌だけ。副露・暗刻のどちらでもよい(鳴いても2翻)
       if(isYakuEnabled("一色筋牌刻")){
         outerSujipaikou:
         for(const suit of ["man", "pin", "sou"]){
           for(let n = 1; n <= 3; n++){
             if(bySuitSet[suit].has(n) && bySuitSet[suit].has(n + 3) && bySuitSet[suit].has(n + 6)){
-              yaku.push({ name:"一色筋牌刻", han:2 }); // 仮
+              yaku.push({ name:"一色筋牌刻", han:2 });
               break outerSujipaikou;
             }
           }
