@@ -2295,7 +2295,7 @@
     // 数の並びの系
     "全帯三", "全帯五", "全帯七", "全中", "全小", "全大", "小于五", "大于五", "全双刻", "五門斉", "推不倒",
     // 順子・刻子の並びの系
-    "一色三歩高", "一色四歩高", "一色三順", "一色四順", "三連刻", "四連刻", "三色三連刻", "花龍", "三風刻", "筋牌刻",
+    "一色三歩高", "一色四歩高", "一色三順", "一色四順", "三連刻", "四連刻", "三色三連刻", "花龍", "三風刻", "筋牌刻", "双竜争珠",
     // 役満級の独自役
     "三色双龍会", "一色双龍会", "連七対", "百万石", "紅孔雀", "緑一色（七対子四枚使い）", "万緑叢中一点紅",
     // 花の系
@@ -6805,6 +6805,20 @@
           hasSanshokuShuangLong = true;
           break;
         }
+      }
+    }
+
+    // 双竜争珠（シュアンロンチャンチュ）：索子と萬子の両方で、同じ数から始まる連続した6つの数の順子2組
+    // (123・456／234・567／345・678／456・789)を作り、雀頭を筒子にする。チーも可(鳴いても5翻)。待ちの形は問わない。翻数は仮(5翻)
+    {
+      const seqStartsBySuit = { man:[], pin:[], sou:[] };
+      allSets.forEach(s => {
+        if(s.type !== "sequence") return;
+        if(seqStartsBySuit[s.tiles[0].suit]) seqStartsBySuit[s.tiles[0].suit].push(s.tiles[0].num);
+      });
+      const hasPairOfRuns = (suit, n) => seqStartsBySuit[suit].includes(n) && seqStartsBySuit[suit].includes(n + 3);
+      if(isYakuEnabled("双竜争珠") && pairTile.suit === "pin" && [1, 2, 3, 4].some(n => hasPairOfRuns("sou", n) && hasPairOfRuns("man", n))){
+        yaku.push({ name:"双竜争珠", han:5 }); // 仮
       }
     }
 
