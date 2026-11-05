@@ -7579,6 +7579,12 @@
       // 紅孔雀の七対子（役満、4枚使いも可）：全て索子1・5・7・9と中だけ
       const isHongKongqueChiitoi = isYakuEnabled("紅孔雀") && concealed.every(isHongKongqueTile);
 
+      // 万緑叢中一点紅の七対子（役満、門前のみ）：全て索子2・3・4・6・8と中だけで、中の対子が入っている。
+      // 使える牌は6種類なので、7つの対子にするには必ずどれかを4枚（2組扱い）使う(4枚使いの扱いはほかの七対子と同じ)。
+      // 七対子・混一色は付けない
+      const isBanryokuSouchuChiitoi = isYakuEnabled("万緑叢中一点紅") && (counts["dragon_3"] || 0) >= 2 &&
+        concealed.every(t => (t.suit === "dragon" && t.num === 3) || (t.suit === "sou" && [2, 3, 4, 6, 8].includes(t.num)));
+
       // 花鳥風月雪の七対子（役満、4枚使いも可）：全て筒子5・筒子1・索子1・風牌・白だけ
       const isKachoFugetsuYukiChiitoi = isYakuEnabled("花鳥風月雪") && concealed.every(isKachoFugetsuYukiTile);
 
@@ -7592,6 +7598,7 @@
       if(isTsuiisouChiitoi) yaku = [{ name:"字一色", han:13 }];
       else if(isGreenFourTileChiitoi) yaku = [{ name:"緑一色（七対子四枚使い）", han:13 }];
       else if(isHongKongqueChiitoi) yaku = [{ name:"紅孔雀", han:13 }];
+      else if(isBanryokuSouchuChiitoi) yaku = [{ name:"万緑叢中一点紅", han:13 }];
       else if(isKachoFugetsuYukiChiitoi) yaku = [{ name:"花鳥風月雪", han:13 }];
       else if(isHyakumangokuChiitoi) yaku = [{ name:"百万石", han:13 }];
       else if(isRenchitoi) yaku = [{ name:"連七対", han:13 }];
