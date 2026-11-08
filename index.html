@@ -2454,10 +2454,11 @@
     // 複式MCR(依頼_複式MCR_仕様と段階実装.md)。設定はRULESETSの下でMCR-NEOから作る
     { id:"mcrFukushiki", label:"複式MCR", status:"ready", ruleConfig:null }
   ];
-  // Mリーグ NEOの設定＝Mリーグ Originalの設定＋少牌・オールマイティー牌・オープンリーチ
+  // Mリーグ NEOの設定＝Mリーグ Originalの設定＋少牌・オールマイティー牌・オープンリーチ。
+  // 万能牌に関わるもの以外はOriginalと同じ(終局時に残った供託も、Originalと同じく誰にも渡らない。2026-11-08)
   RULESETS.find(r => r.id === "mLeagueNeo").ruleConfig = Object.assign({},
     RULESETS.find(r => r.id === "mLeagueOriginal").ruleConfig,
-    { startHandSize:12, almightyTileEnabled:true, openRiichiEnabled:true, leftoverKyotakuToTop:true });
+    { startHandSize:12, almightyTileEnabled:true, openRiichiEnabled:true });
   // 無限ルールNEO(3人打ち)の設定＝赤入り無限ルールNEOの設定を3人打ちにしたもの(依頼_3人打ちNEO_仕様と段階実装.md)。
   // 対面を空ける・萬子は一萬と九萬だけ・チーなし・東南西の9局・王牌18枚(カンドラあり、リーチドラなし)。
   // 点数は4人のNEOと同じ計算で、払う人が2人になる(北家の分は誰も払わない＝ツモ損)。役なしの和了はできない(1翻縛り)。
@@ -9792,7 +9793,7 @@
   // （合計＝(素点-40,000)+順位点）
   function showFinalStandings(reason){
     if(ruleConfig.duplicateEnabled && !DUP_SIM){ showDuplicateFinalStandings(reason); return; } // 複式MCRは団体・個人の順位
-    // 終局時に場に残った供託：leftoverKyotakuToTopのルール(赤入り無限NEO・Mリーグ NEO・3人打ちNEO)は、トップの持ち点に足す。
+    // 終局時に場に残った供託：leftoverKyotakuToTopのルール(赤入り無限NEO・3人打ちNEO・ザンリーグ)は、トップの持ち点に足す。
     // 順位と順位点・オカは足す前の持ち点で決める(同点トップは同点のまま折半)。供託は100点単位で折半し、割り切れない端数は
     // 今の順位の決め方(あなた→下家→対面→上家)で上の人に付ける(2人で1本なら500ずつ、3人で1本なら400・300・300)
     const { ranked, umaBySeat } = computeUmaBySeat(scores);
@@ -9843,7 +9844,7 @@
 
   // 終了画面の表のすぐ下に出す、終局時に残った供託の1行(点数の計算は変えない。表示だけ)。
   // トップが受け取るルールは「供託 1本(1000点)は1位（名前）に加算」、受け取る人がいないルール(無限Original・
-  // Mリーグ Original・WW)は「供託 1本(1000点)が残っています」。供託0本とリーチのないルール(MCR系)は何も出さない
+  // Mリーグ2つ・WW2つ)は「供託 1本(1000点)が残っています」。供託0本とリーチのないルール(MCR系)は何も出さない
   function finalKyotakuNoteHtml(kyotakuToTop){
     const count = kyotakuToTop ? kyotakuToTop.count : (ruleConfig.riichiEnabled ? riichiSticks : 0);
     if(!(count > 0)) return "";
