@@ -2266,7 +2266,13 @@
   //   kokushiAnkanRonEnabled: 国士無双の聴牌の人だけ、ほかの人が暗槓した牌でロンできる
   //   whitePochiEnabled: 白の1枚を白ポッチ(tile.pochi)にするか。リーチ後に引いたら、待ちの中で点数が
   //     いちばん高くなる牌としてツモ和了する(attemptWinPochi)。リーチ前・リーチ後に引いた以外は普通の白
-  //   scoreTableId: scoreTableMode:"lookup"で引く固定点表。null=Mリーグ・WWの表(SCORE_TABLE_KIRIAGE等)、"zan"=ZAN_SCORE_TABLE
+  //   scoreTableMode: 点数の出し方。"linear"=翻×単位(無限ルール)、"fu"=符計算(Mリーグ2つ・WW2つ)、
+  //     "lookup"=翻だけで引く固定点表(ザンリーグ)、"mcr"=MCRの点。Mリーグは固定点表だったが、2026-11-08に符計算へ変えた
+  //   scoreTableKiriage: 符計算・固定点表で切り上げ満貫(30符4翻・60符3翻を満貫)にするか
+  //   yakumanMultiplierEnabled: 名の付いた役満が2つ以上なら、その数だけ役満の額を掛けるか(W役満。Mリーグ)
+  //   countedYakumanCapped: 名の付いた役満が無く役の合計だけで13翻以上の手を、三倍満止めにするか(数え役満なし)
+  //   doubleWindPairFu: 符計算で、連風牌(自風かつ場風)の雀頭の符。2(WW)か4(Mリーグ)。三元牌・自風・場風の雀頭は2符
+  //   scoreTableId: scoreTableMode:"lookup"で引く固定点表。null=SCORE_TABLE_KIRIAGE等(今は使うルールなし)、"zan"=ZAN_SCORE_TABLE
   //   kyotakuToAnyWinner: 供託(リーチ棒)を、リーチしていない和了者も受け取るか。falseはリーチした和了者だけ(NEO)
   //   multiRonHeadTakesAll: ダブロンの時、供託・積み棒・親権を頭ハネで先の1人(上家取り)だけにするか。
   //     falseは供託をリーチした和了者で折半し、積み棒は和了者ごと、親が和了者に入れば連荘
@@ -2296,7 +2302,7 @@
     redFivesAll:false, flowerTileCount:0, whitePochiEnabled:false,
     zanYakuEnabled:false, openRiichiYakumanPay:false, kokushiAnkanRonEnabled:false,
     scoreTableId:null, kyotakuToAnyWinner:false, multiRonHeadTakesAll:false, bustAtZero:false, tobiBonusPoints:10000,
-    topOnlyYameChoice:false, chipEnabled:false, duplicateEnabled:false, ankanAllFaceDown:false
+    topOnlyYameChoice:false, chipEnabled:false, duplicateEnabled:false, ankanAllFaceDown:false, doubleWindPairFu:2
   };
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
@@ -2372,9 +2378,9 @@
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
       ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:false,
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:true,
-      // 符計算はせず固定点数早見表(切り上げ満貫あり)を使う。役満の複合(W役満等)を認め、
-      // 名の付いた役満が1つも無い「数え役満」は三倍満止めにする
-      scoreTableMode:"lookup", scoreTableKiriage:true, yakumanMultiplierEnabled:true, countedYakumanCapped:true
+      // 符計算あり(WWと同じcalcFu。2026-11-08に固定点表から変えた。NEOも引き継ぐ)。切り上げ満貫あり。
+      // 役満の複合(W役満等)を認め、名の付いた役満が1つも無い「数え役満」は三倍満止めにする。連風牌の雀頭は4符
+      scoreTableMode:"fu", scoreTableKiriage:true, yakumanMultiplierEnabled:true, countedYakumanCapped:true, doubleWindPairFu:4
     } },
     { id:"wwPremium", label:"麻雀共同体WW プレミアム", titleLines:["麻雀共同体WW", "プレミアム"], status:"ready", ruleConfig:{
       deadWallLayout:"auto14",
@@ -7167,7 +7173,7 @@
     return han * 500;
   }
 
-  // ==================== 固定点数早見表(Mリーグ・WW用、符計算をしない近似値) ====================
+  // ==================== 固定点数早見表(符計算をしない近似値。今はザンリーグの表だけ使う) ====================
   // ruleConfig.scoreTableMode:"lookup"のルールでcomputeRonAmount/computeTsumoAmountsが使う。
   // 添字は翻数(1〜13、13以上は13の値=役満固定額を使う)。各行:
   // [子ロン, 親ロン, 子ツモ(非親から受取), 子ツモ(親から受取), 親ツモ(オール)]
@@ -7237,7 +7243,7 @@
     return table[Math.min(Math.max(effectiveHan, 1), 13)];
   }
 
-  // ==================== 符計算(ruleConfig.scoreTableMode:"fu"のルール。WWスタンダード) ====================
+  // ==================== 符計算(ruleConfig.scoreTableMode:"fu"のルール。Mリーグ2つ・WW2つ) ====================
   // 么九牌(1・9・字牌)か。刻子・槓子の符が中張牌の2倍になる
   function isYaochuTile(t){
     return t.suit === "wind" || t.suit === "dragon" || t.num === 1 || t.num === 9;
@@ -7272,8 +7278,9 @@
       if(set.type === "kan") fixedFu += (set.open ? 8 : 16) * (yaochu ? 2 : 1);
       else fixedFu += yaochu ? 4 : 2;
     });
-    // 雀頭：三元牌・自風・場風は2符（連風牌も2符）
-    if(pairTile.suit === "dragon" || (pairTile.suit === "wind" && (pairTile.num === SEAT_WIND[seat] || pairTile.num === ROUND_WIND))) fixedFu += 2;
+    // 雀頭：三元牌・自風・場風は2符。連風牌(自風かつ場風)はdoubleWindPairFu(WWは2符、Mリーグは4符)
+    if(pairTile.suit === "wind" && pairTile.num === SEAT_WIND[seat] && pairTile.num === ROUND_WIND) fixedFu += ruleConfig.doubleWindPairFu;
+    else if(pairTile.suit === "dragon" || (pairTile.suit === "wind" && (pairTile.num === SEAT_WIND[seat] || pairTile.num === ROUND_WIND))) fixedFu += 2;
 
     const concealedSets = decomp ? decomp.sets : [];
     // 読み方：{ ronTripletIdx: ロンで完成した刻子の添字(無ければ-1), waitFu }
@@ -9305,7 +9312,7 @@
       const akaBonus = result.akaCount * 1000;
       return { seat: winnerSeat, nominalGain: baseAndDora + akaBonus + honbaBonus, akaBonus, honbaBonus };
     }
-    // ruleConfig.scoreTableMode:"lookup"のルール(Mリーグ・WW)は、翻数×500の線形計算ではなく
+    // ruleConfig.scoreTableMode:"lookup"のルール(ザンリーグ)は、翻数×500の線形計算ではなく
     // 固定点数早見表(SCORE_TABLE_KIRIAGE/NO_KIRIAGE)を引く。役満の複合・数え役満の三倍満止めも
     // ここで解決する
     if(ruleConfig.scoreTableMode === "lookup"){
@@ -9316,10 +9323,11 @@
       const akaBonus = akaBonusPerPayer(result);
       return { seat: winnerSeat, nominalGain: base + akaBonus + honbaBonus, akaBonus, honbaBonus };
     }
-    // ruleConfig.scoreTableMode:"fu"のルール(WWスタンダード)：基本点×4(親は×6)を100点単位に切り上げる
+    // ruleConfig.scoreTableMode:"fu"のルール(Mリーグ2つ・WW2つ)：基本点×4(親は×6)を100点単位に切り上げる。
+    // 赤はakaHanEnabled(Mリーグ)なら翻に入っているので別払いなし(WWは赤が無い)
     if(ruleConfig.scoreTableMode === "fu"){
       const base = Math.ceil(fuBasePoints(result) * (isDealer ? 6 : 4) / 100) * 100;
-      const akaBonus = result.akaCount * 2000;
+      const akaBonus = akaBonusPerPayer(result);
       return { seat: winnerSeat, nominalGain: base + akaBonus + honbaBonus, akaBonus, honbaBonus };
     }
     if(result.han >= 13){
@@ -10354,7 +10362,7 @@
   }
 
   // 符計算のルールの「30符3飜」「40符4飜 満貫」「13飜 三倍満」(役の合計だけで13翻以上の三倍満止め)。
-  // 固定点数表のルール(Mリーグ系)は三倍満止めの時だけ「13飜 三倍満」。
+  // 固定点数表のルール(ザンリーグ)は三倍満止めの時だけ「13飜 三倍満」。
   // それ以外のルール・役無し・名の付いた役満は空
   // MCRの合計の行の文言
   function mcrTotalText(result){
