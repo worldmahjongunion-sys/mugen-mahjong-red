@@ -9829,8 +9829,21 @@
         : `<div class="final-rank-row final-rank-header">` +
           `<span></span><span></span><span>${ruleConfig.umaMode === "mcrUki" ? "素点" : "素点(" + ruleConfig.returnPoints + "基準)"}</span><span>順位点</span><span>合計</span></div>`) +
       rows +
-      (kyotakuToTop ? `<div class="final-reason final-kyotaku">供託 ${kyotakuToTop.count}本 → トップ（${kyotakuToTop.seats.map(s => seatLabel[s]).join("・")}）${kyotakuToTop.seats.length > 1 ? "で折半" : ""}</div>` : "");
+      finalKyotakuNoteHtml(kyotakuToTop);
     document.getElementById("finalOverlay").style.display = "flex";
+  }
+
+  // 終了画面の表のすぐ下に出す、終局時に残った供託の1行(点数の計算は変えない。表示だけ)。
+  // トップが受け取るルールは「供託 1本(1000点)は1位（名前）に加算」、受け取る人がいないルール(無限Original・
+  // Mリーグ Original・WW)は「供託 1本(1000点)が残っています」。供託0本とリーチのないルール(MCR系)は何も出さない
+  function finalKyotakuNoteHtml(kyotakuToTop){
+    const count = kyotakuToTop ? kyotakuToTop.count : (ruleConfig.riichiEnabled ? riichiSticks : 0);
+    if(!(count > 0)) return "";
+    const amount = `供託 ${count}本(${count * 1000}点)`;
+    const text = kyotakuToTop
+      ? `${amount}は1位（${kyotakuToTop.seats.map(s => seatLabel[s]).join("・")}）${kyotakuToTop.seats.length > 1 ? "で折半して" : "に"}加算`
+      : `${amount}が残っています`;
+    return `<div class="final-reason final-kyotaku">${text}</div>`;
   }
 
   // ==================== 複式MCRの終了画面 ====================
