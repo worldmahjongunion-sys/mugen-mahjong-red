@@ -2368,7 +2368,7 @@
       earlyEndOnBust:false, earlyEndOnOver70000:false, tobiEnabled:false,
       yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
       tenpaiRenchanEnabled:true, honbaResetOnDealerChange:true, honbaResetOnChildWin:true,
-      southRoundEnabled:false, renchanAtFinalKyokuEnabled:false,
+      southRoundEnabled:true, renchanAtFinalKyokuEnabled:false, // 東南戦(東1〜4局・南1〜4局。西入りなし)。オーラスで親が残っても終わる(今のまま)
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
       ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:false,
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:true,
@@ -5954,7 +5954,7 @@
   const nameplateElByName = {};
   Object.keys(scoreElByName).forEach(s => { nameplateElByName[s] = scoreElByName[s].closest(".nameplate"); });
   // DEALER_SEATはファイル冒頭（配牌処理の直前）で既に読み込み済み
-  // 南場に入っているか。southRoundEnabledのルール(無限Original・WWスタンダード)だけ、5局目以降を南1〜4局として扱う。
+  // 南場に入っているか。southRoundEnabledのルール(無限Original・Mリーグ2つ・WW2つ)だけ、5局目以降を南1〜4局として扱う。
   // それ以外のルールは東場を2周する半荘(東5〜8局＝裏東場)のため、南入はしない
   function isSouthRound(){ return ruleConfig.southRoundEnabled && kyokuNumber > 4; }
   // 場風。16局のルール(MCR)は4局ごとに東→南→西→北、南場に入るルールは5局目から南、それ以外は東
@@ -9497,7 +9497,7 @@
   // 意味するので、これで判定すれば同じ局に連荘で何度いても1回しか鳴らない
   function announceKyokuMilestone(){
     if(honba !== 0) return;
-    // 「裏入」は裏東場に入るルールだけ。南場に入るルール(無限Original・WWスタンダード)では鳴らさない。
+    // 「裏入」は裏東場に入るルールだけ。南場に入るルール(無限Original・Mリーグ2つ・WW2つ)では鳴らさない。
     // ラス前・オーラスは局の連番(7・8)で決まるので、南3局・南4局でもそのまま鳴る
     if(kyokuNumber === 5){ if(!ruleConfig.southRoundEnabled) speakZundamon("ura"); }
     else if(kyokuNumber === ruleConfig.totalKyoku - 1) speakZundamon("lastBefore");
