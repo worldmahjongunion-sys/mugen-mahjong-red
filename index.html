@@ -2218,6 +2218,9 @@
   //   southRoundEnabled: 東4局の次を南1局にするか。falseは東5〜8局(裏東場)を続ける
   //   renchanAtFinalKyokuEnabled: 最終局で親が連荘したら終局せず続けるか(アガリ止めなし)。
   //     falseは最終局が終わった時点で連荘かどうかによらず終局する
+  //   dealerAlwaysRotates: 親の連荘を一切しないか。trueは和了・流局・三家和のどれでも毎局かならず親が交代し、
+  //     局数は totalKyoku で固定(赤入り無限NEO・無限Original・3人打ちNEO。2026-11-23)。
+  //     連荘の有無だけを決め、本場の増え方は honbaResetOnDealerChange・honbaResetOnChildWin のまま
   //   disabledYaku: そのルールで使わない役の名前の配列。入っている役は判定の入口で検出しない
   //     (上位役が下位役を打ち消す処理も働かず、下位の標準役が普通に付く)。空配列・未指定なら全部有効
   //   chiitoitsuStandardYakuStack: 七対子に断幺九・混一色・清一色・混老頭を重ねるか(標準の麻雀どおり)。
@@ -2302,7 +2305,8 @@
     redFivesAll:false, flowerTileCount:0, whitePochiEnabled:false,
     zanYakuEnabled:false, openRiichiYakumanPay:false, kokushiAnkanRonEnabled:false,
     scoreTableId:null, kyotakuToAnyWinner:false, multiRonHeadTakesAll:false, bustAtZero:false, tobiBonusPoints:10000,
-    topOnlyYameChoice:false, chipEnabled:false, duplicateEnabled:false, ankanAllFaceDown:false, doubleWindPairFu:2
+    topOnlyYameChoice:false, chipEnabled:false, duplicateEnabled:false, ankanAllFaceDown:false, doubleWindPairFu:2,
+    dealerAlwaysRotates:false
   };
   // 本アプリ独自の役(赤入り無限NEOだけで使う)。ほかの日本麻雀ルールはdisabledYakuにこれを入れて、
   // 標準役・役満だけにする(ユーザー確認済み 2026-10-21)。「緑一色」は標準形だけ残し、
@@ -2334,6 +2338,7 @@
       yakunashiWinEnabled:true, multiRonEnabled:true, jamaPonEnabled:true,
       tenpaiRenchanEnabled:false, honbaResetOnDealerChange:true, honbaResetOnChildWin:true,
       southRoundEnabled:false, renchanAtFinalKyokuEnabled:false,
+      dealerAlwaysRotates:true, // 連荘なし。親は毎局交代し、東1〜8局で終わる(3人打ちNEOも引き継ぐ。2026-11-23)
       notenPenaltyMode:"perSeat", notenPenaltyPool:null,
       ippatsuOnTsumoEnabled:true, chiitoitsuFourTileEnabled:true,
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:false,
@@ -2353,6 +2358,7 @@
       yakunashiWinEnabled:false, multiRonEnabled:false, jamaPonEnabled:false,
       tenpaiRenchanEnabled:true, honbaResetOnDealerChange:false, honbaResetOnChildWin:true,
       southRoundEnabled:true, renchanAtFinalKyokuEnabled:true,
+      dealerAlwaysRotates:true, // 連荘なし。親は毎局交代し、東1〜4局・南1〜4局の8局で終わる(聴牌連荘・最終局の連荘も働かない。2026-11-23)
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
       ippatsuOnTsumoEnabled:false, chiitoitsuFourTileEnabled:false,
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:false,
@@ -2485,6 +2491,7 @@
       honbaRonBonus:1000, honbaTsumoBonusPerSeat:1000, notenPenaltyMode:"pool", notenPenaltyPool:2000,
       kyotakuToAnyWinner:true, multiRonHeadTakesAll:true, bustAtZero:true, tobiBonusPoints:0,
       tenpaiRenchanEnabled:true, renchanAtFinalKyokuEnabled:true, topOnlyYameChoice:true,
+      dealerAlwaysRotates:false, // 3人打ちNEOは連荘なしになったが、ザンリーグは今までどおり連荘あり(2026-11-23)
       honbaResetOnDealerChange:false, honbaResetOnChildWin:true, // 本場は流局で親が流れても積み、和了で親が流れた時だけ0
       // 段階4：役は標準役＋三連刻・三風刻・四連刻＋ザンリーグの特殊役。七対子に混一色などを重ねる(小車輪・大車輪のため)。
       // オープンリーチ(2翻)と役満払い、国士無双の暗槓ロン
@@ -9160,7 +9167,7 @@
     const called = used.concat([tile]);
     const lateTenpai = afterShanten === 0
       && wall.length <= activeSeats(["bottom", "right", "top", "left"]).length * CPU_CALL_LATE_WALL_PER_PLAYER;
-    const dealerPush = lateTenpai && beforeShanten > 0 && ruleConfig.tenpaiRenchanEnabled && seat === DEALER_SEAT;
+    const dealerPush = lateTenpai && beforeShanten > 0 && ruleConfig.tenpaiRenchanEnabled && !ruleConfig.dealerAlwaysRotates && seat === DEALER_SEAT;
     if(afterShanten === 0 && cpuCallTenpaiAfter(seat, remaining, used, tile, type, true)) return dealerPush ? "lateDealer" : "yaku";
     if(lateTenpai && cpuCallTenpaiAfter(seat, remaining, used, tile, type, false)) return dealerPush ? "lateDealer" : "late";
     if(afterShanten > 0 && cpuCallYakuProspect(seat, remaining, called, type)) return "yaku";
@@ -9504,8 +9511,9 @@
 
   // 局の節目のセリフ。honba===0は「この局数に入った最初の手（連荘で戻ってきたのではない）」を
   // 意味するので、これで判定すれば同じ局に連荘で何度いても1回しか鳴らない
+  // 連荘なしのルール(dealerAlwaysRotates)は同じ局に戻らないので、流局で本場が残っていても毎局鳴らす
   function announceKyokuMilestone(){
-    if(honba !== 0) return;
+    if(honba !== 0 && !ruleConfig.dealerAlwaysRotates) return;
     // 「裏入」は裏東場に入るルールだけ。南場に入るルール(無限Original・Mリーグ2つ・WW2つ)では鳴らさない。
     // ラス前・オーラスは局の連番(7・8)で決まるので、南3局・南4局でもそのまま鳴る
     if(kyokuNumber === 5){ if(!ruleConfig.southRoundEnabled) speakZundamon("ura"); }
@@ -10126,6 +10134,9 @@
   }
 
   function proceedOrEndMatch(renchan, winnerSeats, bustSeat){
+    // 連荘なしのルール(dealerAlwaysRotates)：和了・流局・三家和のどれでも親を交代させる。
+    // ここで一度に打ち消すので、最終局の連荘・アガリやめ・次局の状態もすべて「連荘なし」で決まる
+    if(ruleConfig.dealerAlwaysRotates) renchan = false;
     // 検証(リピート)モード中は、次局への進行判定も最終順位判定も一切行わない
     // （sessionStorageへの書き込みも起きない）。結果表示(スコア・役)自体は呼び出し側で
     // 既に済んでおり、操作用の「リプレイ」「次へ」ボタンは結果枠の外に常設済みで
