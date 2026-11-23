@@ -2361,6 +2361,7 @@
       tenpaiRenchanEnabled:true, honbaResetOnDealerChange:false, honbaResetOnChildWin:true,
       southRoundEnabled:true, renchanAtFinalKyokuEnabled:true,
       dealerAlwaysRotates:true, // 連荘なし。親は毎局交代し、東1〜4局・南1〜4局の8局で終わる(聴牌連荘・最終局の連荘も働かない。2026-11-23)
+      leftoverKyotakuToTop:true, // 終局時に残った供託はトップへ(赤入りNEO・3人打ちNEOと同じ。2026-11-23に「誰にも渡らない」から変更)
       notenPenaltyMode:"pool", notenPenaltyPool:3000,
       ippatsuOnTsumoEnabled:false, chiitoitsuFourTileEnabled:false,
       ippatsuEnabled:true, uraDoraEnabled:true, kanDoraEnabled:false,
@@ -9803,7 +9804,8 @@
   // （合計＝(素点-40,000)+順位点）
   function showFinalStandings(reason){
     if(ruleConfig.duplicateEnabled && !DUP_SIM){ showDuplicateFinalStandings(reason); return; } // 複式MCRは団体・個人の順位
-    // 終局時に場に残った供託：leftoverKyotakuToTopのルール(赤入り無限NEO・3人打ちNEO・ザンリーグ)は、トップの持ち点に足す。
+    // 終局時に場に残った供託：leftoverKyotakuToTopのルール(赤入り無限NEO・無限Original・3人打ちNEO・ザンリーグ)は、トップの持ち点に足す。
+    // 残った本場(積み棒)は点棒として場に無いので、何もしない(切り捨て)。
     // 順位と順位点・オカは足す前の持ち点で決める(同点トップは同点のまま折半)。供託は100点単位で折半し、割り切れない端数は
     // 今の順位の決め方(あなた→下家→対面→上家)で上の人に付ける(2人で1本なら500ずつ、3人で1本なら400・300・300)
     const { ranked, umaBySeat } = computeUmaBySeat(scores);
