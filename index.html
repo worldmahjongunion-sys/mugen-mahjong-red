@@ -2214,7 +2214,8 @@
   //     falseの場合はマイナス点をそのまま持ち越し、飛び賞の精算も一切行わない
   //   honbaResetOnDealerChange: 親が流れたら(和了・流局を問わず)本場を0に戻すか
   //   honbaResetOnChildWin: honbaResetOnDealerChange:falseのルールで、子の和了の時だけ本場を0に戻すか
-  //     (Original: 親の和了と流局は本場+1、子の和了だけ0に戻す)
+  //     (連荘ありのルール：親の和了と流局は本場+1、子の和了だけ0に戻す。
+  //      dealerAlwaysRotatesのルールは親の和了も親交代なので、流局・三家和は+1、和了は0になる)
   //   southRoundEnabled: 東4局の次を南1局にするか。falseは東5〜8局(裏東場)を続ける
   //   renchanAtFinalKyokuEnabled: 最終局で親が連荘したら終局せず続けるか(アガリ止めなし)。
   //     falseは最終局が終わった時点で連荘かどうかによらず終局する
@@ -2336,7 +2337,8 @@
       earlyEndOnBust:true, earlyEndOnOver70000:true, tobiEnabled:true,
       leftoverKyotakuToTop:true, // 終局時に残った供託はトップへ(3人打ちNEOも同じ)
       yakunashiWinEnabled:true, multiRonEnabled:true, jamaPonEnabled:true,
-      tenpaiRenchanEnabled:false, honbaResetOnDealerChange:true, honbaResetOnChildWin:true,
+      // 本場は流局・三家和で+1、和了で0(連荘なしに合わせて2026-11-23に変更。3人打ちNEOも引き継ぐ)
+      tenpaiRenchanEnabled:false, honbaResetOnDealerChange:false, honbaResetOnChildWin:true,
       southRoundEnabled:false, renchanAtFinalKyokuEnabled:false,
       dealerAlwaysRotates:true, // 連荘なし。親は毎局交代し、東1〜8局で終わる(3人打ちNEOも引き継ぐ。2026-11-23)
       notenPenaltyMode:"perSeat", notenPenaltyPool:null,
