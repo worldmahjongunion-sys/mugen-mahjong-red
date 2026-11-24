@@ -2336,7 +2336,8 @@
       honbaRonBonus:1500, honbaTsumoBonusPerSeat:500,
       earlyEndOnBust:true, earlyEndOnOver70000:true, tobiEnabled:true,
       leftoverKyotakuToTop:true, // 終局時に残った供託はトップへ(3人打ちNEOも同じ)
-      yakunashiWinEnabled:true, multiRonEnabled:true, jamaPonEnabled:true,
+      // 1役必須(2026-11-24)。役なし(赤・ドラだけ)では和了できない。役なし和了の点数計算のコードは消さず、この設定で使わないだけ
+      yakunashiWinEnabled:false, multiRonEnabled:true, jamaPonEnabled:true,
       // 本場は流局・三家和で+1、和了で0(連荘なしに合わせて2026-11-23に変更。3人打ちNEOも引き継ぐ)
       tenpaiRenchanEnabled:false, honbaResetOnDealerChange:false, honbaResetOnChildWin:true,
       southRoundEnabled:false, renchanAtFinalKyokuEnabled:false,
@@ -9087,12 +9088,12 @@
     return { tile: chosen.tile, declareRiichi: willRiichi };
   }
 
-  // 役なしで和了できないルール(無限Original・Mリーグ2つ・WW2つ・3人打ちNEO・ザンリーグ)のCPUの鳴き(ポン・チー・明槓)は、
+  // 役なしで和了できないルール(赤入り無限NEO・無限Original・Mリーグ2つ・WW2つ・3人打ちNEO・ザンリーグ)のCPUの鳴き(ポン・チー・明槓)は、
   // 鳴いた後に役が付く見込み(役牌・断幺九・混一色・対々和・三色)がある時だけにする。鳴いて聴牌になる時は、
   // 見込みではなく本物の和了の判定で、待ちのどれかに役が付くかを確かめる。
   // 例外：山の残りが人数×3枚以下の終盤は、役がなくても鳴いて聴牌になるなら鳴く(仮聴牌。ノーテン罰符を避ける)。
   // 聴牌連荘のルールの親は、この終盤に聴牌になる鳴きを必ずする(子は今までどおりの確率)。
-  // 赤入り無限NEO(役なしでも和了できる)とMCR-NEO(8点縛りの別の判断)は対象外
+  // MCR-NEO(8点縛りの別の判断)は対象外(赤入り無限NEOも2026-11-24から1役必須になり対象)
   const CPU_CALL_LATE_WALL_PER_PLAYER = 3;
   function cpuCallNeedsYaku(){
     return !ruleConfig.yakunashiWinEnabled && ruleConfig.scoreTableMode !== "mcr";
