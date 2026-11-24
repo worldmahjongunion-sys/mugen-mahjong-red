@@ -9773,6 +9773,13 @@
     // 3人打ちは浮きを返し点「以上」で数え、3人用の表とオカ15000を使う(ukiUmaTable/okaPoints/ukiInclusive)
     const isUki = s => ruleConfig.ukiInclusive ? finalScores[s] >= ruleConfig.returnPoints : finalScores[s] > ruleConfig.returnPoints;
     const ukiCount = seats.filter(isUki).length;
+    // 3人打ちの表(ukiUmaTable)に無い「全員浮き」は、全員が返し点ちょうどの同点の時だけ起きる(ザンリーグの50000点×3)。
+    // 全員同順位として、順位点・オカは全員0(同点は折半・合計0の決まりどおり。表に行は足さない。2026-11-25)
+    if(ruleConfig.ukiUmaTable && ukiCount === seats.length){
+      const umaBySeat = {};
+      seats.forEach(s => { umaBySeat[s] = 0; });
+      return { ranked, umaBySeat };
+    }
     const okaOnly = ruleConfig.ukiUmaTable ? [ruleConfig.okaPoints].concat(seats.slice(1).map(() => 0)) : OKA_ONLY_TABLE;
     const table = ukiCount === 0 ? okaOnly : (ruleConfig.ukiUmaTable || UMA_TABLE_BY_UKI_COUNT)[ukiCount];
     // UMA_TABLE_BY_UKI_COUNT は純粋なウマ（合計0）のみを表しており、オカ20,000点分は
