@@ -9467,12 +9467,24 @@
     9:[8, 0], 8:[6, 0], 7:[4, 0], 6:[2, 0], 5:[0, -6], 4:[-2, -8], 3:[-4, -10], 2:[-6, -12], 1:[-8, -14],
     thousand:[-10, -16], zero:[-12, -18]
   };
-  function zanFinalChips(ranked, finalScores){
+  // rankScores：順位を決めた持ち点(供託をトップへ足す前)。同点の人たちは、その順位のチップを合計して人数で均等に分ける
+  // (順位点と同じ折半。合計は0のまま。割り切れない端数は順位が上の人＝あなた→下家→上家の順で先の人に付ける。2026-11-25)。
+  // 順位の表示と成績の記録は同点でも1位・2位・3位のまま
+  function zanFinalChips(ranked, finalScores, rankScores){
     const band = p => p <= 0 ? "zero" : (p < 10000 ? "thousand" : Math.min(9, Math.floor(p / 10000)));
     const res = {};
     res[ranked[1]] = ZAN_FINAL_CHIP_TABLE[band(finalScores[ranked[1]])][0];
     res[ranked[2]] = ZAN_FINAL_CHIP_TABLE[band(finalScores[ranked[2]])][1];
     res[ranked[0]] = -(res[ranked[1]] + res[ranked[2]]);
+    if(!rankScores) return res;
+    let i = 0;
+    while(i < ranked.length){
+      let j = i;
+      while(j + 1 < ranked.length && rankScores[ranked[j + 1]] === rankScores[ranked[i]]) j++;
+      const group = ranked.slice(i, j + 1);
+      if(group.length > 1) splitTiedUma(res, group, group.reduce((a, s) => a + res[s], 0), 1);
+      i = j + 1;
+    }
     return res;
   }
   function formatChips(n){ return (n > 0 ? "＋" : (n < 0 ? "－" : "±")) + Math.abs(n) + "枚"; }
@@ -9817,6 +9829,7 @@
     // 順位と順位点・オカは足す前の持ち点で決める(同点トップは同点のまま折半)。供託は100点単位で折半し、割り切れない端数は
     // 今の順位の決め方(あなた→下家→対面→上家)で上の人に付ける(2人で1本なら500ずつ、3人で1本なら400・300・300)
     const { ranked, umaBySeat } = computeUmaBySeat(scores);
+    const rankScores = { ...scores }; // 順位を決めた持ち点(供託を足す前)。チップの同点の折半に使う
     let kyotakuToTop = null;
     if(ruleConfig.leftoverKyotakuToTop && riichiSticks > 0){
       const tops = ranked.filter(s => scores[s] === scores[ranked[0]]);
@@ -9829,7 +9842,7 @@
       renderScores();
     }
     // チップのルール(ザンリーグ)：終局のチップは、供託をトップへ足した後の素点の帯で決める(順位は足す前の持ち点のまま)
-    const finalChips = ruleConfig.chipEnabled ? zanFinalChips(ranked, scores) : null;
+    const finalChips = ruleConfig.chipEnabled ? zanFinalChips(ranked, scores, rankScores) : null;
     recordMatchResult(reason, ranked, umaBySeat, finalChips);
     announceMatchEnd(reason, ranked);
     const elapsedText = formatElapsedText(Date.now() - matchStartTime); // 音声化はしないが画面には残す
